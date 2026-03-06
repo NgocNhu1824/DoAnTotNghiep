@@ -1,4 +1,4 @@
-export type BookingStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+export type BookingStatus = 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed';
 
 export interface Booking {
   _id: string;
@@ -100,4 +100,48 @@ export interface BookingRoomOption {
   roomType?: string;
   status?: string;
   isActive?: boolean;
+}
+
+export interface LecturerGridSlot {
+  slotNumber: number;
+  startTime: string;
+  endTime: string;
+  label: string;
+}
+
+export interface LecturerGridBookingInfo {
+  bookingId: string;
+  status: BookingStatus;
+  purpose: string;
+  lecturerName: string;
+  startTime: string;
+  endTime: string;
+}
+
+export interface LecturerGridCell {
+  slotNumber: number;
+  startTime: string;
+  endTime: string;
+  state: 'blocked' | 'booked' | 'available';
+  symbol: 'x' | 'i' | '+';
+  message?: string;
+  booking: LecturerGridBookingInfo | null;
+}
+
+export interface LecturerGridRoomRow {
+  roomId: string;
+  roomCode: string;
+  roomName: string;
+  building?: string;
+  floor?: number;
+  capacity?: number;
+  status?: string;
+  cells: LecturerGridCell[];
+}
+
+export interface LecturerBookingGrid {
+  bookingDate: string;
+  slotType: 'OLDSLOT';
+  slots: LecturerGridSlot[];
+  rooms: LecturerGridRoomRow[];
 }

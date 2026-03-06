@@ -55,6 +55,26 @@ export class BookingController {
     };
   }
 
+  @Get('self/grid')
+  @RequirePermissions('bookings.read', 'bookings.create')
+  @RequireScopes('SELF')
+  async getSelfGrid(
+    @Query() query: QuerySelfRoomsDto,
+    @CurrentUser() user: any,
+    @Req() request: any,
+  ) {
+    const data = await this.bookingService.getSelfBookingGrid(
+      user,
+      request.campusFilter,
+      query.bookingDate,
+    );
+
+    return {
+      success: true,
+      data,
+    };
+  }
+
   @Post('self')
   @RequirePermissions('bookings.read', 'bookings.create')
   @RequireScopes('SELF')
@@ -152,6 +172,16 @@ export class BookingController {
     return {
       success: true,
       message: 'Cập nhật booking thành công',
+      data,
+    };
+  }
+
+  @Patch(':id/complete')
+  async complete(@Param('id') id: string, @CurrentUser() user: any, @Req() request: any) {
+    const data = await this.bookingService.completeBooking(id, user, request.campusFilter);
+    return {
+      success: true,
+      message: 'Kết thúc booking thành công',
       data,
     };
   }

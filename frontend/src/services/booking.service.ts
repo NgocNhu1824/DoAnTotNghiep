@@ -5,6 +5,7 @@ import {
   CancelSelfBookingDto,
   CreateSelfBookingDto,
   CreateBookingDto,
+  LecturerBookingGrid,
   QueryBookingParams,
   UpdateBookingDto,
 } from '@/types/booking.types';
@@ -39,6 +40,11 @@ export const bookingService = {
 
   update: async (id: string, payload: UpdateBookingDto): Promise<Booking> => {
     const res = await api.patch<{ success: boolean; data: Booking }>(`/bookings/${id}`, payload);
+    return res.data;
+  },
+
+  complete: async (id: string): Promise<Booking> => {
+    const res = await api.patch<{ success: boolean; data: Booking }>(`/bookings/${id}/complete`, {});
     return res.data;
   },
 
@@ -89,6 +95,17 @@ export const bookingService = {
     );
 
     return res.data || [];
+  },
+
+  getSelfGrid: async (params?: { bookingDate?: string }): Promise<LecturerBookingGrid> => {
+    const query = new URLSearchParams();
+    if (params?.bookingDate) query.append('bookingDate', params.bookingDate);
+
+    const res = await api.get<{ success: boolean; data: LecturerBookingGrid }>(
+      `/bookings/self/grid?${query.toString()}`,
+    );
+
+    return res.data;
   },
 };
 

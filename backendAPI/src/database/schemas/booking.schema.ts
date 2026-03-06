@@ -48,7 +48,7 @@ export class Booking extends Document {
 
   @Prop({
     type: String,
-    enum: ['pending', 'approved', 'rejected', 'cancelled'],
+    enum: ['pending', 'approved', 'rejected', 'cancelled', 'completed'],
     default: 'pending',
     index: true,
   })

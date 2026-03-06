@@ -28,6 +28,7 @@ const STATUS_OPTIONS: Array<{ value: 'all' | BookingStatus; label: string }> = [
   { value: 'all', label: 'All statuses' },
   { value: 'pending', label: 'Pending' },
   { value: 'approved', label: 'Approved' },
+  { value: 'completed', label: 'Completed' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'cancelled', label: 'Cancelled' },
 ];
@@ -35,6 +36,7 @@ const STATUS_OPTIONS: Array<{ value: 'all' | BookingStatus; label: string }> = [
 const STATUS_COLOR: Record<BookingStatus, string> = {
   pending: 'bg-yellow-50 text-yellow-700 border-yellow-200',
   approved: 'bg-green-50 text-green-700 border-green-200',
+  completed: 'bg-blue-50 text-blue-700 border-blue-200',
   rejected: 'bg-red-50 text-red-700 border-red-200',
   cancelled: 'bg-slate-100 text-slate-700 border-slate-200',
 };
@@ -42,6 +44,7 @@ const STATUS_COLOR: Record<BookingStatus, string> = {
 const STATUS_LABEL: Record<BookingStatus, string> = {
   pending: 'Pending',
   approved: 'Approved',
+  completed: 'Completed',
   rejected: 'Rejected',
   cancelled: 'Cancelled',
 };
@@ -136,6 +139,7 @@ const BookingManagementPage: React.FC = () => {
         if (booking.status === 'pending') acc.pending += 1;
         if (booking.status === 'approved') acc.approved += 1;
         if (booking.status === 'cancelled') acc.cancelled += 1;
+        if (booking.status === 'completed') acc.completed += 1;
         if (booking.status === 'rejected') acc.rejected += 1;
         return acc;
       },
@@ -143,6 +147,7 @@ const BookingManagementPage: React.FC = () => {
         total: 0,
         pending: 0,
         approved: 0,
+        completed: 0,
         cancelled: 0,
         rejected: 0,
       },
@@ -218,6 +223,34 @@ const BookingManagementPage: React.FC = () => {
   };
 
   const renderStatusActions = (booking: Booking) => {
+    if (booking.status === 'approved') {
+      return (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={async () => {
+            try {
+              setSavingId(booking._id);
+              await bookingService.complete(booking._id);
+              toast({ title: 'Success', description: 'Booking has been completed' });
+              await fetchBookings();
+            } catch (error: any) {
+              toast({
+                title: 'Error',
+                description: error?.message || 'Failed to complete booking',
+                variant: 'destructive',
+              });
+            } finally {
+              setSavingId(null);
+            }
+          }}
+          disabled={savingId === booking._id}
+        >
+          Complete
+        </Button>
+      );
+    }
+
     if (booking.status !== 'pending') {
       return <span className="text-xs text-muted-foreground">Processed</span>;
     }
@@ -383,19 +416,20 @@ const BookingManagementPage: React.FC = () => {
                   <TableHead>Purpose</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Reason</TableHead>
-                  <TableHead className="min-w-[220px]">Actions</TableHead>
+                  <TableHead className="min-w-[190px] text-center">Processing</TableHead>
+                  <TableHead className="w-[84px] text-center">Delete</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
                       Loading bookings...
                     </TableCell>
                   </TableRow>
                 ) : filteredBookings.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
                       No bookings match the current filters.
                     </TableCell>
                   </TableRow>
@@ -439,21 +473,27 @@ const BookingManagementPage: React.FC = () => {
                             <span className="text-xs text-muted-foreground">--</span>
                           )}
                         </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap items-center gap-2">
+                        <TableCell className="text-center">
+                          <div className="flex items-center justify-center gap-2">
                             {renderStatusActions(booking)}
-
-                            <PermissionGuard permissions={[PERMISSIONS.BOOKINGS_DELETE]}>
-                              <Button
-                                variant="destructive"
-                                size="icon"
-                                onClick={() => handleDelete(booking._id)}
-                                disabled={savingId === booking._id}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </PermissionGuard>
                           </div>
+                        </TableCell>
+
+                        <TableCell className="text-center">
+                          <PermissionGuard
+                            permissions={[PERMISSIONS.BOOKINGS_DELETE]}
+                            hideIfNoPermission={false}
+                            fallback={<span className="text-xs text-muted-foreground">--</span>}
+                          >
+                            <Button
+                              variant="destructive"
+                              size="icon"
+                              onClick={() => handleDelete(booking._id)}
+                              disabled={savingId === booking._id}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </PermissionGuard>
                         </TableCell>
                       </TableRow>
                     );

@@ -24,6 +24,6 @@ export class QueryBookingDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['pending', 'approved', 'rejected', 'cancelled'])
+  @IsIn(['pending', 'approved', 'rejected', 'cancelled', 'completed'])
   status?: string;
 }
