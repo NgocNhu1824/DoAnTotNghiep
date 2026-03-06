@@ -26,11 +26,11 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 
 const STATUS_OPTIONS: Array<{ value: 'all' | BookingStatus; label: string }> = [
-  { value: 'all', label: 'Tất cả trạng thái' },
-  { value: 'pending', label: 'Chờ duyệt' },
-  { value: 'approved', label: 'Đã duyệt' },
-  { value: 'rejected', label: 'Từ chối' },
-  { value: 'cancelled', label: 'Đã hủy' },
+  { value: 'all', label: 'All statuses' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 const STATUS_COLOR: Record<BookingStatus, string> = {
@@ -41,10 +41,10 @@ const STATUS_COLOR: Record<BookingStatus, string> = {
 };
 
 const STATUS_LABEL: Record<BookingStatus, string> = {
-  pending: 'Chờ duyệt',
-  approved: 'Đã duyệt',
-  rejected: 'Từ chối',
-  cancelled: 'Đã hủy',
+  pending: 'Pending',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
 };
 
 const formatBookingDate = (value: unknown): string => {
@@ -82,8 +82,8 @@ const BookingManagementPage: React.FC = () => {
       setBookings(data);
     } catch (error: any) {
       toast({
-        title: 'Lỗi',
-        description: error?.message || 'Không thể tải danh sách booking',
+        title: 'Error',
+        description: error?.message || 'Failed to load booking list',
         variant: 'destructive',
       });
     } finally {
@@ -152,12 +152,12 @@ const BookingManagementPage: React.FC = () => {
     try {
       setSavingId(bookingId);
       await bookingService.update(bookingId, { status: nextStatus });
-      toast({ title: 'Thành công', description: 'Đã cập nhật trạng thái booking' });
+      toast({ title: 'Success', description: 'Booking status has been updated' });
       await fetchBookings();
     } catch (error: any) {
       toast({
-        title: 'Lỗi',
-        description: error?.message || 'Không thể cập nhật booking',
+        title: 'Error',
+        description: error?.message || 'Failed to update booking status',
         variant: 'destructive',
       });
     } finally {
@@ -189,7 +189,7 @@ const BookingManagementPage: React.FC = () => {
 
     const reason = rejectReason.trim();
     if (!reason) {
-      setRejectReasonError('Vui lòng nhập lý do từ chối');
+      setRejectReasonError('Please enter a rejection reason');
       return;
     }
 
@@ -199,7 +199,7 @@ const BookingManagementPage: React.FC = () => {
         status: 'rejected',
         rejectReason: reason,
       });
-      toast({ title: 'Thành công', description: 'Đã từ chối booking' });
+      toast({ title: 'Success', description: 'Booking has been rejected' });
       await fetchBookings();
       setRejectDialogOpen(false);
       setActionBooking(null);
@@ -207,8 +207,8 @@ const BookingManagementPage: React.FC = () => {
       setRejectReasonError('');
     } catch (error: any) {
       toast({
-        title: 'Lỗi',
-        description: error?.message || 'Không thể từ chối booking',
+        title: 'Error',
+        description: error?.message || 'Failed to reject booking',
         variant: 'destructive',
       });
     } finally {
@@ -218,7 +218,7 @@ const BookingManagementPage: React.FC = () => {
 
   const renderStatusActions = (booking: Booking) => {
     if (booking.status !== 'pending') {
-      return <span className="text-xs text-muted-foreground">Đã xử lý</span>;
+      return <span className="text-xs text-muted-foreground">Processed</span>;
     }
 
     return (
@@ -229,7 +229,7 @@ const BookingManagementPage: React.FC = () => {
           onClick={() => openApproveDialog(booking)}
           disabled={savingId === booking._id}
         >
-          Duyệt
+          Approve
         </Button>
         <Button
           size="sm"
@@ -237,7 +237,7 @@ const BookingManagementPage: React.FC = () => {
           onClick={() => openRejectDialog(booking)}
           disabled={savingId === booking._id}
         >
-          Từ chối
+          Reject
         </Button>
       </div>
     );
@@ -256,12 +256,12 @@ const BookingManagementPage: React.FC = () => {
     try {
       setSavingId(bookingId);
       await bookingService.remove(bookingId);
-      toast({ title: 'Thành công', description: 'Đã xóa booking' });
+      toast({ title: 'Success', description: 'Booking has been deleted' });
       await fetchBookings();
     } catch (error: any) {
       toast({
-        title: 'Lỗi',
-        description: error?.message || 'Không thể xóa booking',
+        title: 'Error',
+        description: error?.message || 'Failed to delete booking',
         variant: 'destructive',
       });
     } finally {
@@ -273,41 +273,39 @@ const BookingManagementPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Quản lý Booking</h1>
-          <p className="text-muted-foreground mt-2">
-            Theo dõi toàn bộ booking theo campus và tìm kiếm theo giảng viên.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">Booking Management</h1>
+          <p className="text-muted-foreground mt-2">Booking Management</p>
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-5">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Tổng đơn</CardDescription>
+            <CardDescription>Total Requests</CardDescription>
             <CardTitle className="text-2xl">{statistics.total}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Đang chờ</CardDescription>
+            <CardDescription>Pending</CardDescription>
             <CardTitle className="text-2xl text-yellow-600">{statistics.pending}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Đã duyệt</CardDescription>
+            <CardDescription>Approved</CardDescription>
             <CardTitle className="text-2xl text-green-600">{statistics.approved}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Đã hủy</CardDescription>
+            <CardDescription>Cancelled</CardDescription>
             <CardTitle className="text-2xl text-slate-600">{statistics.cancelled}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Từ chối</CardDescription>
+            <CardDescription>Rejected</CardDescription>
             <CardTitle className="text-2xl text-red-600">{statistics.rejected}</CardTitle>
           </CardHeader>
         </Card>
@@ -315,30 +313,29 @@ const BookingManagementPage: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Bộ lọc booking</CardTitle>
-          <CardDescription>Lọc trạng thái và tìm kiếm giảng viên để xem nhanh lịch đặt phòng.</CardDescription>
+          <CardTitle>Filters</CardTitle>
         </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label>Tìm kiếm giảng viên</Label>
+            <Label>Search lecturer</Label>
             <div className="flex items-center gap-2">
               <Input
                 value={searchLecturer}
                 onChange={(e) => setSearchLecturer(e.target.value)}
-                placeholder="Tên hoặc email giảng viên"
+                placeholder="Lecturer name or email"
               />
                 <Search className="h-4 w-4 text-muted-foreground" />
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label>Trạng thái</Label>
+            <Label>Status</Label>
             <Select
               value={statusFilter}
               onValueChange={(value: 'all' | BookingStatus) => setStatusFilter(value)}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Chọn trạng thái" />
+                <SelectValue placeholder="Select status" />
               </SelectTrigger>
               <SelectContent>
                 {STATUS_OPTIONS.map((option) => (
@@ -355,35 +352,34 @@ const BookingManagementPage: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Danh sách booking ({filteredBookings.length})</CardTitle>
-          <CardDescription>Hiển thị đầy đủ booking trong campus theo quyền `bookings.manage`.</CardDescription>
+          <CardTitle>Booking List ({filteredBookings.length})</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Ngày</TableHead>
-                  <TableHead>Thời gian</TableHead>
-                  <TableHead>Phòng</TableHead>
-                  <TableHead>Giảng viên</TableHead>
-                  <TableHead>Mục đích</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead>Lý do từ chối</TableHead>
-                  <TableHead>Thao tác</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Time</TableHead>
+                  <TableHead>Room</TableHead>
+                  <TableHead>Lecturer</TableHead>
+                  <TableHead>Purpose</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Reject Reason</TableHead>
+                  <TableHead className="min-w-[220px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
-                      Đang tải dữ liệu booking...
+                      Loading bookings...
                     </TableCell>
                   </TableRow>
                 ) : filteredBookings.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
-                      Không có booking phù hợp với bộ lọc hiện tại.
+                      No bookings match the current filters.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -420,14 +416,14 @@ const BookingManagementPage: React.FC = () => {
                               size="sm"
                               onClick={() => openRejectDetailDialog(booking)}
                             >
-                              Xem chi tiết
+                              View details
                             </Button>
                           ) : (
                             <span className="text-xs text-muted-foreground">--</span>
                           )}
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             {renderStatusActions(booking)}
 
                             <PermissionGuard permissions={[PERMISSIONS.BOOKINGS_DELETE]}>
@@ -455,24 +451,21 @@ const BookingManagementPage: React.FC = () => {
       <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Duyệt yêu cầu booking</DialogTitle>
-            <DialogDescription>
-              Kiểm tra chi tiết yêu cầu trước khi xác nhận duyệt.
-            </DialogDescription>
+            <DialogTitle>Approve Booking Request</DialogTitle>
           </DialogHeader>
 
           {actionBooking && (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Ngày</span>
+                <span className="text-muted-foreground">Date</span>
                 <span className="col-span-2 font-medium">{formatBookingDate(actionBooking.bookingDate)}</span>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Thời gian</span>
+                <span className="text-muted-foreground">Time</span>
                 <span className="col-span-2 font-medium">{actionBooking.startTime} - {actionBooking.endTime}</span>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Phòng</span>
+                <span className="text-muted-foreground">Room</span>
                 <span className="col-span-2 font-medium">
                   {typeof actionBooking.roomId === 'object'
                     ? `${actionBooking.roomId.roomCode} - ${actionBooking.roomId.roomName}`
@@ -480,7 +473,7 @@ const BookingManagementPage: React.FC = () => {
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Giảng viên</span>
+                <span className="text-muted-foreground">Lecturer</span>
                 <span className="col-span-2 font-medium">
                   {typeof actionBooking.lecturerId === 'object'
                     ? `${actionBooking.lecturerId.fullName} (${actionBooking.lecturerId.email})`
@@ -488,7 +481,7 @@ const BookingManagementPage: React.FC = () => {
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Mục đích</span>
+                <span className="text-muted-foreground">Purpose</span>
                 <span className="col-span-2">{actionBooking.purpose}</span>
               </div>
             </div>
@@ -502,14 +495,14 @@ const BookingManagementPage: React.FC = () => {
                 setActionBooking(null);
               }}
             >
-              Hủy
+              Cancel
             </Button>
             <Button
               className="bg-green-600 hover:bg-green-700"
               onClick={handleApproveConfirm}
               disabled={!actionBooking || savingId === actionBooking._id}
             >
-              Xác nhận duyệt
+              Confirm approval
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -518,14 +511,11 @@ const BookingManagementPage: React.FC = () => {
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Từ chối yêu cầu booking</DialogTitle>
-            <DialogDescription>
-              Vui lòng nhập lý do từ chối để giảng viên nắm rõ.
-            </DialogDescription>
+            <DialogTitle>Reject Booking Request</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-2">
-            <Label htmlFor="reject-reason">Lý do từ chối</Label>
+            <Label htmlFor="reject-reason">Rejection reason</Label>
             <Textarea
               id="reject-reason"
               value={rejectReason}
@@ -535,7 +525,7 @@ const BookingManagementPage: React.FC = () => {
                   setRejectReasonError('');
                 }
               }}
-              placeholder="Nhập lý do từ chối booking"
+              placeholder="Enter rejection reason"
               className="min-h-24"
             />
             {rejectReasonError && (
@@ -553,14 +543,14 @@ const BookingManagementPage: React.FC = () => {
                 setRejectReasonError('');
               }}
             >
-              Hủy
+              Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={handleRejectConfirm}
               disabled={!actionBooking || savingId === actionBooking._id}
             >
-              Xác nhận từ chối
+              Confirm rejection
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -569,16 +559,13 @@ const BookingManagementPage: React.FC = () => {
       <Dialog open={rejectDetailDialogOpen} onOpenChange={setRejectDetailDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Chi tiết lý do từ chối</DialogTitle>
-            <DialogDescription>
-              Nội dung đầy đủ lý do từ chối của yêu cầu booking.
-            </DialogDescription>
+            <DialogTitle>Rejection Reason Details</DialogTitle>
           </DialogHeader>
 
           {rejectDetailBooking && (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Giảng viên</span>
+                <span className="text-muted-foreground">Lecturer</span>
                 <span className="col-span-2 min-w-0 break-all font-medium">
                   {typeof rejectDetailBooking.lecturerId === 'object'
                     ? `${rejectDetailBooking.lecturerId.fullName} (${rejectDetailBooking.lecturerId.email})`
@@ -586,13 +573,13 @@ const BookingManagementPage: React.FC = () => {
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Ngày booking</span>
+                <span className="text-muted-foreground">Booking date</span>
                 <span className="col-span-2 font-medium">{formatBookingDate(rejectDetailBooking.bookingDate)}</span>
               </div>
               <div className="space-y-2">
-                <p className="text-muted-foreground">Lý do từ chối</p>
+                <p className="text-muted-foreground">Rejection reason</p>
                 <div className="max-h-52 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                  {rejectDetailBooking.rejectReason || 'Không có lý do'}
+                  {rejectDetailBooking.rejectReason || 'No reason provided'}
                 </div>
               </div>
             </div>
@@ -606,7 +593,7 @@ const BookingManagementPage: React.FC = () => {
                 setRejectDetailBooking(null);
               }}
             >
-              Đóng
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
