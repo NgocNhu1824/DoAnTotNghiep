@@ -1,4 +1,16 @@
-import { IsString, IsNumber, IsArray, IsOptional, IsEnum, IsBoolean, IsMongoId, Min } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsMongoId,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class CreateRoomDto {
   @IsString()
@@ -25,6 +37,14 @@ export class CreateRoomDto {
   @IsString({ each: true })
   @IsOptional()
   facilities?: string[];
+
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(8, { each: true })
+  @ArrayMaxSize(8)
+  @IsOptional()
+  blockedSlots?: number[];
 
   @IsNumber()
   @Min(0)

@@ -9,6 +9,7 @@ export interface Room {
   capacity: number;
   roomType: string;
   lockerNumber: number;
+  blockedSlots?: number[];
   campusId: string | {
     _id: string;
     campusName: string;
@@ -30,6 +31,7 @@ export interface CreateRoomDto {
   capacity: number;
   roomType: string;
   lockerNumber: number;
+  blockedSlots?: number[];
   campusId: string;
   status?: 'available' | 'occupied' | 'maintenance' | 'reserved';
   description?: string;
@@ -44,6 +46,7 @@ export interface UpdateRoomDto {
   capacity?: number;
   roomType?: string;
   lockerNumber?: number;
+  blockedSlots?: number[];
   campusId?: string;
   status?: 'available' | 'occupied' | 'maintenance' | 'reserved';
   description?: string;

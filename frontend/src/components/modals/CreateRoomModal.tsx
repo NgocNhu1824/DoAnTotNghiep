@@ -22,6 +22,7 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
     capacity: 30,
     roomType: 'classroom',
     lockerNumber: 0,
+    blockedSlots: [],
     campusId: '',
     status: 'available',
     description: '',
@@ -31,6 +32,15 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit(formData);
+  };
+
+  const toggleBlockedSlot = (slotNumber: number) => {
+    const existing = formData.blockedSlots || [];
+    const next = existing.includes(slotNumber)
+      ? existing.filter((slot) => slot !== slotNumber)
+      : [...existing, slotNumber].sort((a, b) => a - b);
+
+    setFormData({ ...formData, blockedSlots: next });
   };
 
 
@@ -175,6 +185,29 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
 
           <div className="rounded-md border border-dashed border-gray-300 p-3 text-sm text-gray-600">
             <span className="font-medium">Thiết bị</span>: Quản lý riêng trong phần thiết bị của phòng.
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Slot không thể booking
+            </label>
+            <div className="grid grid-cols-4 gap-2 rounded-md border border-gray-200 p-3">
+              {Array.from({ length: 8 }, (_, index) => {
+                const slotNumber = index + 1;
+                const checked = (formData.blockedSlots || []).includes(slotNumber);
+                return (
+                  <label key={slotNumber} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleBlockedSlot(slotNumber)}
+                    />
+                    <span>Slot {slotNumber}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-xs text-gray-500">Các slot đã chọn sẽ hiển thị dấu x trên màn hình booking của lecturer.</p>
           </div>
 
           <div>

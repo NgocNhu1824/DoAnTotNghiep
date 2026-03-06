@@ -140,6 +140,31 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     return startA < endB && endA > startB;
   }
 
+  private normalizeBlockedSlots(value: any): number[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return Array.from(
+      new Set(
+        value
+          .map((slot) => Number(slot))
+          .filter((slot) => Number.isInteger(slot) && slot >= 1 && slot <= 8),
+      ),
+    ).sort((a, b) => a - b);
+  }
+
+  private isBlockedBySlotConfig(startTime: string, endTime: string, blockedSlots: number[]): boolean {
+    if (!blockedSlots || blockedSlots.length === 0) {
+      return false;
+    }
+
+    const blockedSet = new Set(blockedSlots);
+    const blockedDefinitions = BookingService.OLD_SLOTS.filter((slot) => blockedSet.has(slot.slotNumber));
+
+    return blockedDefinitions.some((slot) => this.timeOverlaps(startTime, endTime, slot.startTime, slot.endTime));
+  }
+
   private getRoomBlockedMessage(room: any): string {
     if (room?.isActive === false) {
       return 'Room is inactive';
@@ -399,11 +424,17 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
         status: 'available',
         isActive: { $ne: false },
       })
+      .select('_id blockedSlots')
       .lean()
       .exec();
 
     if (!room) {
       throw new BadRequestException('Phòng không tồn tại hoặc không khả dụng');
+    }
+
+    const blockedSlots = this.normalizeBlockedSlots((room as any).blockedSlots);
+    if (this.isBlockedBySlotConfig(dto.startTime, dto.endTime, blockedSlots)) {
+      throw new BadRequestException('Khung giờ này đã bị khóa cho phòng này');
     }
 
     const { start, end } = this.toDayRange(dto.bookingDate);
@@ -569,7 +600,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
         status: 'available',
         isActive: { $ne: false },
       })
-      .select('_id roomCode roomName building floor capacity roomType status isActive')
+      .select('_id roomCode roomName building floor capacity roomType status isActive blockedSlots')
       .sort({ roomCode: 1 })
       .lean()
       .exec();
@@ -578,8 +609,17 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       return rooms;
     }
 
+    const slotFilteredRooms = rooms.filter((room: any) => {
+      const blockedSlots = this.normalizeBlockedSlots(room.blockedSlots);
+      return !this.isBlockedBySlotConfig(startTime, endTime, blockedSlots);
+    });
+
+    if (slotFilteredRooms.length === 0) {
+      return [];
+    }
+
     const { start, end } = this.toDayRange(bookingDate);
-    const roomIds = rooms.map((room) => room._id);
+    const roomIds = slotFilteredRooms.map((room) => room._id);
 
     const busyRows = await this.bookingModel
       .find({
@@ -598,7 +638,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       .exec();
 
     const busyRoomIds = new Set(busyRows.map((item: any) => item.roomId?.toString?.() || String(item.roomId)));
-    return rooms.filter((room: any) => !busyRoomIds.has(room._id.toString()));
+    return slotFilteredRooms.filter((room: any) => !busyRoomIds.has(room._id.toString()));
   }
 
   async getSelfBookingGrid(currentUser: any, campusFilter?: any, bookingDate?: string) {
@@ -614,7 +654,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
           campusId: campusObjectId,
           isActive: { $ne: false },
         })
-        .select('_id roomCode roomName building floor capacity status isActive')
+        .select('_id roomCode roomName building floor capacity status isActive blockedSlots')
         .sort({ roomCode: 1 })
         .lean()
         .exec(),
@@ -652,8 +692,21 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       const roomId = room._id.toString();
       const roomBookings = bookingsByRoom.get(roomId) || [];
       const isHardBlocked = room.status === 'maintenance' || room.status === 'occupied' || room.isActive === false;
+      const blockedSlots = new Set(this.normalizeBlockedSlots(room.blockedSlots));
 
       const cells = BookingService.OLD_SLOTS.map((slot) => {
+        if (blockedSlots.has(slot.slotNumber)) {
+          return {
+            slotNumber: slot.slotNumber,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            state: 'blocked',
+            symbol: 'x',
+            message: `Slot ${slot.slotNumber} is blocked by room configuration`,
+            booking: null,
+          };
+        }
+
         if (isHardBlocked) {
           return {
             slotNumber: slot.slotNumber,
