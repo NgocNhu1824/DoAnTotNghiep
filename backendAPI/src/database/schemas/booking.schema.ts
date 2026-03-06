@@ -12,8 +12,19 @@ export class Booking extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
   lecturerId: Types.ObjectId;
 
+  // Legacy field kept for backward compatibility with existing bookings data
+  @Prop({ type: Types.ObjectId, ref: 'User', index: true })
+  requesterId?: Types.ObjectId;
+
   @Prop({ required: true })
   bookingDate: Date;
+
+  // Legacy date range fields used by older booking documents
+  @Prop()
+  dateStart?: Date;
+
+  @Prop()
+  dateEnd?: Date;
 
   @Prop({ required: true })
   startTime: string;
@@ -34,6 +45,10 @@ export class Booking extends Document {
 
   @Prop({ default: null })
   note?: string;
+
+  // Legacy field name for note in old documents
+  @Prop({ default: null })
+  notes?: string;
 
   @Prop({ default: null })
   rejectReason?: string;

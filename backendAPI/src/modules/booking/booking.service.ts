@@ -52,6 +52,20 @@ export class BookingService {
     }
   }
 
+  private normalizeBooking(booking: any): any {
+    if (!booking) return booking;
+
+    const lecturer = booking.lecturerId || booking.requesterId || null;
+    const bookingDate = booking.bookingDate || booking.dateStart || booking.createdAt || null;
+
+    return {
+      ...booking,
+      lecturerId: lecturer,
+      bookingDate,
+      note: booking.note ?? booking.notes ?? null,
+    };
+  }
+
   async create(dto: CreateBookingDto, currentUser: any, campusFilter?: any) {
     const campusId = this.resolveCampusId(currentUser, campusFilter);
 
@@ -75,12 +89,16 @@ export class BookingService {
       campusId: new Types.ObjectId(campusId),
       roomId: new Types.ObjectId(dto.roomId),
       lecturerId: new Types.ObjectId(dto.lecturerId),
+      requesterId: new Types.ObjectId(dto.lecturerId),
       bookingDate: this.toUTCDate(dto.bookingDate),
+      dateStart: this.toUTCDate(dto.bookingDate),
+      dateEnd: this.toUTCDate(dto.bookingDate),
       startTime: dto.startTime,
       endTime: dto.endTime,
       purpose: dto.purpose,
       status: dto.status || 'pending',
       note: dto.note || null,
+      notes: dto.note || null,
       createdBy: new Types.ObjectId(currentUser._id),
       updatedBy: new Types.ObjectId(currentUser._id),
     });
@@ -93,30 +111,35 @@ export class BookingService {
 
   async findAll(query: QueryBookingDto, currentUser: any, campusFilter?: any) {
     const campusId = this.resolveCampusId(currentUser, campusFilter);
-    const filter: any = {
-      campusId: new Types.ObjectId(campusId),
-    };
+    const andConditions: any[] = [{ campusId: new Types.ObjectId(campusId) }];
 
     if (query.roomId) {
-      filter.roomId = new Types.ObjectId(query.roomId);
+      andConditions.push({ roomId: new Types.ObjectId(query.roomId) });
     }
 
     if (query.lecturerId) {
-      filter.lecturerId = new Types.ObjectId(query.lecturerId);
+      const lecturerObjectId = new Types.ObjectId(query.lecturerId);
+      andConditions.push({
+        $or: [{ lecturerId: lecturerObjectId }, { requesterId: lecturerObjectId }],
+      });
     }
 
     if (query.status) {
-      filter.status = query.status;
+      andConditions.push({ status: query.status });
     }
 
     if (query.fromDate || query.toDate) {
-      filter.bookingDate = {};
+      const dateCondition: any = {};
       if (query.fromDate) {
-        filter.bookingDate.$gte = this.toUTCDate(query.fromDate);
+        dateCondition.$gte = this.toUTCDate(query.fromDate);
       }
       if (query.toDate) {
-        filter.bookingDate.$lte = this.toUTCDate(query.toDate);
+        dateCondition.$lte = this.toUTCDate(query.toDate);
       }
+
+      andConditions.push({
+        $or: [{ bookingDate: dateCondition }, { dateStart: dateCondition }],
+      });
     }
 
     if (query.lecturerSearch) {
@@ -140,19 +163,27 @@ export class BookingService {
           return [];
         }
 
-        filter.lecturerId = { $in: lecturerIds };
+        andConditions.push({
+          $or: [{ lecturerId: { $in: lecturerIds } }, { requesterId: { $in: lecturerIds } }],
+        });
       }
     }
 
-    return this.bookingModel
+    const filter =
+      andConditions.length === 1 ? andConditions[0] : { $and: andConditions };
+
+    const rows = await this.bookingModel
       .find(filter)
       .populate('roomId', 'roomCode roomName building floor')
       .populate('lecturerId', 'fullName email department employeeId')
+      .populate('requesterId', 'fullName email department employeeId')
       .populate('createdBy', 'fullName email')
       .populate('updatedBy', 'fullName email')
-      .sort({ bookingDate: -1, startTime: 1 })
+      .sort({ bookingDate: -1, dateStart: -1, startTime: 1, createdAt: -1 })
       .lean()
       .exec();
+
+    return rows.map((item) => this.normalizeBooking(item));
   }
 
   async findOne(id: string, currentUser: any, campusFilter?: any) {
@@ -166,6 +197,7 @@ export class BookingService {
       .findOne({ _id: id, campusId: new Types.ObjectId(campusId) })
       .populate('roomId', 'roomCode roomName building floor')
       .populate('lecturerId', 'fullName email department employeeId')
+      .populate('requesterId', 'fullName email department employeeId')
       .populate('createdBy', 'fullName email')
       .populate('updatedBy', 'fullName email')
       .exec();
@@ -174,7 +206,7 @@ export class BookingService {
       throw new NotFoundException('Không tìm thấy booking trong campus hiện tại');
     }
 
-    return booking;
+    return this.normalizeBooking(booking.toObject());
   }
 
   async update(id: string, dto: UpdateBookingDto, currentUser: any, campusFilter?: any) {
@@ -221,14 +253,23 @@ export class BookingService {
         throw new BadRequestException('Giảng viên không tồn tại trong campus hiện tại');
       }
       booking.lecturerId = new Types.ObjectId(dto.lecturerId);
+      (booking as any).requesterId = new Types.ObjectId(dto.lecturerId);
     }
 
-    if (dto.bookingDate) booking.bookingDate = this.toUTCDate(dto.bookingDate);
+    if (dto.bookingDate) {
+      const nextDate = this.toUTCDate(dto.bookingDate);
+      booking.bookingDate = nextDate;
+      (booking as any).dateStart = nextDate;
+      (booking as any).dateEnd = nextDate;
+    }
     if (dto.startTime) booking.startTime = dto.startTime;
     if (dto.endTime) booking.endTime = dto.endTime;
     if (dto.purpose) booking.purpose = dto.purpose;
     if (dto.status) booking.status = dto.status;
-    if (dto.note !== undefined) booking.note = dto.note;
+    if (dto.note !== undefined) {
+      booking.note = dto.note;
+      (booking as any).notes = dto.note;
+    }
     if (dto.rejectReason !== undefined) booking.rejectReason = dto.rejectReason;
 
     booking.updatedBy = new Types.ObjectId(currentUser._id);

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Search, Trash2, Wifi, WifiOff } from 'lucide-react';
+import { Search, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import bookingService from '@/services/booking.service';
@@ -57,15 +57,12 @@ const BookingManagementPage: React.FC = () => {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [searchLecturer, setSearchLecturer] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | BookingStatus>('all');
-  const [socketConnected, setSocketConnected] = useState(false);
   const { toast } = useToast();
 
-  const fetchBookings = useCallback(async (keyword?: string) => {
+  const fetchBookings = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await bookingService.getAll({
-        lecturerSearch: keyword || undefined,
-      });
+      const data = await bookingService.getAll();
       setBookings(data);
     } catch (error: any) {
       toast({
@@ -84,51 +81,20 @@ const BookingManagementPage: React.FC = () => {
 
   useEffect(() => {
     const socket = wsService.connect();
-    setSocketConnected(socket.connected);
-
-    const onConnect = () => setSocketConnected(true);
-    const onDisconnect = () => setSocketConnected(false);
-    const onBookingUpdated = () => {
-      fetchBookings();
-    };
-
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
+    const onBookingUpdated = () => fetchBookings();
     wsService.on('booking:updated', onBookingUpdated);
 
     return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
       wsService.off('booking:updated', onBookingUpdated);
-      wsService.disconnect();
+      if (socket.connected) {
+        wsService.disconnect();
+      }
     };
   }, [fetchBookings]);
-
-  const lecturerOptions = useMemo(() => {
-    const map = new Map<string, { id: string; label: string }>();
-
-    bookings.forEach((booking) => {
-      if (typeof booking.lecturerId === 'object' && booking.lecturerId) {
-        map.set(booking.lecturerId._id, {
-          id: booking.lecturerId._id,
-          label: `${booking.lecturerId.fullName} (${booking.lecturerId.email})`,
-        });
-      }
-    });
-
-    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
-  }, [bookings]);
-
-  const [lecturerFilter, setLecturerFilter] = useState<string>('all');
 
   const filteredBookings = useMemo(() => {
     return bookings.filter((booking) => {
       const matchStatus = statusFilter === 'all' ? true : booking.status === statusFilter;
-
-      const matchLecturer =
-        lecturerFilter === 'all'
-          ? true
-          : typeof booking.lecturerId === 'object' && booking.lecturerId?._id === lecturerFilter;
 
       const keyword = searchLecturer.trim().toLowerCase();
       const lecturerName =
@@ -142,20 +108,36 @@ const BookingManagementPage: React.FC = () => {
         lecturerEmail.includes(keyword) ||
         booking.purpose.toLowerCase().includes(keyword);
 
-      return matchStatus && matchLecturer && matchSearch;
+      return matchStatus && matchSearch;
     });
-  }, [bookings, statusFilter, lecturerFilter, searchLecturer]);
+  }, [bookings, statusFilter, searchLecturer]);
 
-  const handleSearch = async () => {
-    await fetchBookings(searchLecturer.trim());
-  };
+  const statistics = useMemo(() => {
+    return bookings.reduce(
+      (acc, booking) => {
+        acc.total += 1;
+        if (booking.status === 'pending') acc.pending += 1;
+        if (booking.status === 'approved') acc.approved += 1;
+        if (booking.status === 'cancelled') acc.cancelled += 1;
+        if (booking.status === 'rejected') acc.rejected += 1;
+        return acc;
+      },
+      {
+        total: 0,
+        pending: 0,
+        approved: 0,
+        cancelled: 0,
+        rejected: 0,
+      },
+    );
+  }, [bookings]);
 
   const handleStatusUpdate = async (bookingId: string, nextStatus: BookingStatus) => {
     try {
       setSavingId(bookingId);
       await bookingService.update(bookingId, { status: nextStatus });
       toast({ title: 'Thành công', description: 'Đã cập nhật trạng thái booking' });
-      await fetchBookings(searchLecturer.trim());
+      await fetchBookings();
     } catch (error: any) {
       toast({
         title: 'Lỗi',
@@ -176,7 +158,7 @@ const BookingManagementPage: React.FC = () => {
       setSavingId(bookingId);
       await bookingService.remove(bookingId);
       toast({ title: 'Thành công', description: 'Đã xóa booking' });
-      await fetchBookings(searchLecturer.trim());
+      await fetchBookings();
     } catch (error: any) {
       toast({
         title: 'Lỗi',
@@ -194,30 +176,50 @@ const BookingManagementPage: React.FC = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Quản lý Booking</h1>
           <p className="text-muted-foreground mt-2">
-            Theo dõi toàn bộ booking theo campus, tìm kiếm theo giảng viên, và cập nhật realtime qua WebSocket.
+            Theo dõi toàn bộ booking theo campus và tìm kiếm theo giảng viên.
           </p>
         </div>
-        <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-          {socketConnected ? (
-            <>
-              <Wifi className="h-4 w-4 text-green-600" />
-              <span>Kết nối realtime</span>
-            </>
-          ) : (
-            <>
-              <WifiOff className="h-4 w-4 text-red-600" />
-              <span>Mất kết nối realtime</span>
-            </>
-          )}
-        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-5">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Tổng đơn</CardDescription>
+            <CardTitle className="text-2xl">{statistics.total}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Đang chờ</CardDescription>
+            <CardTitle className="text-2xl text-yellow-600">{statistics.pending}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Đã duyệt</CardDescription>
+            <CardTitle className="text-2xl text-green-600">{statistics.approved}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Đã hủy</CardDescription>
+            <CardTitle className="text-2xl text-slate-600">{statistics.cancelled}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Từ chối</CardDescription>
+            <CardTitle className="text-2xl text-red-600">{statistics.rejected}</CardTitle>
+          </CardHeader>
+        </Card>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Bộ lọc booking</CardTitle>
-          <CardDescription>Lọc và tìm kiếm theo giảng viên để xem nhanh lịch đặt phòng.</CardDescription>
+          <CardDescription>Lọc trạng thái và tìm kiếm giảng viên để xem nhanh lịch đặt phòng.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-4">
+          <CardContent className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label>Tìm kiếm giảng viên</Label>
             <div className="flex items-center gap-2">
@@ -226,27 +228,8 @@ const BookingManagementPage: React.FC = () => {
                 onChange={(e) => setSearchLecturer(e.target.value)}
                 placeholder="Tên hoặc email giảng viên"
               />
-              <Button variant="outline" onClick={handleSearch}>
-                <Search className="h-4 w-4" />
-              </Button>
+                <Search className="h-4 w-4 text-muted-foreground" />
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Lọc theo giảng viên</Label>
-            <Select value={lecturerFilter} onValueChange={setLecturerFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Chọn giảng viên" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả giảng viên</SelectItem>
-                {lecturerOptions.map((lecturer) => (
-                  <SelectItem key={lecturer.id} value={lecturer.id}>
-                    {lecturer.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
           <div className="space-y-2">
@@ -268,13 +251,6 @@ const BookingManagementPage: React.FC = () => {
             </Select>
           </div>
 
-          <div className="space-y-2">
-            <Label>Đồng bộ dữ liệu</Label>
-            <Button className="w-full" variant="secondary" onClick={() => fetchBookings(searchLecturer.trim())}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Làm mới danh sách
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
