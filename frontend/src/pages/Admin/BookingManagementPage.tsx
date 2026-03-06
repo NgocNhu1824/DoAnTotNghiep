@@ -149,6 +149,33 @@ const BookingManagementPage: React.FC = () => {
     }
   };
 
+  const renderStatusActions = (booking: Booking) => {
+    if (booking.status !== 'pending') {
+      return <span className="text-xs text-muted-foreground">Đã xử lý</span>;
+    }
+
+    return (
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          className="bg-green-600 hover:bg-green-700"
+          onClick={() => handleStatusUpdate(booking._id, 'approved')}
+          disabled={savingId === booking._id}
+        >
+          Duyệt
+        </Button>
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={() => handleStatusUpdate(booking._id, 'rejected')}
+          disabled={savingId === booking._id}
+        >
+          Từ chối
+        </Button>
+      </div>
+    );
+  };
+
   const handleDelete = async (bookingId: string) => {
     if (!window.confirm('Bạn có chắc chắn muốn xóa booking này?')) {
       return;
@@ -315,21 +342,7 @@ const BookingManagementPage: React.FC = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <Select
-                              value={booking.status}
-                              onValueChange={(value: BookingStatus) => handleStatusUpdate(booking._id, value)}
-                              disabled={savingId === booking._id}
-                            >
-                              <SelectTrigger className="w-[140px]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="pending">Chờ duyệt</SelectItem>
-                                <SelectItem value="approved">Đã duyệt</SelectItem>
-                                <SelectItem value="rejected">Từ chối</SelectItem>
-                                <SelectItem value="cancelled">Đã hủy</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            {renderStatusActions(booking)}
 
                             <PermissionGuard permissions={[PERMISSIONS.BOOKINGS_DELETE]}>
                               <Button

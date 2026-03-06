@@ -225,6 +225,12 @@ export class BookingService {
       throw new NotFoundException('Không tìm thấy booking để cập nhật');
     }
 
+    if (dto.status === 'cancelled') {
+      throw new BadRequestException(
+        'Trạng thái cancelled chỉ do người tạo booking hủy',
+      );
+    }
+
     if (dto.startTime) {
       this.validateTimeFormat(dto.startTime, 'startTime');
     }
@@ -241,7 +247,6 @@ export class BookingService {
       if (!room) {
         throw new BadRequestException('Phòng không tồn tại trong campus hiện tại');
       }
-      booking.roomId = new Types.ObjectId(dto.roomId);
     }
 
     if (dto.lecturerId) {
@@ -252,28 +257,51 @@ export class BookingService {
       if (!lecturer) {
         throw new BadRequestException('Giảng viên không tồn tại trong campus hiện tại');
       }
-      booking.lecturerId = new Types.ObjectId(dto.lecturerId);
-      (booking as any).requesterId = new Types.ObjectId(dto.lecturerId);
+    }
+
+    const updateData: any = {
+      updatedBy: new Types.ObjectId(currentUser._id),
+    };
+
+    if (dto.roomId) {
+      updateData.roomId = new Types.ObjectId(dto.roomId);
+    }
+
+    if (dto.lecturerId) {
+      updateData.lecturerId = new Types.ObjectId(dto.lecturerId);
+      updateData.requesterId = new Types.ObjectId(dto.lecturerId);
     }
 
     if (dto.bookingDate) {
       const nextDate = this.toUTCDate(dto.bookingDate);
-      booking.bookingDate = nextDate;
-      (booking as any).dateStart = nextDate;
-      (booking as any).dateEnd = nextDate;
+      updateData.bookingDate = nextDate;
+      updateData.dateStart = nextDate;
+      updateData.dateEnd = nextDate;
     }
-    if (dto.startTime) booking.startTime = dto.startTime;
-    if (dto.endTime) booking.endTime = dto.endTime;
-    if (dto.purpose) booking.purpose = dto.purpose;
-    if (dto.status) booking.status = dto.status;
+    if (dto.startTime) updateData.startTime = dto.startTime;
+    if (dto.endTime) updateData.endTime = dto.endTime;
+    if (dto.purpose) updateData.purpose = dto.purpose;
+    if (dto.status) updateData.status = dto.status;
     if (dto.note !== undefined) {
-      booking.note = dto.note;
-      (booking as any).notes = dto.note;
+      updateData.note = dto.note;
+      updateData.notes = dto.note;
     }
-    if (dto.rejectReason !== undefined) booking.rejectReason = dto.rejectReason;
+    if (dto.rejectReason !== undefined) updateData.rejectReason = dto.rejectReason;
 
-    booking.updatedBy = new Types.ObjectId(currentUser._id);
-    await booking.save();
+    const updateResult = await this.bookingModel.findOneAndUpdate(
+      {
+        _id: id,
+        campusId: new Types.ObjectId(campusId),
+      },
+      { $set: updateData },
+      {
+        new: false,
+      },
+    );
+
+    if (!updateResult) {
+      throw new NotFoundException('Không tìm thấy booking để cập nhật');
+    }
 
     const payload = await this.findOne(booking._id.toString(), currentUser, campusFilter);
     this.eventsGateway.broadcastBookingUpdate('updated', payload);

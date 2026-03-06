@@ -9,14 +9,25 @@ export class Booking extends Document {
   @Prop({ type: Types.ObjectId, ref: 'Room', required: true, index: true })
   roomId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({
+    type: Types.ObjectId,
+    ref: 'User',
+    required: function (this: any) {
+      return this?.isNew;
+    },
+    index: true,
+  })
   lecturerId: Types.ObjectId;
 
   // Legacy field kept for backward compatibility with existing bookings data
   @Prop({ type: Types.ObjectId, ref: 'User', index: true })
   requesterId?: Types.ObjectId;
 
-  @Prop({ required: true })
+  @Prop({
+    required: function (this: any) {
+      return this?.isNew;
+    },
+  })
   bookingDate: Date;
 
   // Legacy date range fields used by older booking documents
@@ -53,7 +64,13 @@ export class Booking extends Document {
   @Prop({ default: null })
   rejectReason?: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({
+    type: Types.ObjectId,
+    ref: 'User',
+    required: function (this: any) {
+      return this?.isNew;
+    },
+  })
   createdBy: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User', default: null })
