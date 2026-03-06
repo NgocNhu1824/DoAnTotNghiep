@@ -79,7 +79,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       label: 'Bookings',
       icon: BookOpen,
       path: '/bookings',
-      requiredPermissions: [PERMISSIONS.BOOKINGS_READ],
+      requiredPermissions: [PERMISSIONS.BOOKINGS_MANAGE],
     },
     {
       id: 'rooms',
@@ -93,7 +93,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       label: 'Devices',
       icon: Cpu,
       path: '/devices',
-      requiredPermissions: [PERMISSIONS.DEVICES_READ],
+      requiredPermissions: [PERMISSIONS.ROOMS_READ],
     },
     {
       id: 'approval',
@@ -120,8 +120,8 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const lecturerDemoMenuItem = {
     id: 'lecturer-self-demo',
-    label: 'Lecturer Demo',
-    icon: Calendar,
+    label: 'My Bookings',
+    icon: BookOpen,
     path: '/lecturer/demo-self',
   };
 

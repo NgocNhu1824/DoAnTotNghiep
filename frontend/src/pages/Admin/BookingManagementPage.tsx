@@ -18,7 +18,6 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -47,6 +46,8 @@ const STATUS_LABEL: Record<BookingStatus, string> = {
   cancelled: 'Cancelled',
 };
 
+const LEGACY_AUTO_CANCEL_REASON = 'lecturer đã hủy booking';
+
 const formatBookingDate = (value: unknown): string => {
   if (!value) {
     return '--';
@@ -68,9 +69,9 @@ const BookingManagementPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | BookingStatus>('all');
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
-  const [rejectDetailDialogOpen, setRejectDetailDialogOpen] = useState(false);
+  const [reasonDetailDialogOpen, setReasonDetailDialogOpen] = useState(false);
   const [actionBooking, setActionBooking] = useState<Booking | null>(null);
-  const [rejectDetailBooking, setRejectDetailBooking] = useState<Booking | null>(null);
+  const [reasonDetailBooking, setReasonDetailBooking] = useState<Booking | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectReasonError, setRejectReasonError] = useState('');
   const { toast } = useToast();
@@ -243,9 +244,25 @@ const BookingManagementPage: React.FC = () => {
     );
   };
 
-  const openRejectDetailDialog = (booking: Booking) => {
-    setRejectDetailBooking(booking);
-    setRejectDetailDialogOpen(true);
+  const openReasonDetailDialog = (booking: Booking) => {
+    setReasonDetailBooking(booking);
+    setReasonDetailDialogOpen(true);
+  };
+
+  const getBookingReason = (booking: Booking): string => {
+    if (booking.status === 'rejected') {
+      return booking.rejectReason || 'No reason provided';
+    }
+
+    if (booking.status === 'cancelled') {
+      const reason = (booking.note || '').trim();
+      if (!reason || reason.toLowerCase() === LEGACY_AUTO_CANCEL_REASON) {
+        return 'No reason provided';
+      }
+      return reason;
+    }
+
+    return 'No reason provided';
   };
 
   const handleDelete = async (bookingId: string) => {
@@ -365,7 +382,7 @@ const BookingManagementPage: React.FC = () => {
                   <TableHead>Lecturer</TableHead>
                   <TableHead>Purpose</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Reject Reason</TableHead>
+                  <TableHead>Reason</TableHead>
                   <TableHead className="min-w-[220px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -410,11 +427,11 @@ const BookingManagementPage: React.FC = () => {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          {booking.status === 'rejected' ? (
+                          {booking.status === 'rejected' || booking.status === 'cancelled' ? (
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => openRejectDetailDialog(booking)}
+                              onClick={() => openReasonDetailDialog(booking)}
                             >
                               View details
                             </Button>
@@ -556,30 +573,34 @@ const BookingManagementPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={rejectDetailDialogOpen} onOpenChange={setRejectDetailDialogOpen}>
+      <Dialog open={reasonDetailDialogOpen} onOpenChange={setReasonDetailDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rejection Reason Details</DialogTitle>
+            <DialogTitle>Reason Details</DialogTitle>
           </DialogHeader>
 
-          {rejectDetailBooking && (
+          {reasonDetailBooking && (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-3 gap-2">
                 <span className="text-muted-foreground">Lecturer</span>
                 <span className="col-span-2 min-w-0 break-all font-medium">
-                  {typeof rejectDetailBooking.lecturerId === 'object'
-                    ? `${rejectDetailBooking.lecturerId.fullName} (${rejectDetailBooking.lecturerId.email})`
+                  {typeof reasonDetailBooking.lecturerId === 'object'
+                    ? `${reasonDetailBooking.lecturerId.fullName} (${reasonDetailBooking.lecturerId.email})`
                     : 'N/A'}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <span className="text-muted-foreground">Booking date</span>
-                <span className="col-span-2 font-medium">{formatBookingDate(rejectDetailBooking.bookingDate)}</span>
+                <span className="col-span-2 font-medium">{formatBookingDate(reasonDetailBooking.bookingDate)}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <span className="text-muted-foreground">Status</span>
+                <span className="col-span-2 font-medium capitalize">{reasonDetailBooking.status}</span>
               </div>
               <div className="space-y-2">
-                <p className="text-muted-foreground">Rejection reason</p>
+                <p className="text-muted-foreground">Reason</p>
                 <div className="max-h-52 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                  {rejectDetailBooking.rejectReason || 'No reason provided'}
+                  {getBookingReason(reasonDetailBooking)}
                 </div>
               </div>
             </div>
@@ -589,8 +610,8 @@ const BookingManagementPage: React.FC = () => {
             <Button
               variant="outline"
               onClick={() => {
-                setRejectDetailDialogOpen(false);
-                setRejectDetailBooking(null);
+                setReasonDetailDialogOpen(false);
+                setReasonDetailBooking(null);
               }}
             >
               Close

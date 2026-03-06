@@ -77,3 +77,27 @@ export interface UpdateBookingDto {
   note?: string;
   rejectReason?: string;
 }
+
+export interface CreateSelfBookingDto {
+  roomId: string;
+  bookingDate: string;
+  startTime: string;
+  endTime: string;
+  purpose: string;
+}
+
+export interface CancelSelfBookingDto {
+  note: string;
+}
+
+export interface BookingRoomOption {
+  _id: string;
+  roomCode: string;
+  roomName: string;
+  building?: string;
+  floor?: number;
+  capacity?: number;
+  roomType?: string;
+  status?: string;
+  isActive?: boolean;
+}

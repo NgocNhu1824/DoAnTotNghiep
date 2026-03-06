@@ -15,6 +15,8 @@ import { EventsGateway } from '@/common/gateways/events.gateway';
 
 @Injectable()
 export class BookingService {
+  private static readonly LEGACY_AUTO_CANCEL_REASON = 'lecturer đã hủy booking';
+
   constructor(
     @InjectModel(Booking.name)
     private readonly bookingModel: Model<Booking>,
@@ -50,6 +52,28 @@ export class BookingService {
     if (!timeRegex.test(value)) {
       throw new BadRequestException(`${fieldName} phải có định dạng HH:mm`);
     }
+  }
+
+  private resolveUserId(currentUser: any): string {
+    const userId = currentUser?._id?.toString?.() || currentUser?._id;
+    if (!userId || !Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('Không xác định được người dùng hiện tại');
+    }
+    return userId;
+  }
+
+  private toDayRange(dateString: string): { start: Date; end: Date } {
+    const date = this.toUTCDate(dateString);
+    const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 1);
+    return { start, end };
+  }
+
+  private isOwnBooking(booking: any, userId: string): boolean {
+    const lecturerId = booking?.lecturerId?.toString?.() || booking?.lecturerId;
+    const requesterId = booking?.requesterId?.toString?.() || booking?.requesterId;
+    return lecturerId === userId || requesterId === userId;
   }
 
   private normalizeBooking(booking: any): any {
@@ -107,6 +131,193 @@ export class BookingService {
     this.eventsGateway.broadcastBookingUpdate('created', payload);
 
     return payload;
+  }
+
+  async createSelf(
+    dto: Pick<CreateBookingDto, 'roomId' | 'bookingDate' | 'startTime' | 'endTime' | 'purpose'>,
+    currentUser: any,
+    campusFilter?: any,
+  ) {
+    const campusId = this.resolveCampusId(currentUser, campusFilter);
+    const userId = this.resolveUserId(currentUser);
+
+    this.validateTimeFormat(dto.startTime, 'startTime');
+    this.validateTimeFormat(dto.endTime, 'endTime');
+
+    if (dto.startTime >= dto.endTime) {
+      throw new BadRequestException('endTime phải lớn hơn startTime');
+    }
+
+    const room = await this.roomModel
+      .findOne({
+        _id: dto.roomId,
+        campusId: new Types.ObjectId(campusId),
+        status: 'available',
+        isActive: { $ne: false },
+      })
+      .lean()
+      .exec();
+
+    if (!room) {
+      throw new BadRequestException('Phòng không tồn tại hoặc không khả dụng');
+    }
+
+    const { start, end } = this.toDayRange(dto.bookingDate);
+
+    const conflict = await this.bookingModel
+      .findOne({
+        campusId: new Types.ObjectId(campusId),
+        roomId: new Types.ObjectId(dto.roomId),
+        status: { $in: ['pending', 'approved'] },
+        startTime: { $lt: dto.endTime },
+        endTime: { $gt: dto.startTime },
+        $or: [
+          { bookingDate: { $gte: start, $lt: end } },
+          { dateStart: { $gte: start, $lt: end } },
+        ],
+      })
+      .lean()
+      .exec();
+
+    if (conflict) {
+      throw new BadRequestException('Khung giờ này đã có người đặt phòng');
+    }
+
+    const created = await this.bookingModel.create({
+      campusId: new Types.ObjectId(campusId),
+      roomId: new Types.ObjectId(dto.roomId),
+      lecturerId: new Types.ObjectId(userId),
+      requesterId: new Types.ObjectId(userId),
+      bookingDate: this.toUTCDate(dto.bookingDate),
+      dateStart: this.toUTCDate(dto.bookingDate),
+      dateEnd: this.toUTCDate(dto.bookingDate),
+      startTime: dto.startTime,
+      endTime: dto.endTime,
+      purpose: dto.purpose,
+      status: 'pending',
+      note: null,
+      notes: null,
+      createdBy: new Types.ObjectId(userId),
+      updatedBy: new Types.ObjectId(userId),
+    });
+
+    const payload = await this.findOne(created._id.toString(), currentUser, campusFilter);
+    this.eventsGateway.broadcastBookingUpdate('created', payload);
+    return payload;
+  }
+
+  async findSelf(query: QueryBookingDto, currentUser: any, campusFilter?: any) {
+    const userId = this.resolveUserId(currentUser);
+    const normalizedQuery: QueryBookingDto = {
+      ...query,
+      lecturerId: userId,
+    };
+
+    return this.findAll(normalizedQuery, currentUser, campusFilter);
+  }
+
+  async cancelSelf(id: string, cancelReason: string, currentUser: any, campusFilter?: any) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Booking ID không hợp lệ');
+    }
+
+    const campusId = this.resolveCampusId(currentUser, campusFilter);
+    const userId = this.resolveUserId(currentUser);
+
+    const booking = await this.bookingModel.findOne({
+      _id: id,
+      campusId: new Types.ObjectId(campusId),
+    });
+
+    if (!booking) {
+      throw new NotFoundException('Không tìm thấy booking');
+    }
+
+    if (!this.isOwnBooking(booking, userId)) {
+      throw new NotFoundException('Không tìm thấy booking');
+    }
+
+    if (booking.status !== 'pending') {
+      throw new BadRequestException('Chỉ có thể hủy booking đang chờ duyệt');
+    }
+
+    const reason = (cancelReason || '').trim();
+    if (!reason) {
+      throw new BadRequestException('Vui lòng nhập lý do hủy booking');
+    }
+
+    if (reason.toLowerCase() === BookingService.LEGACY_AUTO_CANCEL_REASON) {
+      throw new BadRequestException('Vui lòng nhập lý do hủy cụ thể, không dùng nội dung mặc định');
+    }
+
+    booking.status = 'cancelled';
+    booking.updatedBy = new Types.ObjectId(userId);
+    booking.note = reason;
+    booking.notes = reason;
+    await booking.save();
+
+    const payload = await this.findOne(booking._id.toString(), currentUser, campusFilter);
+    this.eventsGateway.broadcastBookingUpdate('updated', payload);
+    return payload;
+  }
+
+  async getSelfAvailableRooms(
+    currentUser: any,
+    campusFilter?: any,
+    bookingDate?: string,
+    startTime?: string,
+    endTime?: string,
+  ) {
+    const campusId = this.resolveCampusId(currentUser, campusFilter);
+
+    if ((startTime || endTime) && !(startTime && endTime)) {
+      throw new BadRequestException('Cần truyền đủ startTime và endTime');
+    }
+
+    if (startTime && endTime) {
+      this.validateTimeFormat(startTime, 'startTime');
+      this.validateTimeFormat(endTime, 'endTime');
+      if (startTime >= endTime) {
+        throw new BadRequestException('endTime phải lớn hơn startTime');
+      }
+    }
+
+    const rooms = await this.roomModel
+      .find({
+        campusId: new Types.ObjectId(campusId),
+        status: 'available',
+        isActive: { $ne: false },
+      })
+      .select('_id roomCode roomName building floor capacity roomType status isActive')
+      .sort({ roomCode: 1 })
+      .lean()
+      .exec();
+
+    if (!bookingDate || !startTime || !endTime || rooms.length === 0) {
+      return rooms;
+    }
+
+    const { start, end } = this.toDayRange(bookingDate);
+    const roomIds = rooms.map((room) => room._id);
+
+    const busyRows = await this.bookingModel
+      .find({
+        campusId: new Types.ObjectId(campusId),
+        roomId: { $in: roomIds },
+        status: { $in: ['pending', 'approved'] },
+        startTime: { $lt: endTime },
+        endTime: { $gt: startTime },
+        $or: [
+          { bookingDate: { $gte: start, $lt: end } },
+          { dateStart: { $gte: start, $lt: end } },
+        ],
+      })
+      .select('roomId')
+      .lean()
+      .exec();
+
+    const busyRoomIds = new Set(busyRows.map((item: any) => item.roomId?.toString?.() || String(item.roomId)));
+    return rooms.filter((room: any) => !busyRoomIds.has(room._id.toString()));
   }
 
   async findAll(query: QueryBookingDto, currentUser: any, campusFilter?: any) {

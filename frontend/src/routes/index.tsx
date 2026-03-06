@@ -18,8 +18,8 @@ import ScheduleManagementPage from '../pages/Admin/ScheduleManagementPage';
 import DeviceManagementPage from '../pages/Admin/DeviceManagementPage';
 import UserProfilePage from '../pages/Admin/UserProfilePage';
 import BookingManagementPage from '../pages/Admin/BookingManagementPage';
-import LecturerSelfDemoPage from '../pages/Lecturer/LecturerSelfDemoPage';
-import LecturerSchedulePage from '../pages/Lecturer/LecturerSchedulePage';
+import LecturerBookingPage from '../pages/Lecturer/LecturerBookingPage';
+
 
 const AppRoutes: React.FC = () => {
   return (
@@ -150,25 +150,10 @@ const AppRoutes: React.FC = () => {
               <ProtectedRoute
                 allowedRoleCodes={['LECTURER']}
                 requiredScopes={['SELF']}
-                requiredPermissions={[PERMISSIONS.SCHEDULES_READ]}
+                requiredPermissions={[PERMISSIONS.BOOKINGS_CREATE, PERMISSIONS.BOOKINGS_READ]}
               >
                 <AdminLayout>
-                  <LecturerSelfDemoPage />
-                </AdminLayout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/lecturer/schedules"
-            element={
-              <ProtectedRoute
-                allowedRoleCodes={["LECTURER"]}
-                requiredScopes={["SELF"]}
-                requiredPermissions={[PERMISSIONS.SCHEDULES_READ]}
-              >
-                <AdminLayout>
-                  <LecturerSchedulePage />
+                  <LecturerBookingPage />
                 </AdminLayout>
               </ProtectedRoute>
             }
@@ -206,7 +191,7 @@ const AppRoutes: React.FC = () => {
 
           {/* Default redirect */}
           <Route path="/" element={<Navigate to="/login" replace />} />
-          <Route path="*" element={<Navigate to="/lecturer/self-demo" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

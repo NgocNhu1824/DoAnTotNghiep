@@ -12,8 +12,11 @@ import {
 } from '@nestjs/common';
 import { BookingService } from './booking.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
+import { CreateSelfBookingDto } from './dto/create-self-booking.dto';
+import { CancelSelfBookingDto } from './dto/cancel-self-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { QueryBookingDto } from './dto/query-booking.dto';
+import { QuerySelfRoomsDto } from './dto/query-self-rooms.dto';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { CampusScopeGuard } from '@/common/guards/campus-scope.guard';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
@@ -28,6 +31,78 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator';
 @RequireScopes('CAMPUS')
 export class BookingController {
   constructor(private readonly bookingService: BookingService) {}
+
+  @Get('self/rooms')
+  @RequirePermissions('bookings.read', 'bookings.create')
+  @RequireScopes('SELF')
+  async getSelfRooms(
+    @Query() query: QuerySelfRoomsDto,
+    @CurrentUser() user: any,
+    @Req() request: any,
+  ) {
+    const data = await this.bookingService.getSelfAvailableRooms(
+      user,
+      request.campusFilter,
+      query.bookingDate,
+      query.startTime,
+      query.endTime,
+    );
+
+    return {
+      success: true,
+      data,
+      total: data.length,
+    };
+  }
+
+  @Post('self')
+  @RequirePermissions('bookings.read', 'bookings.create')
+  @RequireScopes('SELF')
+  async createSelf(
+    @Body() dto: CreateSelfBookingDto,
+    @CurrentUser() user: any,
+    @Req() request: any,
+  ) {
+    const data = await this.bookingService.createSelf(dto, user, request.campusFilter);
+    return {
+      success: true,
+      message: 'Tạo yêu cầu booking thành công',
+      data,
+    };
+  }
+
+  @Get('self')
+  @RequirePermissions('bookings.read')
+  @RequireScopes('SELF')
+  async findSelf(
+    @Query() query: QueryBookingDto,
+    @CurrentUser() user: any,
+    @Req() request: any,
+  ) {
+    const data = await this.bookingService.findSelf(query, user, request.campusFilter);
+    return {
+      success: true,
+      data,
+      total: data.length,
+    };
+  }
+
+  @Patch('self/:id/cancel')
+  @RequirePermissions('bookings.read', 'bookings.create')
+  @RequireScopes('SELF')
+  async cancelSelf(
+    @Param('id') id: string,
+    @Body() dto: CancelSelfBookingDto,
+    @CurrentUser() user: any,
+    @Req() request: any,
+  ) {
+    const data = await this.bookingService.cancelSelf(id, dto.note, user, request.campusFilter);
+    return {
+      success: true,
+      message: 'Hủy booking thành công',
+      data,
+    };
+  }
 
   @Post()
   async create(
