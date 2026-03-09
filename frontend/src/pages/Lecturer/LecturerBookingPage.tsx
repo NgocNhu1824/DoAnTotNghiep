@@ -6,19 +6,16 @@ import { useAuth } from '@/context/AuthContext';
 import bookingService from '@/services/booking.service';
 import wsService from '@/services/websocket.service';
 import {
-  Booking,
-  BookingStatus,
   LecturerBookingGrid,
   LecturerGridCell,
   LecturerGridRoomRow,
 } from '@/types/booking.types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -26,24 +23,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-
-const STATUS_TEXT: Record<BookingStatus, string> = {
-  pending: 'Pending',
-  approved: 'Approved',
-  rejected: 'Rejected',
-  cancelled: 'Cancelled',
-  completed: 'Completed',
-};
-
-const STATUS_CLASS: Record<BookingStatus, string> = {
-  pending: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-  approved: 'bg-green-50 text-green-700 border-green-200',
-  rejected: 'bg-red-50 text-red-700 border-red-200',
-  cancelled: 'bg-slate-100 text-slate-700 border-slate-200',
-  completed: 'bg-blue-50 text-blue-700 border-blue-200',
-};
-
-const LEGACY_AUTO_CANCEL_REASON = 'lecturer cancel booking';
 
 const toDateInputValue = (date = new Date()): string => {
   return date.toISOString().slice(0, 10);
@@ -57,6 +36,26 @@ const formatDateCell = (dateValue: string): string => {
   return format(parsed, 'dd/MM/yyyy', { locale: vi });
 };
 
+const timeOverlaps = (startA: string, endA: string, startB: string, endB: string): boolean => {
+  return startA < endB && endA > startB;
+};
+
+const getRoomBlockedMessage = (room: LecturerGridRoomRow): string => {
+  if (room.isActive === false) {
+    return 'Room is inactive';
+  }
+
+  if (room.status === 'maintenance') {
+    return 'Room is under maintenance';
+  }
+
+  if (room.status === 'occupied') {
+    return 'Room is currently occupied';
+  }
+
+  return 'Room is not available';
+};
+
 interface GridCreateTarget {
   roomId: string;
   roomText: string;
@@ -65,47 +64,76 @@ interface GridCreateTarget {
   slotText: string;
 }
 
+const OLD_SLOT_DEFINITIONS = [
+  { slotNumber: 1, startTime: '07:00', endTime: '08:30' },
+  { slotNumber: 2, startTime: '08:45', endTime: '10:15' },
+  { slotNumber: 3, startTime: '10:30', endTime: '12:00' },
+  { slotNumber: 4, startTime: '12:45', endTime: '14:15' },
+  { slotNumber: 5, startTime: '14:30', endTime: '16:00' },
+  { slotNumber: 6, startTime: '16:15', endTime: '17:45' },
+  { slotNumber: 7, startTime: '18:00', endTime: '19:30' },
+  { slotNumber: 8, startTime: '19:45', endTime: '21:15' },
+] as const;
+
+const NEW_SLOT_DEFINITIONS = [
+  { slotNumber: 1, startTime: '07:00', endTime: '09:15' },
+  { slotNumber: 2, startTime: '09:30', endTime: '11:45' },
+  { slotNumber: 3, startTime: '13:00', endTime: '15:15' },
+  { slotNumber: 4, startTime: '15:30', endTime: '17:45' },
+  { slotNumber: 5, startTime: '18:00', endTime: '20:15' },
+] as const;
+
+// Configurable booking lead time. Increase/decrease this value to fit business rules.
+const BOOKING_LEAD_MINUTES = 15;
+
+const toLocalDateTime = (dateValue: string, timeValue: string): Date | null => {
+  const [yearText, monthText, dayText] = dateValue.split('-');
+  const [hourText, minuteText] = timeValue.split(':');
+
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute)
+  ) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day, hour, minute, 0, 0);
+};
+
+const isBookingWindowClosed = (dateValue: string, slotStartTime: string): boolean => {
+  const slotStart = toLocalDateTime(dateValue, slotStartTime);
+  if (!slotStart) {
+    return false;
+  }
+
+  const cutoff = new Date(slotStart.getTime() - BOOKING_LEAD_MINUTES * 60 * 1000);
+  return Date.now() >= cutoff.getTime();
+};
+
 const LecturerBookingPage: React.FC = () => {
   const { toast } = useToast();
   const { user } = useAuth();
 
   const [selectedDate, setSelectedDate] = useState<string>(toDateInputValue());
+  const [selectedSlotType, setSelectedSlotType] = useState<'OLDSLOT' | 'NEWSLOT'>('OLDSLOT');
   const [grid, setGrid] = useState<LecturerBookingGrid | null>(null);
-  const [bookings, setBookings] = useState<Booking[]>([]);
 
   const [isLoadingGrid, setIsLoadingGrid] = useState(false);
-  const [isLoadingBookings, setIsLoadingBookings] = useState(false);
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createTarget, setCreateTarget] = useState<GridCreateTarget | null>(null);
   const [purpose, setPurpose] = useState('');
   const [purposeError, setPurposeError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [cancelBooking, setCancelBooking] = useState<Booking | null>(null);
-  const [cancelReason, setCancelReason] = useState('');
-  const [cancelReasonError, setCancelReasonError] = useState('');
-  const [cancelingId, setCancelingId] = useState<string | null>(null);
-
-  const [reasonDetailDialogOpen, setReasonDetailDialogOpen] = useState(false);
-  const [reasonDetailBooking, setReasonDetailBooking] = useState<Booking | null>(null);
-
-  const loadBookings = useCallback(async () => {
-    try {
-      setIsLoadingBookings(true);
-      const data = await bookingService.getSelfBookings();
-      setBookings(data);
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error?.message || 'Cannot load your booking list',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoadingBookings(false);
-    }
-  }, [toast]);
 
   const loadGrid = useCallback(async () => {
     try {
@@ -128,14 +156,12 @@ const LecturerBookingPage: React.FC = () => {
 
   useEffect(() => {
     loadGrid();
-    loadBookings();
-  }, [loadGrid, loadBookings]);
+  }, [loadGrid]);
 
   useEffect(() => {
     const socket = wsService.connect();
     const onBookingUpdated = () => {
       loadGrid();
-      loadBookings();
     };
 
     wsService.on('booking:updated', onBookingUpdated);
@@ -145,39 +171,13 @@ const LecturerBookingPage: React.FC = () => {
         wsService.disconnect();
       }
     };
-  }, [loadGrid, loadBookings]);
+  }, [loadGrid]);
 
-  const pendingCount = useMemo(
-    () => bookings.filter((booking) => booking.status === 'pending').length,
-    [bookings],
-  );
-
-  const getBookingRoomText = (booking: Booking): string => {
-    if (!booking.roomId) return 'Room has been deleted';
-    if (typeof booking.roomId === 'string') return booking.roomId;
-
-    const roomCode = booking.roomId.roomCode || 'Unknown room';
-    const roomName = booking.roomId.roomName || '';
-    return roomName ? `${roomCode} - ${roomName}` : roomCode;
-  };
-
-  const getCancelReasonText = (booking: Booking): string => {
-    const reason = (booking.note || '').trim();
-    if (!reason) return 'No reason provided';
-    if (reason.toLowerCase() === LEGACY_AUTO_CANCEL_REASON) return 'No reason provided';
-    return reason;
-  };
-
-  const getBookingReason = (booking: Booking): string => {
-    if (booking.status === 'rejected') {
-      return booking.rejectReason?.trim() || 'No reason provided';
+  const matrixRows = useMemo(() => {
+    if (!grid) {
+      return [] as LecturerGridRoomRow[];
     }
 
-<<<<<<< HEAD
-    if (booking.status === 'cancelled') {
-      return getCancelReasonText(booking);
-    }
-=======
     const displaySlots =
       grid.slots && grid.slots.length > 0
         ? grid.slots
@@ -270,10 +270,7 @@ const LecturerBookingPage: React.FC = () => {
 
     return selectedSlotType === 'NEWSLOT' ? NEW_SLOT_DEFINITIONS : OLD_SLOT_DEFINITIONS;
   }, [grid?.slots, selectedSlotType]);
->>>>>>> cbc82d4 ([Inter5] fix: Remove blockslot from room)
 
-    return 'No reason provided';
-  };
 
   const openCreateDialog = (room: LecturerGridRoomRow, cell: LecturerGridCell) => {
     if (cell.state !== 'available') {
@@ -321,7 +318,7 @@ const LecturerBookingPage: React.FC = () => {
       setPurpose('');
       setPurposeError('');
 
-      await Promise.all([loadGrid(), loadBookings()]);
+      await loadGrid();
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -330,47 +327,6 @@ const LecturerBookingPage: React.FC = () => {
       });
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const openCancelDialog = (booking: Booking) => {
-    setCancelBooking(booking);
-    setCancelReason('');
-    setCancelReasonError('');
-    setCancelDialogOpen(true);
-  };
-
-  const handleCancelConfirm = async () => {
-    if (!cancelBooking) return;
-
-    const reason = cancelReason.trim();
-    if (!reason) {
-      setCancelReasonError('Please enter cancel reason');
-      return;
-    }
-
-    try {
-      setCancelingId(cancelBooking._id);
-      await bookingService.cancelSelfBooking(cancelBooking._id, { note: reason });
-      toast({
-        title: 'Success',
-        description: 'Booking request has been cancelled',
-      });
-
-      setCancelDialogOpen(false);
-      setCancelBooking(null);
-      setCancelReason('');
-      setCancelReasonError('');
-
-      await Promise.all([loadGrid(), loadBookings()]);
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error?.message || 'Cannot cancel booking request',
-        variant: 'destructive',
-      });
-    } finally {
-      setCancelingId(null);
     }
   };
 
@@ -420,35 +376,8 @@ const LecturerBookingPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader>
-          <CardTitle>Lecturer Booking Grid</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div className="rounded-lg border p-4">
-              <p className="text-sm text-muted-foreground">Campus</p>
-              <p className="text-base font-medium">
-                {user?.campusId?.campusCode || '--'} - {user?.campusId?.campusName || '--'}
-              </p>
-            </div>
-            <div className="rounded-lg border p-4">
-              <p className="text-sm text-muted-foreground">Your Requests</p>
-              <p className="text-base font-medium">{bookings.length}</p>
-            </div>
-            <div className="rounded-lg border p-4">
-              <p className="text-sm text-muted-foreground">Pending</p>
-              <p className="text-base font-medium">{pendingCount}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Booking Matrix</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-[1fr_220px_auto]">
+        <CardContent className="space-y-4 p-4 md:p-6">
+          <div className="grid grid-cols-1 items-end gap-4 lg:grid-cols-[minmax(240px,1fr)_180px_230px_110px]">
             <div className="space-y-2">
               <Label>Campus</Label>
               <Input
@@ -456,6 +385,21 @@ const LecturerBookingPage: React.FC = () => {
                 readOnly
                 disabled
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Slot Type</Label>
+              <Select
+                value={selectedSlotType}
+                onValueChange={(value) => setSelectedSlotType(value as 'OLDSLOT' | 'NEWSLOT')}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="OLDSLOT">Old Slot</SelectItem>
+                  <SelectItem value="NEWSLOT">New Slot</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="grid-date">Date</Label>
@@ -466,21 +410,21 @@ const LecturerBookingPage: React.FC = () => {
                 onChange={(event) => setSelectedDate(event.target.value)}
               />
             </div>
-            <Button onClick={loadGrid} disabled={isLoadingGrid}>
+            <Button className="w-full" onClick={loadGrid} disabled={isLoadingGrid}>
               {isLoadingGrid ? 'Loading...' : 'View'}
             </Button>
           </div>
 
-          <div className="rounded-md border overflow-hidden">
-            <table className="w-full table-fixed border-collapse">
+          <div className="rounded-md border overflow-x-auto">
+            <table className="w-full min-w-[980px] table-fixed border-collapse">
               <colgroup>
                 <col className="w-[18%]" />
-                <col span={8} className="w-[10.25%]" />
+                <col span={displaySlots.length} className="w-[10.25%]" />
               </colgroup>
               <thead>
                 <tr className="bg-slate-100">
                   <th className="border px-2 py-2 text-left text-xs font-semibold md:text-sm">ROOM (CAPACITY)</th>
-                  {(grid?.slots || []).map((slot) => (
+                  {displaySlots.map((slot) => (
                     <th key={slot.slotNumber} className="border px-1 py-2 text-center text-xs font-semibold md:text-sm">
                       <div>SLOT {slot.slotNumber}</div>
                       <div className="text-[11px] font-normal leading-tight text-muted-foreground">
@@ -493,18 +437,18 @@ const LecturerBookingPage: React.FC = () => {
               <tbody>
                 {isLoadingGrid ? (
                   <tr>
-                    <td colSpan={(grid?.slots?.length || 8) + 1} className="border px-2 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={displaySlots.length + 1} className="border px-2 py-8 text-center text-sm text-muted-foreground">
                       Loading grid...
                     </td>
                   </tr>
-                ) : !grid || grid.rooms.length === 0 ? (
+                ) : !grid || matrixRows.length === 0 ? (
                   <tr>
-                    <td colSpan={(grid?.slots?.length || 8) + 1} className="border px-2 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={displaySlots.length + 1} className="border px-2 py-8 text-center text-sm text-muted-foreground">
                       No rooms found in this campus.
                     </td>
                   </tr>
                 ) : (
-                  grid.rooms.map((room) => (
+                  matrixRows.map((room) => (
                     <tr key={room.roomId}>
                       <td className="border px-2 py-2 text-xs md:text-sm">
                         <div className="font-semibold text-emerald-700 truncate">{room.roomCode}</div>
@@ -512,7 +456,7 @@ const LecturerBookingPage: React.FC = () => {
                           {room.roomName} ({room.capacity || 0})
                         </div>
                       </td>
-                      {room.cells.map((cell) => (
+                      {(room.cells || []).map((cell) => (
                         <td key={`${room.roomId}-${cell.slotNumber}`} className="border px-1 py-2 text-center align-middle">
                           {renderCell(room, cell)}
                         </td>
@@ -524,83 +468,11 @@ const LecturerBookingPage: React.FC = () => {
             </table>
           </div>
 
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-2"><b className="text-slate-700">x</b> cannot book</span>
             <span className="inline-flex items-center gap-2"><b className="text-amber-700">i</b> already booked (hover for details)</span>
             <span className="inline-flex items-center gap-2"><b className="text-sky-700">+</b> available to book</span>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>My Booking Requests</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoadingBookings ? (
-            <p className="text-sm text-muted-foreground">Loading bookings...</p>
-          ) : bookings.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No booking requests yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Room</TableHead>
-                    <TableHead>Purpose</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {bookings.map((booking) => (
-                    <TableRow key={booking._id}>
-                      <TableCell>{formatDateCell(booking.bookingDate)}</TableCell>
-                      <TableCell>{booking.startTime} - {booking.endTime}</TableCell>
-                      <TableCell>{getBookingRoomText(booking)}</TableCell>
-                      <TableCell className="max-w-[280px]">
-                        <p className="truncate" title={booking.purpose}>{booking.purpose}</p>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={STATUS_CLASS[booking.status]} variant="outline">
-                          {STATUS_TEXT[booking.status]}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {booking.status === 'rejected' || booking.status === 'cancelled' ? (
-                          <Button variant="outline" size="sm" onClick={() => {
-                            setReasonDetailBooking(booking);
-                            setReasonDetailDialogOpen(true);
-                          }}>
-                            View details
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">--</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {booking.status === 'pending' ? (
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => openCancelDialog(booking)}
-                            disabled={cancelingId === booking._id}
-                          >
-                            {cancelingId === booking._id ? 'Cancelling...' : 'Cancel'}
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">No action</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -654,94 +526,6 @@ const LecturerBookingPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cancel Booking Request</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-2">
-            <Label htmlFor="cancel-reason">Cancel reason</Label>
-            <Textarea
-              id="cancel-reason"
-              value={cancelReason}
-              onChange={(event) => {
-                setCancelReason(event.target.value);
-                if (cancelReasonError) {
-                  setCancelReasonError('');
-                }
-              }}
-              placeholder="Enter cancel reason"
-              className="min-h-24"
-            />
-            {cancelReasonError && <p className="text-sm text-red-600">{cancelReasonError}</p>}
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setCancelDialogOpen(false);
-                setCancelBooking(null);
-                setCancelReason('');
-                setCancelReasonError('');
-              }}
-            >
-              Close
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleCancelConfirm}
-              disabled={!cancelBooking || (cancelingId !== null && cancelingId === cancelBooking._id)}
-            >
-              {cancelBooking && cancelingId === cancelBooking._id ? 'Cancelling...' : 'Confirm cancel'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={reasonDetailDialogOpen} onOpenChange={setReasonDetailDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reason Details</DialogTitle>
-          </DialogHeader>
-
-          {reasonDetailBooking && (
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Date</span>
-                <span className="col-span-2 font-medium">{formatDateCell(reasonDetailBooking.bookingDate)}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Time</span>
-                <span className="col-span-2 font-medium">{reasonDetailBooking.startTime} - {reasonDetailBooking.endTime}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Status</span>
-                <span className="col-span-2 font-medium capitalize">{reasonDetailBooking.status}</span>
-              </div>
-              <div className="space-y-2">
-                <p className="text-muted-foreground">Reason</p>
-                <div className="max-h-52 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                  {getBookingReason(reasonDetailBooking)}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setReasonDetailDialogOpen(false);
-                setReasonDetailBooking(null);
-              }}
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
