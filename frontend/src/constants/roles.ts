@@ -93,7 +93,7 @@ export const getDefaultDashboard = (
   roleCode?: string,
 ): string => {
   if (roleCode === ROLE_CODES.LECTURER && roleScope === 'SELF') {
-    return '/lecturer/demo-self';
+    return '/lecturer/booking';
   }
 
   return '/dashboard';

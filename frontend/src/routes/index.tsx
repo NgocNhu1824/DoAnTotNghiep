@@ -145,7 +145,7 @@ const AppRoutes: React.FC = () => {
           />
 
           <Route
-            path="/lecturer/demo-self"
+            path="/lecturer/booking"
             element={
               <ProtectedRoute
                 allowedRoleCodes={['LECTURER']}
@@ -158,6 +158,8 @@ const AppRoutes: React.FC = () => {
               </ProtectedRoute>
             }
           />
+
+          <Route path="/lecturer/demo-self" element={<Navigate to="/lecturer/booking" replace />} />
           
           <Route
             path="/bookings"

@@ -43,7 +43,7 @@ const STATUS_CLASS: Record<BookingStatus, string> = {
   completed: 'bg-blue-50 text-blue-700 border-blue-200',
 };
 
-const LEGACY_AUTO_CANCEL_REASON = 'lecturer đã hủy booking';
+const LEGACY_AUTO_CANCEL_REASON = 'lecturer cancel booking';
 
 const toDateInputValue = (date = new Date()): string => {
   return date.toISOString().slice(0, 10);
@@ -289,7 +289,7 @@ const LecturerBookingPage: React.FC = () => {
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 w-8 p-0 text-xl text-sky-600 hover:bg-sky-100 hover:text-sky-700"
+          className="h-7 w-7 p-0 text-lg text-sky-600 hover:bg-sky-100 hover:text-sky-700"
           onClick={() => openCreateDialog(room, cell)}
           title="Available. Click to create booking"
         >
@@ -301,7 +301,7 @@ const LecturerBookingPage: React.FC = () => {
     if (cell.state === 'booked') {
       return (
         <span
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-amber-300 bg-amber-100 text-sm font-bold text-amber-700"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-amber-300 bg-amber-100 text-xs font-bold text-amber-700"
           title={tooltipText}
         >
           i
@@ -311,7 +311,7 @@ const LecturerBookingPage: React.FC = () => {
 
     return (
       <span
-        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-slate-100 text-sm font-bold text-slate-600"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 bg-slate-100 text-xs font-bold text-slate-600"
         title={tooltipText || 'Cannot book this room'}
       >
         x
@@ -373,15 +373,19 @@ const LecturerBookingPage: React.FC = () => {
             </Button>
           </div>
 
-          <div className="rounded-md border overflow-auto">
-            <table className="min-w-[1200px] w-full border-collapse">
+          <div className="rounded-md border overflow-hidden">
+            <table className="w-full table-fixed border-collapse">
+              <colgroup>
+                <col className="w-[18%]" />
+                <col span={8} className="w-[10.25%]" />
+              </colgroup>
               <thead>
                 <tr className="bg-slate-100">
-                  <th className="border px-3 py-2 text-left text-sm font-semibold">ROOM (CAPACITY)</th>
+                  <th className="border px-2 py-2 text-left text-xs font-semibold md:text-sm">ROOM (CAPACITY)</th>
                   {(grid?.slots || []).map((slot) => (
-                    <th key={slot.slotNumber} className="border px-2 py-2 text-center text-sm font-semibold">
+                    <th key={slot.slotNumber} className="border px-1 py-2 text-center text-xs font-semibold md:text-sm">
                       <div>SLOT {slot.slotNumber}</div>
-                      <div className="text-xs font-normal text-muted-foreground">
+                      <div className="text-[11px] font-normal leading-tight text-muted-foreground">
                         ({slot.startTime}-{slot.endTime})
                       </div>
                     </th>
@@ -391,27 +395,27 @@ const LecturerBookingPage: React.FC = () => {
               <tbody>
                 {isLoadingGrid ? (
                   <tr>
-                    <td colSpan={(grid?.slots?.length || 8) + 1} className="border px-3 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={(grid?.slots?.length || 8) + 1} className="border px-2 py-8 text-center text-sm text-muted-foreground">
                       Loading grid...
                     </td>
                   </tr>
                 ) : !grid || grid.rooms.length === 0 ? (
                   <tr>
-                    <td colSpan={(grid?.slots?.length || 8) + 1} className="border px-3 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={(grid?.slots?.length || 8) + 1} className="border px-2 py-8 text-center text-sm text-muted-foreground">
                       No rooms found in this campus.
                     </td>
                   </tr>
                 ) : (
                   grid.rooms.map((room) => (
                     <tr key={room.roomId}>
-                      <td className="border px-3 py-2 text-sm">
-                        <div className="font-semibold text-emerald-700">{room.roomCode}</div>
-                        <div className="text-xs text-muted-foreground">
+                      <td className="border px-2 py-2 text-xs md:text-sm">
+                        <div className="font-semibold text-emerald-700 truncate">{room.roomCode}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">
                           {room.roomName} ({room.capacity || 0})
                         </div>
                       </td>
                       {room.cells.map((cell) => (
-                        <td key={`${room.roomId}-${cell.slotNumber}`} className="border px-2 py-2 text-center">
+                        <td key={`${room.roomId}-${cell.slotNumber}`} className="border px-1 py-2 text-center align-middle">
                           {renderCell(room, cell)}
                         </td>
                       ))}

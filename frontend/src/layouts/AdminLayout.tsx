@@ -122,7 +122,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     id: 'lecturer-self-demo',
     label: 'Booking Room',
     icon: BookOpen,
-    path: '/lecturer/demo-self',
+    path: '/lecturer/booking',
   };
 
   const lecturerScheduleMenuItem = {

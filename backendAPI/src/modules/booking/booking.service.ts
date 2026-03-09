@@ -18,7 +18,8 @@ import { EventsGateway } from '@/common/gateways/events.gateway';
 
 @Injectable()
 export class BookingService implements OnModuleInit, OnModuleDestroy {
-  private static readonly LEGACY_AUTO_CANCEL_REASON = 'lecturer đã hủy booking';
+  private static readonly LEGACY_AUTO_CANCEL_REASON = 'lecturer cancel booking';
+  private static readonly AUTO_REJECT_OVERDUE_REASON = 'Exceeded the allowed time limit.';
   private static readonly OLD_SLOTS = [
     { slotNumber: 1, startTime: '07:00', endTime: '08:30' },
     { slotNumber: 2, startTime: '08:45', endTime: '10:15' },
@@ -43,8 +44,13 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit() {
+    await this.autoRejectExpiredPendingBookings();
     await this.autoCompleteExpiredApprovedBookings();
     this.autoCompleteTimer = setInterval(() => {
+      this.autoRejectExpiredPendingBookings().catch((error: any) => {
+        this.logger.warn(`Auto-reject overdue bookings failed: ${error?.message || error}`);
+      });
+
       this.autoCompleteExpiredApprovedBookings().catch((error: any) => {
         this.logger.warn(`Auto-complete bookings failed: ${error?.message || error}`);
       });
@@ -64,7 +70,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     const campusId = fromFilter || fromUser;
 
     if (!campusId) {
-      throw new BadRequestException('Không xác định được campus để truy vấn booking');
+        throw new BadRequestException('Cannot resolve campus for booking query');
     }
 
     return campusId.toString();
@@ -73,7 +79,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
   private toUTCDate(dateString: string): Date {
     const date = new Date(dateString);
     if (Number.isNaN(date.getTime())) {
-      throw new BadRequestException('Ngày booking không hợp lệ');
+        throw new BadRequestException('Invalid booking date');
     }
     return date;
   }
@@ -81,14 +87,14 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
   private validateTimeFormat(value: string, fieldName: string): void {
     const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
     if (!timeRegex.test(value)) {
-      throw new BadRequestException(`${fieldName} phải có định dạng HH:mm`);
+        throw new BadRequestException(`${fieldName} must use HH:mm format`);
     }
   }
 
   private resolveUserId(currentUser: any): string {
     const userId = currentUser?._id?.toString?.() || currentUser?._id;
     if (!userId || !Types.ObjectId.isValid(userId)) {
-      throw new BadRequestException('Không xác định được người dùng hiện tại');
+        throw new BadRequestException('Cannot resolve current user');
     }
     return userId;
   }
@@ -193,6 +199,20 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     }
 
     return endDateTime.getTime() <= now.getTime();
+  }
+
+  private hasBookingStarted(booking: any, now: Date): boolean {
+    const bookingDate = this.getBookingDateValue(booking);
+    if (!bookingDate) {
+      return false;
+    }
+
+    const startDateTime = this.toDateTime(bookingDate, booking.startTime);
+    if (!startDateTime) {
+      return false;
+    }
+
+    return startDateTime.getTime() <= now.getTime();
   }
 
   private async reserveRoom(roomId: any): Promise<void> {
@@ -326,6 +346,49 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private async autoRejectExpiredPendingBookings(): Promise<void> {
+    const pendingBookings = await this.bookingModel
+      .find({ status: 'pending' })
+      .select('_id bookingDate dateStart startTime')
+      .lean()
+      .exec();
+
+    if (pendingBookings.length === 0) {
+      return;
+    }
+
+    const now = new Date();
+    const expiredPending = pendingBookings.filter((booking: any) =>
+      this.hasBookingStarted(booking, now),
+    );
+
+    if (expiredPending.length === 0) {
+      return;
+    }
+
+    const expiredIds = expiredPending.map((booking: any) => booking._id);
+
+    await this.bookingModel
+      .updateMany(
+        {
+          _id: { $in: expiredIds },
+          status: 'pending',
+        },
+        {
+          $set: {
+            status: 'rejected',
+            rejectReason: BookingService.AUTO_REJECT_OVERDUE_REASON,
+          },
+        },
+      )
+      .exec();
+
+    this.eventsGateway.broadcastBookingUpdate('updated', {
+      reason: 'auto-rejected-overdue-pending-bookings',
+      count: expiredPending.length,
+    });
+  }
+
   private toDayRange(dateString: string): { start: Date; end: Date } {
     const date = this.toUTCDate(dateString);
     const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -366,11 +429,11 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     ]);
 
     if (!lecturer) {
-      throw new BadRequestException('Giảng viên không tồn tại trong campus hiện tại');
+        throw new BadRequestException('Lecturer does not exist in current campus');
     }
 
     if (!room) {
-      throw new BadRequestException('Phòng không tồn tại trong campus hiện tại');
+        throw new BadRequestException('Room does not exist in current campus');
     }
 
     const created = await this.bookingModel.create({
@@ -414,7 +477,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     this.validateTimeFormat(dto.endTime, 'endTime');
 
     if (dto.startTime >= dto.endTime) {
-      throw new BadRequestException('endTime phải lớn hơn startTime');
+      throw new BadRequestException('endTime must be later than startTime');
     }
 
     const room = await this.roomModel
@@ -429,12 +492,12 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       .exec();
 
     if (!room) {
-      throw new BadRequestException('Phòng không tồn tại hoặc không khả dụng');
+      throw new BadRequestException('Room does not exist or is unavailable');
     }
 
     const blockedSlots = this.normalizeBlockedSlots((room as any).blockedSlots);
     if (this.isBlockedBySlotConfig(dto.startTime, dto.endTime, blockedSlots)) {
-      throw new BadRequestException('Khung giờ này đã bị khóa cho phòng này');
+      throw new BadRequestException('This time range is blocked for this room');
     }
 
     const { start, end } = this.toDayRange(dto.bookingDate);
@@ -455,21 +518,31 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       .exec();
 
     if (conflict) {
-      throw new BadRequestException('Khung giờ này đã có người đặt phòng');
+      throw new BadRequestException('This time range has already been booked');
     }
+
+    const bookingDate = this.toUTCDate(dto.bookingDate);
+    const startDateTime = this.toDateTime(bookingDate, dto.startTime);
+    const isOverdueAtCreate = startDateTime ? startDateTime.getTime() <= Date.now() : false;
+
+    const status = isOverdueAtCreate ? 'rejected' : 'pending';
+    const rejectReason = isOverdueAtCreate
+      ? BookingService.AUTO_REJECT_OVERDUE_REASON
+      : null;
 
     const created = await this.bookingModel.create({
       campusId: new Types.ObjectId(campusId),
       roomId: new Types.ObjectId(dto.roomId),
       lecturerId: new Types.ObjectId(userId),
       requesterId: new Types.ObjectId(userId),
-      bookingDate: this.toUTCDate(dto.bookingDate),
-      dateStart: this.toUTCDate(dto.bookingDate),
-      dateEnd: this.toUTCDate(dto.bookingDate),
+      bookingDate,
+      dateStart: bookingDate,
+      dateEnd: bookingDate,
       startTime: dto.startTime,
       endTime: dto.endTime,
       purpose: dto.purpose,
-      status: 'pending',
+      status,
+      rejectReason,
       note: null,
       notes: null,
       createdBy: new Types.ObjectId(userId),
@@ -493,7 +566,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
   async cancelSelf(id: string, cancelReason: string, currentUser: any, campusFilter?: any) {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Booking ID không hợp lệ');
+        throw new BadRequestException('Invalid booking ID');
     }
 
     const campusId = this.resolveCampusId(currentUser, campusFilter);
@@ -505,24 +578,24 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!booking) {
-      throw new NotFoundException('Không tìm thấy booking');
+        throw new NotFoundException('Booking not found');
     }
 
     if (!this.isOwnBooking(booking, userId)) {
-      throw new NotFoundException('Không tìm thấy booking');
+        throw new NotFoundException('Booking not found');
     }
 
     if (booking.status !== 'pending') {
-      throw new BadRequestException('Chỉ có thể hủy booking đang chờ duyệt');
+        throw new BadRequestException('Only pending bookings can be cancelled');
     }
 
     const reason = (cancelReason || '').trim();
     if (!reason) {
-      throw new BadRequestException('Vui lòng nhập lý do hủy booking');
+        throw new BadRequestException('Please enter a cancellation reason');
     }
 
     if (reason.toLowerCase() === BookingService.LEGACY_AUTO_CANCEL_REASON) {
-      throw new BadRequestException('Vui lòng nhập lý do hủy cụ thể, không dùng nội dung mặc định');
+        throw new BadRequestException('Please provide a specific cancellation reason, not the default text');
     }
 
     booking.status = 'cancelled';
@@ -547,14 +620,14 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     const campusObjectId = new Types.ObjectId(campusId);
 
     if ((startTime || endTime) && !(startTime && endTime)) {
-      throw new BadRequestException('Cần truyền đủ startTime và endTime');
+      throw new BadRequestException('Both startTime and endTime are required');
     }
 
     if (startTime && endTime) {
       this.validateTimeFormat(startTime, 'startTime');
       this.validateTimeFormat(endTime, 'endTime');
       if (startTime >= endTime) {
-        throw new BadRequestException('endTime phải lớn hơn startTime');
+        throw new BadRequestException('endTime must be later than startTime');
       }
     }
 
@@ -855,7 +928,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
   async findOne(id: string, currentUser: any, campusFilter?: any) {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Booking ID không hợp lệ');
+      throw new BadRequestException('Invalid booking ID');
     }
 
     const campusId = this.resolveCampusId(currentUser, campusFilter);
@@ -870,7 +943,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       .exec();
 
     if (!booking) {
-      throw new NotFoundException('Không tìm thấy booking trong campus hiện tại');
+      throw new NotFoundException('Booking not found in current campus');
     }
 
     return this.normalizeBooking(booking.toObject());
@@ -878,7 +951,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
   async update(id: string, dto: UpdateBookingDto, currentUser: any, campusFilter?: any) {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Booking ID không hợp lệ');
+      throw new BadRequestException('Invalid booking ID');
     }
 
     const campusId = this.resolveCampusId(currentUser, campusFilter);
@@ -889,7 +962,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!booking) {
-      throw new NotFoundException('Không tìm thấy booking để cập nhật');
+      throw new NotFoundException('Booking to update was not found');
     }
 
     const previousStatus = booking.status;
@@ -897,7 +970,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
     if (dto.status === 'cancelled') {
       throw new BadRequestException(
-        'Trạng thái cancelled chỉ do người tạo booking hủy',
+        'Status cancelled can only be set by booking owner cancellation',
       );
     }
 
@@ -915,7 +988,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
         .lean()
         .exec();
       if (!room) {
-        throw new BadRequestException('Phòng không tồn tại trong campus hiện tại');
+        throw new BadRequestException('Room does not exist in current campus');
       }
     }
 
@@ -925,7 +998,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
         .lean()
         .exec();
       if (!lecturer) {
-        throw new BadRequestException('Giảng viên không tồn tại trong campus hiện tại');
+        throw new BadRequestException('Lecturer does not exist in current campus');
       }
     }
 
@@ -970,7 +1043,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     );
 
     if (!updateResult) {
-      throw new NotFoundException('Không tìm thấy booking để cập nhật');
+      throw new NotFoundException('Booking to update was not found');
     }
 
     const nextStatus = dto.status || previousStatus;
@@ -990,7 +1063,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
   async completeBooking(id: string, currentUser: any, campusFilter?: any) {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Booking ID không hợp lệ');
+        throw new BadRequestException('Invalid booking ID');
     }
 
     const campusId = this.resolveCampusId(currentUser, campusFilter);
@@ -1001,11 +1074,11 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!booking) {
-      throw new NotFoundException('Không tìm thấy booking để hoàn tất');
+        throw new NotFoundException('Booking to complete was not found');
     }
 
     if (booking.status !== 'approved') {
-      throw new BadRequestException('Chỉ booking đã duyệt mới có thể complete');
+        throw new BadRequestException('Only approved bookings can be completed');
     }
 
     booking.status = 'completed';
@@ -1021,7 +1094,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
   async remove(id: string, currentUser: any, campusFilter?: any) {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Booking ID không hợp lệ');
+      throw new BadRequestException('Invalid booking ID');
     }
 
     const campusId = this.resolveCampusId(currentUser, campusFilter);
@@ -1035,7 +1108,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       .exec();
 
     if (!deleted) {
-      throw new NotFoundException('Không tìm thấy booking để xóa');
+      throw new NotFoundException('Booking to delete was not found');
     }
 
     if (deleted.status === 'approved') {
