@@ -46,6 +46,7 @@ export class BookingController {
       query.bookingDate,
       query.startTime,
       query.endTime,
+      query.slotType,
     );
 
     return {
@@ -67,6 +68,7 @@ export class BookingController {
       user,
       request.campusFilter,
       query.bookingDate,
+      query.slotType,
     );
 
     return {

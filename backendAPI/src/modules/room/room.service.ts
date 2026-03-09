@@ -10,6 +10,7 @@ export class RoomService {
     @InjectModel(Room.name) private roomModel: Model<RoomDocument>,
   ) {}
 
+<<<<<<< HEAD
   private normalizeBlockedSlots(value?: number[]): number[] {
     if (!Array.isArray(value) || value.length === 0) {
       return [];
@@ -22,6 +23,49 @@ export class RoomService {
           .filter((slot) => Number.isInteger(slot) && slot >= 1 && slot <= 8),
       ),
     ).sort((a, b) => a - b);
+=======
+  private toObjectId(value: any): Types.ObjectId | null {
+    const raw = value?.toString?.() || value;
+    if (!raw || !Types.ObjectId.isValid(raw)) {
+      return null;
+    }
+
+    return new Types.ObjectId(raw);
+  }
+
+  async markReservedIfActive(roomId: any): Promise<void> {
+    const roomObjectId = this.toObjectId(roomId);
+    if (!roomObjectId) {
+      return;
+    }
+
+    await this.roomModel.updateOne(
+      {
+        _id: roomObjectId,
+        isActive: { $ne: false },
+      },
+      {
+        $set: { status: 'reserved' },
+      },
+    );
+  }
+
+  async markAvailableIfNotLocked(roomId: any): Promise<void> {
+    const roomObjectId = this.toObjectId(roomId);
+    if (!roomObjectId) {
+      return;
+    }
+
+    await this.roomModel.updateOne(
+      {
+        _id: roomObjectId,
+        status: { $nin: ['occupied', 'maintenance'] },
+      },
+      {
+        $set: { status: 'available' },
+      },
+    );
+>>>>>>> cbc82d4 ([Inter5] fix: Remove blockslot from room)
   }
 
   async create(createRoomDto: CreateRoomDto): Promise<Room> {
@@ -36,7 +80,6 @@ export class RoomService {
 
       const room = new this.roomModel({
         ...createRoomDto,
-        blockedSlots: this.normalizeBlockedSlots(createRoomDto.blockedSlots),
         campusId: new Types.ObjectId(createRoomDto.campusId),
       });
       
@@ -130,10 +173,6 @@ export class RoomService {
     }
 
     const updateData: any = { ...updateRoomDto };
-
-    if (updateRoomDto.blockedSlots !== undefined) {
-      updateData.blockedSlots = this.normalizeBlockedSlots(updateRoomDto.blockedSlots);
-    }
 
     if (updateRoomDto.campusId) {
       updateData.campusId = new Types.ObjectId(updateRoomDto.campusId);

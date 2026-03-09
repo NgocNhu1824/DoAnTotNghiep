@@ -84,6 +84,7 @@ export const bookingService = {
     bookingDate?: string;
     startTime?: string;
     endTime?: string;
+    slotType?: 'OLDSLOT' | 'NEWSLOT';
   }): Promise<BookingRoomOption[]> => {
     const query = new URLSearchParams();
     if (params?.bookingDate) query.append('bookingDate', params.bookingDate);
@@ -97,10 +98,17 @@ export const bookingService = {
     return res.data || [];
   },
 
+<<<<<<< HEAD
   getSelfGrid: async (params?: { bookingDate?: string }): Promise<LecturerBookingGrid> => {
     const query = new URLSearchParams();
     if (params?.bookingDate) query.append('bookingDate', params.bookingDate);
 
+=======
+  getSelfGrid: async (params?: {
+    bookingDate?: string;
+    slotType?: 'OLDSLOT' | 'NEWSLOT';
+  }): Promise<LecturerBookingGrid> => {
+>>>>>>> cbc82d4 ([Inter5] fix: Remove blockslot from room)
     const res = await api.get<{ success: boolean; data: LecturerBookingGrid }>(
       `/bookings/self/grid?${query.toString()}`,
     );

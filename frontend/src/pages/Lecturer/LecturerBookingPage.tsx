@@ -110,7 +110,10 @@ const LecturerBookingPage: React.FC = () => {
   const loadGrid = useCallback(async () => {
     try {
       setIsLoadingGrid(true);
-      const data = await bookingService.getSelfGrid({ bookingDate: selectedDate });
+      const data = await bookingService.getSelfGrid({
+        bookingDate: selectedDate,
+        slotType: selectedSlotType,
+      });
       setGrid(data);
     } catch (error: any) {
       toast({
@@ -121,7 +124,7 @@ const LecturerBookingPage: React.FC = () => {
     } finally {
       setIsLoadingGrid(false);
     }
-  }, [selectedDate, toast]);
+  }, [selectedDate, selectedSlotType, toast]);
 
   useEffect(() => {
     loadGrid();
@@ -170,9 +173,104 @@ const LecturerBookingPage: React.FC = () => {
       return booking.rejectReason?.trim() || 'No reason provided';
     }
 
+<<<<<<< HEAD
     if (booking.status === 'cancelled') {
       return getCancelReasonText(booking);
     }
+=======
+    const displaySlots =
+      grid.slots && grid.slots.length > 0
+        ? grid.slots
+        : selectedSlotType === 'NEWSLOT'
+          ? NEW_SLOT_DEFINITIONS
+          : OLD_SLOT_DEFINITIONS;
+
+    const bookingsByRoom = new Map<string, NonNullable<LecturerBookingGrid['bookings']>>();
+    (grid.bookings || []).forEach((booking) => {
+      const list = bookingsByRoom.get(booking.roomId) || [];
+      list.push(booking);
+      bookingsByRoom.set(booking.roomId, list);
+    });
+
+    return grid.rooms.map((room) => {
+      const roomBookings = bookingsByRoom.get(room.roomId) || [];
+      const isHardBlocked =
+        room.status === 'maintenance' || room.status === 'occupied' || room.isActive === false;
+
+      const cells: LecturerGridCell[] = displaySlots.map((slot) => {
+        if (isHardBlocked) {
+          return {
+            slotNumber: slot.slotNumber,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            state: 'blocked',
+            symbol: 'x',
+            message: getRoomBlockedMessage(room),
+            booking: null,
+          };
+        }
+
+        const conflict = roomBookings.find((booking) =>
+          timeOverlaps(slot.startTime, slot.endTime, booking.startTime, booking.endTime),
+        );
+
+        if (conflict) {
+          return {
+            slotNumber: slot.slotNumber,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            state: 'booked',
+            symbol: 'i',
+            message: `${conflict.lecturerName} booked this slot (${conflict.startTime}-${conflict.endTime})`,
+            booking: {
+              bookingId: conflict.bookingId,
+              status: conflict.status,
+              purpose: conflict.purpose,
+              lecturerName: conflict.lecturerName,
+              startTime: conflict.startTime,
+              endTime: conflict.endTime,
+            },
+          };
+        }
+
+        if (isBookingWindowClosed(selectedDate, slot.startTime)) {
+          return {
+            slotNumber: slot.slotNumber,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            state: 'blocked',
+            symbol: 'x',
+            message: `Booking must be created at least ${BOOKING_LEAD_MINUTES} minutes before class start`,
+            booking: null,
+          };
+        }
+
+        return {
+          slotNumber: slot.slotNumber,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          state: 'available',
+          symbol: '+',
+          message: 'Available for booking',
+          booking: null,
+        };
+      });
+
+      return {
+        ...room,
+        cells,
+      };
+    });
+  }, [grid, selectedDate, selectedSlotType]);
+
+  const displaySlots = useMemo(() => {
+    if (grid?.slots && grid.slots.length > 0) {
+      return grid.slots;
+    }
+
+    return selectedSlotType === 'NEWSLOT' ? NEW_SLOT_DEFINITIONS : OLD_SLOT_DEFINITIONS;
+  }, [grid?.slots, selectedSlotType]);
+>>>>>>> cbc82d4 ([Inter5] fix: Remove blockslot from room)
 
     return 'No reason provided';
   };

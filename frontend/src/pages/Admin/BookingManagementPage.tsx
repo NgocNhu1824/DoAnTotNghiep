@@ -95,12 +95,12 @@ const compareBookingsByPriority = (a: Booking, b: Booking): number => {
     return priorityA - priorityB;
   }
 
-  const timeDiff = getBookingSortTimestamp(a) - getBookingSortTimestamp(b);
+  const timeDiff = getBookingSortTimestamp(b) - getBookingSortTimestamp(a);
   if (timeDiff !== 0) {
     return timeDiff;
   }
 
-  return a._id.localeCompare(b._id);
+  return b._id.localeCompare(a._id);
 };
 
 const BookingManagementPage: React.FC = () => {

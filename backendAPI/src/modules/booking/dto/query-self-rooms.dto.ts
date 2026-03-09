@@ -1,4 +1,4 @@
-import { IsDateString, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class QuerySelfRoomsDto {
   @IsOptional()
@@ -14,4 +14,9 @@ export class QuerySelfRoomsDto {
   @IsString()
   @MaxLength(5)
   endTime?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['OLDSLOT', 'NEWSLOT'])
+  slotType?: 'OLDSLOT' | 'NEWSLOT';
 }
