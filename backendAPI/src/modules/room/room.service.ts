@@ -10,20 +10,6 @@ export class RoomService {
     @InjectModel(Room.name) private roomModel: Model<RoomDocument>,
   ) {}
 
-<<<<<<< HEAD
-  private normalizeBlockedSlots(value?: number[]): number[] {
-    if (!Array.isArray(value) || value.length === 0) {
-      return [];
-    }
-
-    return Array.from(
-      new Set(
-        value
-          .map((slot) => Number(slot))
-          .filter((slot) => Number.isInteger(slot) && slot >= 1 && slot <= 8),
-      ),
-    ).sort((a, b) => a - b);
-=======
   private toObjectId(value: any): Types.ObjectId | null {
     const raw = value?.toString?.() || value;
     if (!raw || !Types.ObjectId.isValid(raw)) {
@@ -65,7 +51,6 @@ export class RoomService {
         $set: { status: 'available' },
       },
     );
->>>>>>> cbc82d4 ([Inter5] fix: Remove blockslot from room)
   }
 
   async create(createRoomDto: CreateRoomDto): Promise<Room> {

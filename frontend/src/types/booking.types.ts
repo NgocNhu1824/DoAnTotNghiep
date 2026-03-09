@@ -118,6 +118,16 @@ export interface LecturerGridBookingInfo {
   endTime: string;
 }
 
+export interface LecturerGridBookingRow {
+  bookingId: string;
+  roomId: string;
+  status: BookingStatus;
+  purpose: string;
+  lecturerName: string;
+  startTime: string;
+  endTime: string;
+}
+
 export interface LecturerGridCell {
   slotNumber: number;
   startTime: string;
@@ -136,12 +146,14 @@ export interface LecturerGridRoomRow {
   floor?: number;
   capacity?: number;
   status?: string;
-  cells: LecturerGridCell[];
+  isActive?: boolean;
+  cells?: LecturerGridCell[];
 }
 
 export interface LecturerBookingGrid {
   bookingDate: string;
-  slotType: 'OLDSLOT';
+  slotType: 'OLDSLOT' | 'NEWSLOT';
   slots: LecturerGridSlot[];
   rooms: LecturerGridRoomRow[];
+  bookings?: LecturerGridBookingRow[];
 }

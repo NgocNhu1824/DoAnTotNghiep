@@ -19,6 +19,7 @@ import DeviceManagementPage from '../pages/Admin/DeviceManagementPage';
 import UserProfilePage from '../pages/Admin/UserProfilePage';
 import BookingManagementPage from '../pages/Admin/BookingManagementPage';
 import LecturerBookingPage from '../pages/Lecturer/LecturerBookingPage';
+import LecturerBookingHistoryPage from '../pages/Lecturer/LecturerBookingHistoryPage';
 
 
 const AppRoutes: React.FC = () => {
@@ -154,6 +155,21 @@ const AppRoutes: React.FC = () => {
               >
                 <AdminLayout>
                   <LecturerBookingPage />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/lecturer/booking-history"
+            element={
+              <ProtectedRoute
+                allowedRoleCodes={['LECTURER']}
+                requiredScopes={['SELF']}
+                requiredPermissions={[PERMISSIONS.BOOKINGS_READ]}
+              >
+                <AdminLayout>
+                  <LecturerBookingHistoryPage />
                 </AdminLayout>
               </ProtectedRoute>
             }

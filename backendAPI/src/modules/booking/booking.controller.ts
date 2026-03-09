@@ -27,8 +27,6 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator';
 
 @Controller('bookings')
 @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard, ScopeGuard)
-@RequirePermissions('bookings.manage')
-@RequireScopes('CAMPUS')
 export class BookingController {
   constructor(private readonly bookingService: BookingService) {}
 
@@ -127,6 +125,8 @@ export class BookingController {
   }
 
   @Post()
+  @RequirePermissions('bookings.manage')
+  @RequireScopes('CAMPUS', 'GLOBAL')
   async create(
     @Body() dto: CreateBookingDto,
     @CurrentUser() user: any,
@@ -141,6 +141,8 @@ export class BookingController {
   }
 
   @Get()
+  @RequirePermissions('bookings.manage')
+  @RequireScopes('CAMPUS', 'GLOBAL')
   async findAll(
     @Query() query: QueryBookingDto,
     @CurrentUser() user: any,
@@ -155,6 +157,8 @@ export class BookingController {
   }
 
   @Get(':id')
+  @RequirePermissions('bookings.manage')
+  @RequireScopes('CAMPUS', 'GLOBAL')
   async findOne(@Param('id') id: string, @CurrentUser() user: any, @Req() request: any) {
     const data = await this.bookingService.findOne(id, user, request.campusFilter);
     return {
@@ -164,6 +168,8 @@ export class BookingController {
   }
 
   @Patch(':id')
+  @RequirePermissions('bookings.manage')
+  @RequireScopes('CAMPUS', 'GLOBAL')
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateBookingDto,
@@ -179,6 +185,8 @@ export class BookingController {
   }
 
   @Patch(':id/complete')
+  @RequirePermissions('bookings.manage')
+  @RequireScopes('CAMPUS', 'GLOBAL')
   async complete(@Param('id') id: string, @CurrentUser() user: any, @Req() request: any) {
     const data = await this.bookingService.completeBooking(id, user, request.campusFilter);
     return {
@@ -189,6 +197,8 @@ export class BookingController {
   }
 
   @Delete(':id')
+  @RequirePermissions('bookings.manage')
+  @RequireScopes('CAMPUS', 'GLOBAL')
   async remove(@Param('id') id: string, @CurrentUser() user: any, @Req() request: any) {
     await this.bookingService.remove(id, user, request.campusFilter);
     return {

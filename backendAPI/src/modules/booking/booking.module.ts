@@ -6,20 +6,14 @@ import { Booking, BookingSchema } from '@/database/schemas/booking.schema';
 import { User, UserSchema } from '@/database/schemas/user.schema';
 import { Room, RoomSchema } from '@/database/schemas/room.schema';
 import { GatewaysModule } from '@/common/gateways/gateways.module';
-<<<<<<< HEAD
-=======
 import { RoomModule } from '@/modules/room/room.module';
 import { TimeSlotsModule } from '@/modules/time-slots/time-slots.module';
->>>>>>> cbc82d4 ([Inter5] fix: Remove blockslot from room)
 
 @Module({
   imports: [
     GatewaysModule,
-<<<<<<< HEAD
-=======
     RoomModule,
     TimeSlotsModule,
->>>>>>> cbc82d4 ([Inter5] fix: Remove blockslot from room)
     MongooseModule.forFeature([
       { name: Booking.name, schema: BookingSchema },
       { name: User.name, schema: UserSchema },
