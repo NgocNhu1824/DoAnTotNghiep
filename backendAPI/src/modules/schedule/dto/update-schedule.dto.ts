@@ -1,4 +1,4 @@
-import { IsOptional, IsDateString, IsEnum, IsString, IsNumber, Min, Max, IsMongoId } from 'class-validator';
+import { IsOptional, IsDateString, IsEnum, IsString, IsNumber, Min, Max, IsMongoId, IsBoolean } from 'class-validator';
 
 export class UpdateScheduleDto {
   @IsOptional()
@@ -54,4 +54,8 @@ export class UpdateScheduleDto {
   @IsOptional()
   @IsEnum(['scheduled', 'ongoing', 'completed', 'cancelled'])
   status?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isOnline?: boolean;
 }

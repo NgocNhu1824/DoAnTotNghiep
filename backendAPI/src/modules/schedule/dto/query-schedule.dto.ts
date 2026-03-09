@@ -1,4 +1,4 @@
-import { IsOptional, IsDateString, IsString, IsEnum } from 'class-validator';
+import { IsOptional, IsDateString, IsString, IsEnum, IsBooleanString } from 'class-validator';
 
 export class QueryScheduleDto {
   @IsOptional()
@@ -32,4 +32,8 @@ export class QueryScheduleDto {
   @IsOptional()
   @IsString()
   classCode?: string;
+
+  @IsOptional()
+  @IsBooleanString()
+  isOnline?: string;
 }

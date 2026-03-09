@@ -49,7 +49,7 @@ function getWeeksOfYear(year: number): WeekRange[] {
     const end = new Date(d);
     end.setDate(start.getDate() + 6);
     weeks.push({
-      label: `${start.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} - ${end.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}`,
+      label: `${start.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} to ${end.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}`,
       start,
       end,
     });
@@ -198,7 +198,7 @@ const LecturerSchedulePage: React.FC = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
+    <div className="space-y-6">
       <Card className="p-5 border border-gray-200 rounded-lg">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
@@ -269,9 +269,9 @@ const LecturerSchedulePage: React.FC = () => {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="min-w-full border border-gray-300 border-collapse text-sm shadow-md rounded-lg overflow-hidden">
+              <table className="min-w-full border border-gray-300 border-collapse text-sm shadow-md rounded-lg">
                 <thead>
-                  <tr className="bg-gray-100">
+                  <tr className="bg-white-300">
                     <th className="py-2 px-4 text-center border border-gray-300">Slot</th>
                     {weekDates.map((date, idx) => {
                       const weekday = date.getDay() === 0 ? 6 : date.getDay() - 1;
@@ -307,9 +307,19 @@ const LecturerSchedulePage: React.FC = () => {
                                 }}
                               >
                                 <div className="space-y-1 text-center">
-                                  <div className="font-semibold text-primary text-sm">{cell.classCode || '-'}</div>
-                                  <div className="text-xs text-muted-foreground">{cell.subjectName || '-'}</div>
-                                  <div className="text-xs text-muted-foreground">{typeof cell.roomId === 'object' ? cell.roomId.roomName || cell.roomId.roomCode : cell.roomId}</div>
+                                  <div className="font-semibold text-primary text-sm">
+                                    {cell.classCode || '-'}_{cell.subjectCode || '-'}
+                                  </div>
+                                  <div
+                                    className={`inline-flex items-center rounded px-2 py-0.5 text-[16px] font-medium ${
+                                      cell.isOnline
+                                        ? 'bg-green-100 text-green-700'
+                                        : 'bg-gray-100 text-gray-700'
+                                    }`}
+                                  >
+                                    {cell.isOnline ? 'Online' : 'Offline'}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">at {typeof cell.roomId === 'object' ? cell.roomId.roomCode : cell.roomId}</div>
                                   <div className="text-xs text-muted-foreground">{cell.startTime} - {cell.endTime}</div>
                                 </div>
                               </button>
@@ -343,6 +353,7 @@ const LecturerSchedulePage: React.FC = () => {
                 <div className="font-semibold text-blue-700 mb-1">Class Code: <span className="font-normal text-gray-900">{detailSchedule.classCode || '-'}</span></div>
                 <div className="font-semibold text-blue-700 mb-1">Subject Code: <span className="font-normal text-gray-900">{detailSchedule.subjectCode || '-'}</span></div>
                 <div className="font-semibold text-blue-700 mb-1">Subject Name: <span className="font-normal text-gray-900">{detailSchedule.subjectName || '-'}</span></div>
+                <div className="font-semibold text-blue-700 mb-1">Type: <span className="font-normal text-gray-900">{detailSchedule.isOnline ? 'Online' : 'Offline'}</span></div>
                 <div className="font-semibold text-blue-700 mt-2 mb-1">Room Information</div>
                 <div className="ml-2">Room Code: <span className="text-gray-900">{typeof detailSchedule.roomId === 'object' ? detailSchedule.roomId.roomCode : detailSchedule.roomId || '-'}</span></div>
                 <div className="ml-2">Room Name: <span className="text-gray-900">{typeof detailSchedule.roomId === 'object' ? detailSchedule.roomId.roomName : '-'}</span></div>
@@ -356,6 +367,7 @@ const LecturerSchedulePage: React.FC = () => {
                 <div className="ml-2">Start Time: <span className="text-gray-900">{detailSchedule.startTime || '-'}</span></div>
                 <div className="ml-2">End Time: <span className="text-gray-900">{detailSchedule.endTime || '-'}</span></div>
                 <div className="ml-2">Semester: <span className="text-gray-900">{detailSchedule.semester || '-'}</span></div>
+                <div className="ml-2">Mode: <span className="text-gray-900">{detailSchedule.isOnline ? 'Online' : 'Offline'}</span></div>
                 <div className="ml-2">Status: <span className="text-gray-900">{detailSchedule.status || '-'}</span></div>
               </div>
             </div>

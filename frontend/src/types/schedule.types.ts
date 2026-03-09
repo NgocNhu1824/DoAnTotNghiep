@@ -2,7 +2,7 @@ export interface Schedule {
   _id: string;
   id?: string; // For compatibility
   campusId: string;
-  roomId: string | {
+  roomId?: string | {
     _id: string;
     roomCode: string;
     roomName: string;
@@ -26,6 +26,7 @@ export interface Schedule {
   semester?: string;
   status: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
   source?: 'manual' | 'imported' | 'api';
+  isOnline?: boolean;
   createdBy?: string | {
     _id: string;
     fullName: string;
@@ -52,6 +53,7 @@ export interface CreateScheduleDto {
   semester?: string;
   status?: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
   source?: 'manual' | 'imported' | 'api';
+  isOnline?: boolean;
 }
 
 export interface UpdateScheduleDto {
@@ -69,6 +71,7 @@ export interface UpdateScheduleDto {
   subjectName?: string;
   semester?: string;
   status?: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
+  isOnline?: boolean;
 }
 
 export interface QueryScheduleDto {
@@ -81,6 +84,7 @@ export interface QueryScheduleDto {
   slotType?: 'OLDSLOT' | 'NEWSLOT';
   classCode?: string;
   campusId?: string;
+  isOnline?: 'true' | 'false';
 }
 
 export interface ScheduleStatistics {

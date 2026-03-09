@@ -6,8 +6,8 @@ export class Schedule extends Document {
   @Prop({ type: Types.ObjectId, ref: 'Campus', required: true })
   campusId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Room', required: true })
-  roomId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Room'})
+  roomId?: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   lecturerId: Types.ObjectId;
@@ -63,6 +63,9 @@ export class Schedule extends Document {
   })
   source: string;
 
+  @Prop({ type: Boolean, default: false })
+  isOnline: boolean;
+
   @Prop({ type: Types.ObjectId, ref: 'User' })
   createdBy: Types.ObjectId;
 }
@@ -83,3 +86,4 @@ ScheduleSchema.index(
 ScheduleSchema.index({ campusId: 1, dateStart: 1 });
 ScheduleSchema.index({ campusId: 1, semester: 1 });
 ScheduleSchema.index({ campusId: 1, status: 1 });
+ScheduleSchema.index({ campusId: 1, isOnline: 1 });

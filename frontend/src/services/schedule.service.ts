@@ -10,6 +10,7 @@ export interface QueryScheduleParams {
   status?: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
   slotType?: 'OLDSLOT' | 'NEWSLOT';
   classCode?: string;
+  isOnline?: 'true' | 'false';
 }
 
 export interface CreateScheduleDto {
@@ -26,6 +27,7 @@ export interface CreateScheduleDto {
   subjectCode?: string;
   subjectName?: string;
   semester?: string;
+  isOnline?: boolean;
 }
 
 export interface UpdateScheduleDto {
@@ -43,6 +45,7 @@ export interface UpdateScheduleDto {
   subjectName?: string;
   semester?: string;
   status?: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
+  isOnline?: boolean;
 }
 
 export interface ImportScheduleResponse {
@@ -92,6 +95,7 @@ export const scheduleService = {
     if (params?.status) queryParams.append('status', params.status);
     if (params?.slotType) queryParams.append('slotType', params.slotType);
     if (params?.classCode) queryParams.append('classCode', params.classCode);
+    if (params?.isOnline !== undefined) queryParams.append('isOnline', params.isOnline);
 
     const res = await api.get<{ success: boolean; data: Schedule[]; total?: number }>(
       `/schedules?${queryParams.toString()}`

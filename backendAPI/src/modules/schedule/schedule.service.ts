@@ -148,6 +148,7 @@ export class ScheduleService {
         semester: row.semester || null,
         status: 'scheduled',
         source: 'imported',
+        isOnline: ImportValidatorHelper.parseBooleanValue(row.isonline, false),
         createdBy: user._id,
       };
     });
@@ -373,6 +374,14 @@ export class ScheduleService {
     if (query.status) filter.status = query.status;
     if (query.slotType) filter.slotType = query.slotType;
     if (query.classCode) filter.classCode = query.classCode;
+    if (query.isOnline !== undefined) {
+      const isOnline = ImportValidatorHelper.parseBooleanValue(query.isOnline);
+      if (isOnline === true) {
+        filter.isOnline = true;
+      } else if (isOnline === false) {
+        filter.$or = [{ isOnline: false }, { isOnline: { $exists: false } }];
+      }
+    }
 
     return this.scheduleModel
       .find(filter)

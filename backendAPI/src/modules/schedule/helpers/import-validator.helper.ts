@@ -193,6 +193,18 @@ export class ImportValidatorHelper {
           });
         }
       }
+
+      if (row.isonline !== undefined && row.isonline !== '') {
+        const parsed = this.parseBooleanValue(row.isonline);
+        if (parsed === undefined) {
+          errors.push({
+            rowIndex,
+            field: 'isOnline',
+            code: 'INVALID_VALUE',
+            message: 'isOnline phải là true/false (hoặc 1/0, yes/no)',
+          });
+        }
+      }
     });
 
     return errors;
@@ -209,5 +221,33 @@ export class ImportValidatorHelper {
     const minutes = parts[1].padStart(2, '0');
     
     return `${hours}:${minutes}`;
+  }
+
+  static parseBooleanValue(
+    value: unknown,
+    defaultValue?: boolean,
+  ): boolean | undefined {
+    if (value === undefined || value === null || value === '') {
+      return defaultValue;
+    }
+
+    if (typeof value === 'boolean') {
+      return value;
+    }
+
+    if (typeof value === 'number') {
+      if (value === 1) return true;
+      if (value === 0) return false;
+      return undefined;
+    }
+
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+      return undefined;
+    }
+
+    return undefined;
   }
 }
