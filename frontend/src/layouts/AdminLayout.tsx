@@ -125,10 +125,17 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     path: '/lecturer/demo-self',
   };
 
+  const lecturerScheduleMenuItem = {
+    id: 'lecturer-schedules',
+    label: 'My Schedule',
+    icon: BookOpen,
+    path: '/lecturer/schedules',
+  };
+
   let menuItems = baseMenuItems;
 
   if (userScope === 'SELF') {
-    menuItems = [lecturerDemoMenuItem];
+    menuItems = [lecturerDemoMenuItem, lecturerScheduleMenuItem];
   } else if (userScope === 'CAMPUS') {
     menuItems = baseMenuItems;
   } else {
