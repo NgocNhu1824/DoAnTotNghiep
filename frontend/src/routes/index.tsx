@@ -166,7 +166,7 @@ const AppRoutes: React.FC = () => {
             element={
               <ProtectedRoute 
                 requiredPermissions={[PERMISSIONS.BOOKINGS_MANAGE]}
-                requiredScopes={['CAMPUS']}
+                requiredScopes={['CAMPUS', 'GLOBAL']}
               >
                 <AdminLayout>
                   <BookingManagementPage />

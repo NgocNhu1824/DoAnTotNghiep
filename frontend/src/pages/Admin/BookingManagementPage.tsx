@@ -64,6 +64,45 @@ const formatBookingDate = (value: unknown): string => {
   return format(parsed, 'dd/MM/yyyy', { locale: vi });
 };
 
+const getBookingSortTimestamp = (booking: Booking): number => {
+  if (booking.createdAt) {
+    const createdAt = new Date(booking.createdAt);
+    if (!Number.isNaN(createdAt.getTime())) {
+      return createdAt.getTime();
+    }
+  }
+
+  const bookingDate = new Date(booking.bookingDate);
+  if (Number.isNaN(bookingDate.getTime())) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const [hourText, minuteText] = (booking.startTime || '').split(':');
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  if (Number.isInteger(hour) && Number.isInteger(minute)) {
+    bookingDate.setHours(hour, minute, 0, 0);
+  }
+
+  return bookingDate.getTime();
+};
+
+const compareBookingsByPriority = (a: Booking, b: Booking): number => {
+  const priorityA = a.status === 'pending' ? 0 : 1;
+  const priorityB = b.status === 'pending' ? 0 : 1;
+
+  if (priorityA !== priorityB) {
+    return priorityA - priorityB;
+  }
+
+  const timeDiff = getBookingSortTimestamp(a) - getBookingSortTimestamp(b);
+  if (timeDiff !== 0) {
+    return timeDiff;
+  }
+
+  return a._id.localeCompare(b._id);
+};
+
 const BookingManagementPage: React.FC = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,7 +152,8 @@ const BookingManagementPage: React.FC = () => {
   }, [fetchBookings]);
 
   const filteredBookings = useMemo(() => {
-    return bookings.filter((booking) => {
+    return bookings
+      .filter((booking) => {
       const matchStatus = statusFilter === 'all' ? true : booking.status === statusFilter;
 
       const keyword = searchLecturer.trim().toLowerCase();
@@ -128,8 +168,9 @@ const BookingManagementPage: React.FC = () => {
         lecturerEmail.includes(keyword) ||
         booking.purpose.toLowerCase().includes(keyword);
 
-      return matchStatus && matchSearch;
-    });
+        return matchStatus && matchSearch;
+      })
+      .sort(compareBookingsByPriority);
   }, [bookings, statusFilter, searchLecturer]);
 
   const statistics = useMemo(() => {
