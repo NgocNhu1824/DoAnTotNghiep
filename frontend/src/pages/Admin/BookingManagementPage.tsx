@@ -49,7 +49,58 @@ const STATUS_LABEL: Record<BookingStatus, string> = {
   cancelled: 'Cancelled',
 };
 
+const OLD_SLOT_DEFINITIONS = [
+  { slot: 1, startTime: '07:00', endTime: '08:30' },
+  { slot: 2, startTime: '08:45', endTime: '10:15' },
+  { slot: 3, startTime: '10:30', endTime: '12:00' },
+  { slot: 4, startTime: '12:45', endTime: '14:15' },
+  { slot: 5, startTime: '14:30', endTime: '16:00' },
+  { slot: 6, startTime: '16:15', endTime: '17:45' },
+  { slot: 7, startTime: '18:00', endTime: '19:30' },
+  { slot: 8, startTime: '19:45', endTime: '21:15' },
+] as const;
+
+const NEW_SLOT_DEFINITIONS = [
+  { slot: 1, startTime: '07:00', endTime: '09:15' },
+  { slot: 2, startTime: '09:30', endTime: '11:45' },
+  { slot: 3, startTime: '13:00', endTime: '15:15' },
+  { slot: 4, startTime: '15:30', endTime: '17:45' },
+  { slot: 5, startTime: '18:00', endTime: '20:15' },
+] as const;
+
+const getTimeSlotMeta = (startTime: string, endTime: string): { type: string; slot: string } => {
+  const oldMatch = OLD_SLOT_DEFINITIONS.find(
+    (item) => item.startTime === startTime && item.endTime === endTime,
+  );
+  if (oldMatch) {
+    return { type: 'old slot', slot: String(oldMatch.slot) };
+  }
+
+  const newMatch = NEW_SLOT_DEFINITIONS.find(
+    (item) => item.startTime === startTime && item.endTime === endTime,
+  );
+  if (newMatch) {
+    return { type: 'new slot', slot: String(newMatch.slot) };
+  }
+
+  return { type: 'custom', slot: '--' };
+};
+
 const LEGACY_AUTO_CANCEL_REASON = 'lecturer đã hủy booking';
+const DETAIL_TEXT_LIMIT = 500;
+
+const getLimitedDetailText = (value: string, fallback = 'No details provided'): string => {
+  const text = (value || '').trim();
+  if (!text) {
+    return fallback;
+  }
+
+  if (text.length <= DETAIL_TEXT_LIMIT) {
+    return text;
+  }
+
+  return `${text.slice(0, DETAIL_TEXT_LIMIT)}...`;
+};
 
 const formatBookingDate = (value: unknown): string => {
   if (!value) {
@@ -112,8 +163,10 @@ const BookingManagementPage: React.FC = () => {
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [reasonDetailDialogOpen, setReasonDetailDialogOpen] = useState(false);
+  const [purposeDetailDialogOpen, setPurposeDetailDialogOpen] = useState(false);
   const [actionBooking, setActionBooking] = useState<Booking | null>(null);
   const [reasonDetailBooking, setReasonDetailBooking] = useState<Booking | null>(null);
+  const [purposeDetailBooking, setPurposeDetailBooking] = useState<Booking | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectReasonError, setRejectReasonError] = useState('');
   const { toast } = useToast();
@@ -447,16 +500,16 @@ const BookingManagementPage: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
-                  <TableHead>Time</TableHead>
+                  <TableHead>Time Slot</TableHead>
                   <TableHead>Room</TableHead>
                   <TableHead>Lecturer</TableHead>
                   <TableHead>Purpose</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Reason</TableHead>
+                  <TableHead>Reason Rejected</TableHead>
                   <TableHead className="min-w-[190px] text-center">Processing</TableHead>
                   <TableHead className="w-[84px] text-center">Delete</TableHead>
                 </TableRow>
@@ -484,17 +537,34 @@ const BookingManagementPage: React.FC = () => {
                         <TableCell>
                           {formatBookingDate(booking.bookingDate)}
                         </TableCell>
-                        <TableCell>{booking.startTime} - {booking.endTime}</TableCell>
                         <TableCell>
-                          <div className="font-medium">{room?.roomCode || 'N/A'}</div>
-                          <div className="text-xs text-muted-foreground">{room?.roomName || ''}</div>
+                          <div className="font-medium">{booking.startTime} - {booking.endTime}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {(() => {
+                              const meta = getTimeSlotMeta(booking.startTime, booking.endTime);
+                              return `type: ${meta.type}; slot: ${meta.slot}`;
+                            })()}
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-[220px]">
+                          <div className="font-medium truncate" title={room?.roomCode || 'N/A'}>{room?.roomCode || 'N/A'}</div>
+                          <div className="text-xs text-muted-foreground truncate" title={room?.roomName || ''}>{room?.roomName || ''}</div>
+                        </TableCell>
+                        <TableCell className="max-w-[240px]">
+                          <div className="font-medium truncate" title={lecturer?.fullName || 'N/A'}>{lecturer?.fullName || 'N/A'}</div>
+                          <div className="text-xs text-muted-foreground truncate" title={lecturer?.email || ''}>{lecturer?.email || ''}</div>
                         </TableCell>
                         <TableCell>
-                          <div className="font-medium">{lecturer?.fullName || 'N/A'}</div>
-                          <div className="text-xs text-muted-foreground">{lecturer?.email || ''}</div>
-                        </TableCell>
-                        <TableCell className="max-w-xs truncate" title={booking.purpose}>
-                          {booking.purpose}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setPurposeDetailBooking(booking);
+                              setPurposeDetailDialogOpen(true);
+                            }}
+                          >
+                            View details
+                          </Button>
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className={STATUS_COLOR[booking.status]}>
@@ -680,8 +750,8 @@ const BookingManagementPage: React.FC = () => {
               </div>
               <div className="space-y-2">
                 <p className="text-muted-foreground">Reason</p>
-                <div className="max-h-52 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                  {getBookingReason(reasonDetailBooking)}
+                <div className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                  {getLimitedDetailText(getBookingReason(reasonDetailBooking))}
                 </div>
               </div>
             </div>
@@ -693,6 +763,49 @@ const BookingManagementPage: React.FC = () => {
               onClick={() => {
                 setReasonDetailDialogOpen(false);
                 setReasonDetailBooking(null);
+              }}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={purposeDetailDialogOpen} onOpenChange={setPurposeDetailDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Purpose Details</DialogTitle>
+          </DialogHeader>
+
+          {purposeDetailBooking && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-3 gap-2">
+                <span className="text-muted-foreground">Lecturer</span>
+                <span className="col-span-2 min-w-0 break-all font-medium">
+                  {typeof purposeDetailBooking.lecturerId === 'object'
+                    ? `${purposeDetailBooking.lecturerId.fullName} (${purposeDetailBooking.lecturerId.email})`
+                    : 'N/A'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <span className="text-muted-foreground">Booking date</span>
+                <span className="col-span-2 font-medium">{formatBookingDate(purposeDetailBooking.bookingDate)}</span>
+              </div>
+              <div className="space-y-2">
+                <p className="text-muted-foreground">Purpose</p>
+                <div className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                  {getLimitedDetailText(purposeDetailBooking.purpose)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPurposeDetailDialogOpen(false);
+                setPurposeDetailBooking(null);
               }}
             >
               Close

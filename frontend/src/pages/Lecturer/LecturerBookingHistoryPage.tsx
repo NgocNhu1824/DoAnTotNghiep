@@ -20,6 +20,20 @@ import { useAuth } from '@/context/AuthContext';
 import BookingHistoryTable from '@/components/common/BookingHistoryTable';
 
 const LEGACY_AUTO_CANCEL_REASON = 'lecturer cancel booking';
+const DETAIL_TEXT_LIMIT = 500;
+
+const getLimitedDetailText = (value: string, fallback = 'No reason provided'): string => {
+  const text = (value || '').trim();
+  if (!text) {
+    return fallback;
+  }
+
+  if (text.length <= DETAIL_TEXT_LIMIT) {
+    return text;
+  }
+
+  return `${text.slice(0, DETAIL_TEXT_LIMIT)}...`;
+};
 
 const formatDateCell = (dateValue: string): string => {
   const parsed = new Date(dateValue);
@@ -265,7 +279,7 @@ const LecturerBookingHistoryPage: React.FC = () => {
               <div className="space-y-2">
                 <p className="text-muted-foreground">Reason</p>
                 <div className="max-h-52 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                  {getBookingReason(reasonDetailBooking)}
+                  {getLimitedDetailText(getBookingReason(reasonDetailBooking))}
                 </div>
               </div>
             </div>

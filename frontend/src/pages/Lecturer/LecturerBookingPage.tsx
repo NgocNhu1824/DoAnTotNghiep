@@ -4,12 +4,14 @@ import { CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/AuthContext';
 import bookingService from '@/services/booking.service';
+import { scheduleService } from '@/services/schedule.service';
 import wsService from '@/services/websocket.service';
 import {
   LecturerBookingGrid,
   LecturerGridCell,
   LecturerGridRoomRow,
 } from '@/types/booking.types';
+import { Schedule } from '@/types/schedule.types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -112,6 +114,7 @@ const LecturerBookingPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>(toDateInputValue());
   const [selectedSlotType, setSelectedSlotType] = useState<'OLDSLOT' | 'NEWSLOT'>('NEWSLOT');
   const [grid, setGrid] = useState<LecturerBookingGrid | null>(null);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
 
   const [isLoadingGrid, setIsLoadingGrid] = useState(false);
   const [deviceModalOpen, setDeviceModalOpen] = useState(false);
@@ -122,11 +125,20 @@ const LecturerBookingPage: React.FC = () => {
   const loadGrid = useCallback(async () => {
     try {
       setIsLoadingGrid(true);
-      const data = await bookingService.getSelfGrid({
-        bookingDate: selectedDate,
-        slotType: selectedSlotType,
-      });
-      setGrid(data);
+      const [gridData, scheduleRows] = await Promise.all([
+        bookingService.getSelfGrid({
+          bookingDate: selectedDate,
+          slotType: selectedSlotType,
+        }),
+        scheduleService.getAll({
+          startDate: selectedDate,
+          endDate: selectedDate,
+          slotType: selectedSlotType,
+        }),
+      ]);
+
+      setGrid(gridData);
+      setSchedules(Array.isArray(scheduleRows) ? scheduleRows : []);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -203,8 +215,27 @@ const LecturerBookingPage: React.FC = () => {
       bookingsByRoom.set(booking.roomId, list);
     });
 
+    const isScheduleActive = (status?: string): boolean => {
+      return status === 'scheduled' || status === 'ongoing';
+    };
+
+    const getScheduleRoomId = (schedule: Schedule): string => {
+      if (!schedule.roomId) {
+        return '';
+      }
+
+      if (typeof schedule.roomId === 'string') {
+        return schedule.roomId;
+      }
+
+      return schedule.roomId._id || '';
+    };
+
     return grid.rooms.map((room) => {
       const roomBookings = bookingsByRoom.get(room.roomId) || [];
+      const roomSchedules = schedules.filter(
+        (item) => getScheduleRoomId(item) === room.roomId && isScheduleActive(item.status),
+      );
       const isHardBlocked =
         room.status === 'maintain' || room.status === 'unavailable' || room.isActive === false;
 
@@ -217,6 +248,24 @@ const LecturerBookingPage: React.FC = () => {
             state: 'blocked',
             symbol: 'x',
             message: getRoomBlockedMessage(room),
+            booking: null,
+          };
+        }
+
+        const scheduleConflict = roomSchedules.find(
+          (item) =>
+            item.slotNumber === slot.slotNumber ||
+            timeOverlaps(slot.startTime, slot.endTime, item.startTime, item.endTime),
+        );
+
+        if (scheduleConflict) {
+          return {
+            slotNumber: slot.slotNumber,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            state: 'blocked',
+            symbol: 'x',
+            message: 'This slot already has a class in schedule',
             booking: null,
           };
         }
@@ -272,7 +321,7 @@ const LecturerBookingPage: React.FC = () => {
         cells,
       };
     });
-  }, [grid, selectedDate, selectedSlotType]);
+  }, [grid, schedules, selectedDate, selectedSlotType]);
 
   const displaySlots = useMemo(() => {
     if (grid?.slots && grid.slots.length > 0) {
