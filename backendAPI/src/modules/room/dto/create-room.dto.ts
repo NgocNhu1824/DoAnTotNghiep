@@ -1,4 +1,13 @@
-import { IsString, IsNumber, IsArray, IsOptional, IsEnum, IsBoolean, IsMongoId, Min } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsMongoId,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 export class CreateRoomDto {
   @IsString()

@@ -27,7 +27,7 @@ export class CreateBookingDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['pending', 'approved', 'rejected', 'cancelled'])
+  @IsIn(['pending', 'approved', 'rejected', 'cancelled', 'completed'])
   status?: string;
 
   @IsOptional()

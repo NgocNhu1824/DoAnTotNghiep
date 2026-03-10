@@ -33,7 +33,6 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
     onSubmit(formData);
   };
 
-
   if (!isOpen) return null;
 
   return (

@@ -1,25 +1,41 @@
 import api from './api.service';
 import {
+  BookingRoomOption,
   Booking,
+  CancelSelfBookingDto,
+  CreateSelfBookingDto,
   CreateBookingDto,
+  LecturerBookingGrid,
   QueryBookingParams,
   UpdateBookingDto,
 } from '@/types/booking.types';
 
+const buildQueryString = <T extends object>(params?: T): string => {
+  if (!params) {
+    return '';
+  }
+
+  const query = new URLSearchParams();
+
+  Object.entries(params as Record<string, unknown>).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') {
+      return;
+    }
+
+    query.append(key, String(value));
+  });
+
+  return query.toString();
+};
+
+const withQuery = <T extends object>(path: string, params?: T): string => {
+  const queryString = buildQueryString(params);
+  return queryString ? `${path}?${queryString}` : path;
+};
+
 export const bookingService = {
   getAll: async (params?: QueryBookingParams): Promise<Booking[]> => {
-    const query = new URLSearchParams();
-
-    if (params?.roomId) query.append('roomId', params.roomId);
-    if (params?.lecturerId) query.append('lecturerId', params.lecturerId);
-    if (params?.lecturerSearch) query.append('lecturerSearch', params.lecturerSearch);
-    if (params?.fromDate) query.append('fromDate', params.fromDate);
-    if (params?.toDate) query.append('toDate', params.toDate);
-    if (params?.status) query.append('status', params.status);
-
-    const res = await api.get<{ success: boolean; data: Booking[] }>(
-      `/bookings?${query.toString()}`,
-    );
+    const res = await api.get<{ success: boolean; data: Booking[] }>(withQuery('/bookings', params));
 
     return res.data || [];
   },
@@ -39,8 +55,63 @@ export const bookingService = {
     return res.data;
   },
 
+  complete: async (id: string): Promise<Booking> => {
+    const res = await api.patch<{ success: boolean; data: Booking }>(`/bookings/${id}/complete`, {});
+    return res.data;
+  },
+
   remove: async (id: string): Promise<void> => {
     await api.delete(`/bookings/${id}`);
+  },
+
+  getSelfBookings: async (params?: QueryBookingParams): Promise<Booking[]> => {
+    const res = await api.get<{ success: boolean; data: Booking[] }>(
+      withQuery('/bookings/self', {
+        roomId: params?.roomId,
+        fromDate: params?.fromDate,
+        toDate: params?.toDate,
+        status: params?.status,
+      }),
+    );
+
+    return res.data || [];
+  },
+
+  createSelfBooking: async (payload: CreateSelfBookingDto): Promise<Booking> => {
+    const res = await api.post<{ success: boolean; data: Booking }>('/bookings/self', payload);
+    return res.data;
+  },
+
+  cancelSelfBooking: async (id: string, payload: CancelSelfBookingDto): Promise<Booking> => {
+    const res = await api.patch<{ success: boolean; data: Booking }>(
+      `/bookings/self/${id}/cancel`,
+      payload,
+    );
+    return res.data;
+  },
+
+  getSelfRooms: async (params?: {
+    bookingDate?: string;
+    startTime?: string;
+    endTime?: string;
+    slotType?: 'OLDSLOT' | 'NEWSLOT';
+  }): Promise<BookingRoomOption[]> => {
+    const res = await api.get<{ success: boolean; data: BookingRoomOption[] }>(
+      withQuery('/bookings/self/rooms', params),
+    );
+
+    return res.data || [];
+  },
+
+  getSelfGrid: async (params?: {
+    bookingDate?: string;
+    slotType?: 'OLDSLOT' | 'NEWSLOT';
+  }): Promise<LecturerBookingGrid> => {
+    const res = await api.get<{ success: boolean; data: LecturerBookingGrid }>(
+      withQuery('/bookings/self/grid', params),
+    );
+
+    return res.data;
   },
 };
 

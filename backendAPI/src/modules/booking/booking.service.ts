@@ -12,9 +12,18 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { QueryBookingDto } from './dto/query-booking.dto';
 import { EventsGateway } from '@/common/gateways/events.gateway';
+import { BookingTimeHelper } from './helpers/booking-time.helper';
+import { BookingQueryHelper } from './helpers/booking-query.helper';
+import { BookingMapperHelper } from './helpers/booking-mapper.helper';
+import { BookingValidationHelper } from './helpers/booking-validation.helper';
+import { RoomService } from '@/modules/room/room.service';
+import { TimeSlotsService } from '@/modules/time-slots/time-slots.service';
 
 @Injectable()
 export class BookingService {
+  // Keep this configurable in code to easily match policy updates.
+  private static readonly SELF_BOOKING_LEAD_MINUTES = 15;
+
   constructor(
     @InjectModel(Booking.name)
     private readonly bookingModel: Model<Booking>,
@@ -23,101 +32,428 @@ export class BookingService {
     @InjectModel(Room.name)
     private readonly roomModel: Model<Room>,
     private readonly eventsGateway: EventsGateway,
+    private readonly roomService: RoomService,
+    private readonly timeSlotsService: TimeSlotsService,
   ) {}
 
-  private resolveCampusId(currentUser: any, campusFilter?: any): string {
-    const fromFilter = campusFilter?.campusId;
-    const fromUser = currentUser?.campusId;
-    const campusId = fromFilter || fromUser;
+  private async ensureRoomExistsInCampus(campusId: string, roomId: string): Promise<void> {
+    const room = await this.roomModel
+      .findOne({ _id: roomId, campusId: new Types.ObjectId(campusId) })
+      .select('_id')
+      .lean()
+      .exec();
 
-    if (!campusId) {
-      throw new BadRequestException('Không xác định được campus để truy vấn booking');
+    if (!room) {
+      throw new BadRequestException('Room does not exist in current campus');
     }
-
-    return campusId.toString();
   }
 
-  private toUTCDate(dateString: string): Date {
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) {
-      throw new BadRequestException('Ngày booking không hợp lệ');
+  private async ensureLecturerExistsInCampus(campusId: string, lecturerId: string): Promise<void> {
+    const lecturer = await this.userModel
+      .findOne({ _id: lecturerId, campusId: new Types.ObjectId(campusId) })
+      .select('_id')
+      .lean()
+      .exec();
+
+    if (!lecturer) {
+      throw new BadRequestException('Lecturer does not exist in current campus');
     }
-    return date;
   }
 
-  private validateTimeFormat(value: string, fieldName: string): void {
-    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-    if (!timeRegex.test(value)) {
-      throw new BadRequestException(`${fieldName} phải có định dạng HH:mm`);
+  private async findBookingOrThrow(id: string, campusId: string, message: string): Promise<any> {
+    const booking = await this.bookingModel.findOne({
+      _id: id,
+      campusId: new Types.ObjectId(campusId),
+    });
+
+    if (!booking) {
+      throw new NotFoundException(message);
     }
+
+    return booking;
+  }
+
+  private async getSlotDefinitions(slotType?: string): Promise<
+    Array<{
+      slotNumber: number;
+      startTime: string;
+      endTime: string;
+      label: string;
+    }>
+  > {
+    const normalizedSlotType = BookingValidationHelper.normalizeSlotType(slotType);
+    const rows = await this.timeSlotsService.findAll({
+      slotType: normalizedSlotType,
+      isActive: true,
+    });
+
+    return rows.map((slot: any) => BookingMapperHelper.mapSlotDefinition(slot));
+  }
+
+  private ensureSelfBookingLeadTime(bookingDate: Date, startTime: string): void {
+    const startDateTime = BookingTimeHelper.toDateTime(bookingDate, startTime);
+    if (!startDateTime) {
+      throw new BadRequestException('Invalid startTime value');
+    }
+
+    const cutoff =
+      startDateTime.getTime() -
+      BookingService.SELF_BOOKING_LEAD_MINUTES * 60 * 1000;
+
+    if (Date.now() >= cutoff) {
+      throw new BadRequestException(
+        `Booking must be created at least ${BookingService.SELF_BOOKING_LEAD_MINUTES} minutes before class start`,
+      );
+    }
+  }
+
+  private async reserveRoom(roomId: any): Promise<void> {
+    await this.roomService.markReservedIfActive(roomId);
+  }
+
+  private async releaseRoomIfNoApprovedBookings(roomId: any): Promise<void> {
+    const roomText = roomId?.toString?.() || roomId;
+    if (!roomText || !Types.ObjectId.isValid(roomText)) {
+      return;
+    }
+
+    const roomObjectId = new Types.ObjectId(roomText);
+
+    const hasApprovedBooking = await this.bookingModel
+      .exists({
+        roomId: roomObjectId,
+        status: 'approved',
+      })
+      .exec();
+
+    if (hasApprovedBooking) {
+      return;
+    }
+
+    await this.roomService.markAvailableIfNotLocked(roomObjectId);
+  }
+
+  private async syncRoomStatusAfterBookingChange(
+    previousStatus: string,
+    nextStatus: string,
+    previousRoomId: any,
+    nextRoomId: any,
+  ): Promise<void> {
+    const prevRoomText = previousRoomId?.toString?.() || '';
+    const nextRoomText = nextRoomId?.toString?.() || '';
+    const roomChanged = prevRoomText !== nextRoomText;
+
+    if (nextStatus === 'approved') {
+      await this.reserveRoom(nextRoomId);
+    }
+
+    if (previousStatus === 'approved' && (nextStatus !== 'approved' || roomChanged)) {
+      await this.releaseRoomIfNoApprovedBookings(previousRoomId);
+    }
+
+    if (nextStatus === 'completed') {
+      await this.releaseRoomIfNoApprovedBookings(nextRoomId);
+    }
+  }
+
+  private toDayRange(dateString: string): { start: Date; end: Date } {
+    const date = BookingValidationHelper.toUTCDate(dateString);
+    const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 1);
+    return { start, end };
+  }
+
+  private applyBookingPopulate(query: any): any {
+    return query
+      .populate('roomId', 'roomCode roomName building floor')
+      .populate('lecturerId', 'fullName email department employeeId')
+      .populate('requesterId', 'fullName email department employeeId')
+      .populate('createdBy', 'fullName email')
+      .populate('updatedBy', 'fullName email');
+  }
+
+  private async toBookingPayload(bookingDoc: any): Promise<any> {
+    await bookingDoc.populate([
+      { path: 'roomId', select: 'roomCode roomName building floor' },
+      { path: 'lecturerId', select: 'fullName email department employeeId' },
+      { path: 'requesterId', select: 'fullName email department employeeId' },
+      { path: 'createdBy', select: 'fullName email' },
+      { path: 'updatedBy', select: 'fullName email' },
+    ]);
+    return BookingMapperHelper.normalizeBooking(
+      bookingDoc.toObject ? bookingDoc.toObject() : bookingDoc,
+    );
   }
 
   async create(dto: CreateBookingDto, currentUser: any, campusFilter?: any) {
-    const campusId = this.resolveCampusId(currentUser, campusFilter);
+    const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
+    const bookingDate = BookingValidationHelper.toUTCDate(dto.bookingDate);
 
-    this.validateTimeFormat(dto.startTime, 'startTime');
-    this.validateTimeFormat(dto.endTime, 'endTime');
+    BookingValidationHelper.validateTimeRange(dto.startTime, dto.endTime);
 
-    const [lecturer, room] = await Promise.all([
-      this.userModel.findOne({ _id: dto.lecturerId, campusId }).lean().exec(),
-      this.roomModel.findOne({ _id: dto.roomId, campusId }).lean().exec(),
+    await Promise.all([
+      this.ensureLecturerExistsInCampus(campusId, dto.lecturerId),
+      this.ensureRoomExistsInCampus(campusId, dto.roomId),
     ]);
-
-    if (!lecturer) {
-      throw new BadRequestException('Giảng viên không tồn tại trong campus hiện tại');
-    }
-
-    if (!room) {
-      throw new BadRequestException('Phòng không tồn tại trong campus hiện tại');
-    }
 
     const created = await this.bookingModel.create({
       campusId: new Types.ObjectId(campusId),
       roomId: new Types.ObjectId(dto.roomId),
       lecturerId: new Types.ObjectId(dto.lecturerId),
-      bookingDate: this.toUTCDate(dto.bookingDate),
+      requesterId: new Types.ObjectId(dto.lecturerId),
+      bookingDate,
+      dateStart: bookingDate,
+      dateEnd: bookingDate,
       startTime: dto.startTime,
       endTime: dto.endTime,
       purpose: dto.purpose,
       status: dto.status || 'pending',
       note: dto.note || null,
+      notes: dto.note || null,
       createdBy: new Types.ObjectId(currentUser._id),
       updatedBy: new Types.ObjectId(currentUser._id),
     });
 
-    const payload = await this.findOne(created._id.toString(), currentUser, campusFilter);
+    const payload = await this.toBookingPayload(created);
+
+    if (created.status === 'approved') {
+      await this.reserveRoom(created.roomId);
+    }
+
     this.eventsGateway.broadcastBookingUpdate('created', payload);
 
     return payload;
   }
 
-  async findAll(query: QueryBookingDto, currentUser: any, campusFilter?: any) {
-    const campusId = this.resolveCampusId(currentUser, campusFilter);
-    const filter: any = {
+  async createSelf(
+    dto: Pick<CreateBookingDto, 'roomId' | 'bookingDate' | 'startTime' | 'endTime' | 'purpose'>,
+    currentUser: any,
+    campusFilter?: any,
+  ) {
+    const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
+    const userId = BookingValidationHelper.resolveUserId(currentUser);
+
+    BookingValidationHelper.validateTimeRange(dto.startTime, dto.endTime);
+
+    const room = await this.roomModel
+      .findOne({
+        _id: dto.roomId,
+        campusId: new Types.ObjectId(campusId),
+        status: 'available',
+        isActive: { $ne: false },
+      })
+      .select('_id')
+      .lean()
+      .exec();
+
+    if (!room) {
+      throw new BadRequestException('Room does not exist or is unavailable');
+    }
+
+    const { start, end } = this.toDayRange(dto.bookingDate);
+
+    const conflict = await this.bookingModel
+      .findOne({
+        campusId: new Types.ObjectId(campusId),
+        roomId: new Types.ObjectId(dto.roomId),
+        status: { $in: ['pending', 'approved'] },
+        startTime: { $lt: dto.endTime },
+        endTime: { $gt: dto.startTime },
+        ...BookingValidationHelper.dateMatchCondition(start, end),
+      })
+      .lean()
+      .exec();
+
+    if (conflict) {
+      throw new BadRequestException('This time range has already been booked');
+    }
+
+    const bookingDate = BookingValidationHelper.toUTCDate(dto.bookingDate);
+    this.ensureSelfBookingLeadTime(bookingDate, dto.startTime);
+
+    const created = await this.bookingModel.create({
       campusId: new Types.ObjectId(campusId),
+      roomId: new Types.ObjectId(dto.roomId),
+      lecturerId: new Types.ObjectId(userId),
+      requesterId: new Types.ObjectId(userId),
+      bookingDate,
+      dateStart: bookingDate,
+      dateEnd: bookingDate,
+      startTime: dto.startTime,
+      endTime: dto.endTime,
+      purpose: dto.purpose,
+      status: 'pending',
+      note: null,
+      notes: null,
+      createdBy: new Types.ObjectId(userId),
+      updatedBy: new Types.ObjectId(userId),
+    });
+
+    const payload = await this.toBookingPayload(created);
+    this.eventsGateway.broadcastBookingUpdate('created', payload);
+    return payload;
+  }
+
+  async findSelf(query: QueryBookingDto, currentUser: any, campusFilter?: any) {
+    const userId = BookingValidationHelper.resolveUserId(currentUser);
+    const normalizedQuery: QueryBookingDto = {
+      ...query,
+      lecturerId: userId,
     };
 
-    if (query.roomId) {
-      filter.roomId = new Types.ObjectId(query.roomId);
+    return this.findAll(normalizedQuery, currentUser, campusFilter);
+  }
+
+  async cancelSelf(id: string, cancelReason: string, currentUser: any, campusFilter?: any) {
+    BookingValidationHelper.ensureValidBookingId(id);
+
+    const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
+    const userId = BookingValidationHelper.resolveUserId(currentUser);
+
+    const booking = await this.findBookingOrThrow(id, campusId, 'Booking not found');
+
+    if (!BookingValidationHelper.isOwnBooking(booking, userId)) {
+        throw new NotFoundException('Booking not found');
     }
 
-    if (query.lecturerId) {
-      filter.lecturerId = new Types.ObjectId(query.lecturerId);
+    if (booking.status !== 'pending') {
+        throw new BadRequestException('Only pending bookings can be cancelled');
     }
 
-    if (query.status) {
-      filter.status = query.status;
+    const reason = BookingValidationHelper.normalizeCancelReason(cancelReason);
+
+    booking.status = 'cancelled';
+    booking.updatedBy = new Types.ObjectId(userId);
+    booking.note = reason;
+    booking.notes = reason;
+    await booking.save();
+
+    const payload = await this.toBookingPayload(booking);
+    this.eventsGateway.broadcastBookingUpdate('updated', payload);
+    return payload;
+  }
+
+  async getSelfAvailableRooms(
+    currentUser: any,
+    campusFilter?: any,
+    bookingDate?: string,
+    startTime?: string,
+    endTime?: string,
+    slotType?: 'OLDSLOT' | 'NEWSLOT',
+  ) {
+    const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
+    const campusObjectId = new Types.ObjectId(campusId);
+    BookingValidationHelper.normalizeSlotType(slotType);
+
+    if ((startTime || endTime) && !(startTime && endTime)) {
+      throw new BadRequestException('Both startTime and endTime are required');
     }
 
-    if (query.fromDate || query.toDate) {
-      filter.bookingDate = {};
-      if (query.fromDate) {
-        filter.bookingDate.$gte = this.toUTCDate(query.fromDate);
-      }
-      if (query.toDate) {
-        filter.bookingDate.$lte = this.toUTCDate(query.toDate);
-      }
+    if (startTime && endTime) {
+      BookingValidationHelper.validateTimeRange(startTime, endTime);
     }
+
+    const rooms = await this.roomModel
+      .find({
+        campusId: campusObjectId,
+        status: 'available',
+        isActive: { $ne: false },
+      })
+      .select('_id roomCode roomName building floor capacity roomType status isActive')
+      .sort({ roomCode: 1 })
+      .lean()
+      .exec();
+
+    if (!bookingDate || !startTime || !endTime || rooms.length === 0) {
+      return rooms;
+    }
+
+    const { start, end } = this.toDayRange(bookingDate);
+    const roomIds = rooms.map((room) => room._id);
+
+    const busyRows = await this.bookingModel
+      .find({
+        campusId: campusObjectId,
+        roomId: { $in: roomIds },
+        status: { $in: ['pending', 'approved'] },
+        startTime: { $lt: endTime },
+        endTime: { $gt: startTime },
+        ...BookingValidationHelper.dateMatchCondition(start, end),
+      })
+      .select('roomId')
+      .lean()
+      .exec();
+
+    const busyRoomIds = new Set(busyRows.map((item: any) => item.roomId?.toString?.() || String(item.roomId)));
+    return rooms.filter((room: any) => !busyRoomIds.has(room._id.toString()));
+  }
+
+  async getSelfBookingGrid(
+    currentUser: any,
+    campusFilter?: any,
+    bookingDate?: string,
+    slotType?: 'OLDSLOT' | 'NEWSLOT',
+  ) {
+    const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
+    const campusObjectId = new Types.ObjectId(campusId);
+    const targetDate = bookingDate || new Date().toISOString().slice(0, 10);
+    const normalizedSlotType = BookingValidationHelper.normalizeSlotType(slotType);
+
+    const { start, end } = this.toDayRange(targetDate);
+
+    const [rooms, rows] = await Promise.all([
+      this.roomModel
+        .find({
+          campusId: campusObjectId,
+          isActive: { $ne: false },
+        })
+        .select('_id roomCode roomName building floor capacity status isActive')
+        .sort({ roomCode: 1 })
+        .lean()
+        .exec(),
+      this.bookingModel
+        .find({
+          campusId: campusObjectId,
+          status: { $in: ['pending', 'approved'] },
+          ...BookingValidationHelper.dateMatchCondition(start, end),
+        })
+        .populate('lecturerId', 'fullName email')
+        .populate('requesterId', 'fullName email')
+        .select('_id roomId lecturerId requesterId purpose status startTime endTime')
+        .lean()
+        .exec(),
+    ]);
+
+    const slots = await this.getSlotDefinitions(normalizedSlotType);
+
+    const normalizedRooms = rooms.map((room: any) => BookingMapperHelper.mapGridRoom(room));
+
+    const bookings = (rows as any[]).map((booking) => BookingMapperHelper.mapGridBooking(booking));
+
+    return {
+      bookingDate: targetDate,
+      slotType: normalizedSlotType,
+      slots,
+      rooms: normalizedRooms,
+      bookings,
+    };
+  }
+
+  async findAll(query: QueryBookingDto, currentUser: any, campusFilter?: any) {
+    const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
+    const andConditions = BookingQueryHelper.buildCampusConditions(campusId);
+
+    BookingQueryHelper.appendRoomCondition(andConditions, query.roomId);
+    BookingQueryHelper.appendLecturerCondition(andConditions, query.lecturerId);
+    BookingQueryHelper.appendStatusCondition(andConditions, query.status);
+
+    const dateCondition = BookingQueryHelper.normalizeDateRange(
+      query.fromDate ? BookingValidationHelper.toUTCDate(query.fromDate) : undefined,
+      query.toDate ? BookingValidationHelper.toUTCDate(query.toDate) : undefined,
+    );
+
+    BookingQueryHelper.appendDateRangeCondition(andConditions, dateCondition);
 
     if (query.lecturerSearch) {
       const keyword = query.lecturerSearch.trim();
@@ -126,8 +462,8 @@ export class BookingService {
           .find({
             campusId: new Types.ObjectId(campusId),
             $or: [
-              { fullName: { $regex: keyword, $options: 'i' } },
-              { email: { $regex: keyword, $options: 'i' } },
+              { fullName: BookingQueryHelper.buildSearchRegex(keyword) },
+              { email: BookingQueryHelper.buildSearchRegex(keyword) },
             ],
           })
           .select('_id')
@@ -140,112 +476,144 @@ export class BookingService {
           return [];
         }
 
-        filter.lecturerId = { $in: lecturerIds };
+        BookingQueryHelper.appendLecturerIdsCondition(andConditions, lecturerIds);
       }
     }
 
-    return this.bookingModel
-      .find(filter)
-      .populate('roomId', 'roomCode roomName building floor')
-      .populate('lecturerId', 'fullName email department employeeId')
-      .populate('createdBy', 'fullName email')
-      .populate('updatedBy', 'fullName email')
-      .sort({ bookingDate: -1, startTime: 1 })
+    const filter = BookingQueryHelper.toFilter(andConditions);
+
+    const rows = await this.applyBookingPopulate(
+      this.bookingModel
+        .find(filter)
+        .sort({ bookingDate: -1, dateStart: -1, startTime: 1, createdAt: -1 }),
+    )
       .lean()
       .exec();
+
+    return rows.map((item) => BookingMapperHelper.normalizeBooking(item));
   }
 
   async findOne(id: string, currentUser: any, campusFilter?: any) {
-    if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Booking ID không hợp lệ');
-    }
+    BookingValidationHelper.ensureValidBookingId(id);
 
-    const campusId = this.resolveCampusId(currentUser, campusFilter);
+    const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
 
-    const booking = await this.bookingModel
-      .findOne({ _id: id, campusId: new Types.ObjectId(campusId) })
-      .populate('roomId', 'roomCode roomName building floor')
-      .populate('lecturerId', 'fullName email department employeeId')
-      .populate('createdBy', 'fullName email')
-      .populate('updatedBy', 'fullName email')
-      .exec();
+    const booking = await this.applyBookingPopulate(
+      this.bookingModel.findOne({ _id: id, campusId: new Types.ObjectId(campusId) }),
+    ).exec();
 
     if (!booking) {
-      throw new NotFoundException('Không tìm thấy booking trong campus hiện tại');
+      throw new NotFoundException('Booking not found in current campus');
     }
 
-    return booking;
+    return BookingMapperHelper.normalizeBooking(booking.toObject());
   }
 
   async update(id: string, dto: UpdateBookingDto, currentUser: any, campusFilter?: any) {
-    if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Booking ID không hợp lệ');
-    }
+    BookingValidationHelper.ensureValidBookingId(id);
 
-    const campusId = this.resolveCampusId(currentUser, campusFilter);
+    const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
 
-    const booking = await this.bookingModel.findOne({
-      _id: id,
-      campusId: new Types.ObjectId(campusId),
-    });
+    const booking = await this.findBookingOrThrow(id, campusId, 'Booking to update was not found');
 
-    if (!booking) {
-      throw new NotFoundException('Không tìm thấy booking để cập nhật');
+    const previousStatus = booking.status;
+    const previousRoomId = booking.roomId;
+
+    if (dto.status === 'cancelled') {
+      throw new BadRequestException(
+        'Status cancelled can only be set by booking owner cancellation',
+      );
     }
 
     if (dto.startTime) {
-      this.validateTimeFormat(dto.startTime, 'startTime');
+      BookingValidationHelper.validateTimeFormat(dto.startTime, 'startTime');
     }
 
     if (dto.endTime) {
-      this.validateTimeFormat(dto.endTime, 'endTime');
+      BookingValidationHelper.validateTimeFormat(dto.endTime, 'endTime');
     }
 
     if (dto.roomId) {
-      const room = await this.roomModel
-        .findOne({ _id: dto.roomId, campusId: new Types.ObjectId(campusId) })
-        .lean()
-        .exec();
-      if (!room) {
-        throw new BadRequestException('Phòng không tồn tại trong campus hiện tại');
-      }
-      booking.roomId = new Types.ObjectId(dto.roomId);
+      await this.ensureRoomExistsInCampus(campusId, dto.roomId);
     }
 
     if (dto.lecturerId) {
-      const lecturer = await this.userModel
-        .findOne({ _id: dto.lecturerId, campusId: new Types.ObjectId(campusId) })
-        .lean()
-        .exec();
-      if (!lecturer) {
-        throw new BadRequestException('Giảng viên không tồn tại trong campus hiện tại');
-      }
-      booking.lecturerId = new Types.ObjectId(dto.lecturerId);
+      await this.ensureLecturerExistsInCampus(campusId, dto.lecturerId);
     }
 
-    if (dto.bookingDate) booking.bookingDate = this.toUTCDate(dto.bookingDate);
-    if (dto.startTime) booking.startTime = dto.startTime;
-    if (dto.endTime) booking.endTime = dto.endTime;
-    if (dto.purpose) booking.purpose = dto.purpose;
-    if (dto.status) booking.status = dto.status;
-    if (dto.note !== undefined) booking.note = dto.note;
-    if (dto.rejectReason !== undefined) booking.rejectReason = dto.rejectReason;
+    const updateData: any = {
+      updatedBy: new Types.ObjectId(currentUser._id),
+    };
 
-    booking.updatedBy = new Types.ObjectId(currentUser._id);
+    if (dto.roomId) {
+      updateData.roomId = new Types.ObjectId(dto.roomId);
+    }
+
+    if (dto.lecturerId) {
+      updateData.lecturerId = new Types.ObjectId(dto.lecturerId);
+      updateData.requesterId = new Types.ObjectId(dto.lecturerId);
+    }
+
+    if (dto.bookingDate) {
+      const nextDate = BookingValidationHelper.toUTCDate(dto.bookingDate);
+      updateData.bookingDate = nextDate;
+      updateData.dateStart = nextDate;
+      updateData.dateEnd = nextDate;
+    }
+    if (dto.startTime) updateData.startTime = dto.startTime;
+    if (dto.endTime) updateData.endTime = dto.endTime;
+    if (dto.purpose) updateData.purpose = dto.purpose;
+    if (dto.status) updateData.status = dto.status;
+    if (dto.note !== undefined) {
+      updateData.note = dto.note;
+      updateData.notes = dto.note;
+    }
+    if (dto.rejectReason !== undefined) updateData.rejectReason = dto.rejectReason;
+
+    booking.set(updateData);
     await booking.save();
 
-    const payload = await this.findOne(booking._id.toString(), currentUser, campusFilter);
+    const nextStatus = dto.status || previousStatus;
+    const nextRoomId = dto.roomId ? new Types.ObjectId(dto.roomId) : previousRoomId;
+    await this.syncRoomStatusAfterBookingChange(
+      previousStatus,
+      nextStatus,
+      previousRoomId,
+      nextRoomId,
+    );
+
+    const payload = await this.toBookingPayload(booking);
     this.eventsGateway.broadcastBookingUpdate('updated', payload);
 
     return payload;
   }
 
-  async remove(id: string, currentUser: any, campusFilter?: any) {
-    if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Booking ID không hợp lệ');
+  async completeBooking(id: string, currentUser: any, campusFilter?: any) {
+    BookingValidationHelper.ensureValidBookingId(id);
+
+    const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
+
+    const booking = await this.findBookingOrThrow(id, campusId, 'Booking to complete was not found');
+
+    if (booking.status !== 'approved') {
+        throw new BadRequestException('Only approved bookings can be completed');
     }
 
-    const campusId = this.resolveCampusId(currentUser, campusFilter);
+    booking.status = 'completed';
+    booking.updatedBy = new Types.ObjectId(currentUser._id);
+    await booking.save();
+
+    await this.releaseRoomIfNoApprovedBookings(booking.roomId);
+
+    const payload = await this.toBookingPayload(booking);
+    this.eventsGateway.broadcastBookingUpdate('updated', payload);
+    return payload;
+  }
+
+  async remove(id: string, currentUser: any, campusFilter?: any) {
+    BookingValidationHelper.ensureValidBookingId(id);
+
+    const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
 
     const deleted = await this.bookingModel
       .findOneAndDelete({
@@ -256,7 +624,11 @@ export class BookingService {
       .exec();
 
     if (!deleted) {
-      throw new NotFoundException('Không tìm thấy booking để xóa');
+      throw new NotFoundException('Booking to delete was not found');
+    }
+
+    if (deleted.status === 'approved') {
+      await this.releaseRoomIfNoApprovedBookings(deleted.roomId);
     }
 
     this.eventsGateway.broadcastBookingUpdate('deleted', {

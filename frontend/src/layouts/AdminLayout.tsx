@@ -79,7 +79,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       label: 'Bookings',
       icon: BookOpen,
       path: '/bookings',
-      requiredPermissions: [PERMISSIONS.BOOKINGS_READ],
+      requiredPermissions: [PERMISSIONS.BOOKINGS_MANAGE],
     },
     {
       id: 'rooms',
@@ -93,7 +93,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       label: 'Devices',
       icon: Cpu,
       path: '/devices',
-      requiredPermissions: [PERMISSIONS.DEVICES_READ],
+      requiredPermissions: [PERMISSIONS.ROOMS_READ],
     },
     {
       id: 'approval',
@@ -120,22 +120,22 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const lecturerDemoMenuItem = {
     id: 'lecturer-self-demo',
-    label: 'Lecturer Demo',
-    icon: Calendar,
-    path: '/lecturer/demo-self',
+    label: 'Booking Room',
+    icon: BookOpen,
+    path: '/lecturer/booking',
   };
 
-  const lecturerScheduleMenuItem = {
-    id: 'lecturer-schedules',
-    label: 'My Schedule',
-    icon: BookOpen,
-    path: '/lecturer/schedules',
+  const lecturerHistoryMenuItem = {
+    id: 'lecturer-booking-history',
+    label: 'Booking History',
+    icon: FileText,
+    path: '/lecturer/booking-history',
   };
 
   let menuItems = baseMenuItems;
 
   if (userScope === 'SELF') {
-    menuItems = [lecturerDemoMenuItem, lecturerScheduleMenuItem];
+    menuItems = [lecturerDemoMenuItem, lecturerHistoryMenuItem];
   } else if (userScope === 'CAMPUS') {
     menuItems = baseMenuItems;
   } else {
@@ -233,7 +233,6 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 <h2 className="text-xl font-semibold text-gray-900" style={{ color: '#1a1a1a' }}>
                   {menuItems.find(item => isActivePath(item.path))?.label || 'Dashboard'}
                 </h2>
-                <p className="text-sm text-gray-500" style={{ color: '#6b7280' }}>Chào mừng đến hệ thống quản lý</p>
               </div>
             </div>
 
