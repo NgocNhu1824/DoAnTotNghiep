@@ -35,8 +35,17 @@ export class BookingMapperHelper {
       building: room.building,
       floor: room.floor,
       capacity: room.capacity,
+      roomType: room.roomType,
       status: room.status,
       isActive: room.isActive,
+      devices: (room.devices || []).map((device: any) => ({
+        _id: device._id?.toString?.() || undefined,
+        deviceCode: device.deviceCode,
+        deviceName: device.deviceName,
+        quantity: device.quantity,
+        deviceStatus: device.deviceStatus,
+        isActive: device.isActive,
+      })),
     };
   }
 

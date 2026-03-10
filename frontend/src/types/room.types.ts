@@ -14,7 +14,7 @@ export interface Room {
     campusName: string;
     campusCode: string;
   };
-  status: 'available' | 'occupied' | 'maintenance' | 'reserved';
+  status: 'available' | 'unavailable' | 'maintain';
   description?: string;
   isActive: boolean;
   devices?: Device[];
@@ -31,7 +31,7 @@ export interface CreateRoomDto {
   roomType: string;
   lockerNumber: number;
   campusId: string;
-  status?: 'available' | 'occupied' | 'maintenance' | 'reserved';
+  status?: 'available' | 'unavailable' | 'maintain';
   description?: string;
   isActive?: boolean;
 }
@@ -45,7 +45,7 @@ export interface UpdateRoomDto {
   roomType?: string;
   lockerNumber?: number;
   campusId?: string;
-  status?: 'available' | 'occupied' | 'maintenance' | 'reserved';
+  status?: 'available' | 'unavailable' | 'maintain';
   description?: string;
   isActive?: boolean;
 }
@@ -53,7 +53,6 @@ export interface UpdateRoomDto {
 export interface RoomStatistics {
   total: number;
   available: number;
-  occupied: number;
-  maintenance: number;
-  reserved: number;
+  unavailable: number;
+  maintain: number;
 }

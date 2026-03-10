@@ -139,12 +139,21 @@ export interface LecturerGridCell {
 }
 
 export interface LecturerGridRoomRow {
+  devices?: Array<{
+    _id?: string;
+    deviceCode: string;
+    deviceName: string;
+    quantity?: number;
+    deviceStatus?: 'ok' | 'broken';
+    isActive?: boolean;
+  }>;
   roomId: string;
   roomCode: string;
   roomName: string;
   building?: string;
   floor?: number;
   capacity?: number;
+  roomType?: string;
   status?: string;
   isActive?: boolean;
   cells?: LecturerGridCell[];

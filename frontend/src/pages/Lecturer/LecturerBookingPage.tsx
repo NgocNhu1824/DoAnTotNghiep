@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { format } from 'date-fns';
-import { vi } from 'date-fns/locale';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/AuthContext';
 import bookingService from '@/services/booking.service';
@@ -14,7 +14,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
@@ -28,14 +28,6 @@ const toDateInputValue = (date = new Date()): string => {
   return date.toISOString().slice(0, 10);
 };
 
-const formatDateCell = (dateValue: string): string => {
-  const parsed = new Date(dateValue);
-  if (Number.isNaN(parsed.getTime())) {
-    return '--';
-  }
-  return format(parsed, 'dd/MM/yyyy', { locale: vi });
-};
-
 const timeOverlaps = (startA: string, endA: string, startB: string, endB: string): boolean => {
   return startA < endB && endA > startB;
 };
@@ -45,24 +37,16 @@ const getRoomBlockedMessage = (room: LecturerGridRoomRow): string => {
     return 'Room is inactive';
   }
 
-  if (room.status === 'maintenance') {
+  if (room.status === 'maintain') {
     return 'Room is under maintenance';
   }
 
-  if (room.status === 'occupied') {
-    return 'Room is currently occupied';
+  if (room.status === 'unavailable') {
+    return 'Room is currently unavailable';
   }
 
   return 'Room is not available';
 };
-
-interface GridCreateTarget {
-  roomId: string;
-  roomText: string;
-  startTime: string;
-  endTime: string;
-  slotText: string;
-}
 
 const OLD_SLOT_DEFINITIONS = [
   { slotNumber: 1, startTime: '07:00', endTime: '08:30' },
@@ -122,18 +106,18 @@ const isBookingWindowClosed = (dateValue: string, slotStartTime: string): boolea
 const LecturerBookingPage: React.FC = () => {
   const { toast } = useToast();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const [selectedDate, setSelectedDate] = useState<string>(toDateInputValue());
-  const [selectedSlotType, setSelectedSlotType] = useState<'OLDSLOT' | 'NEWSLOT'>('OLDSLOT');
+  const [selectedSlotType, setSelectedSlotType] = useState<'OLDSLOT' | 'NEWSLOT'>('NEWSLOT');
   const [grid, setGrid] = useState<LecturerBookingGrid | null>(null);
 
   const [isLoadingGrid, setIsLoadingGrid] = useState(false);
-
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [createTarget, setCreateTarget] = useState<GridCreateTarget | null>(null);
-  const [purpose, setPurpose] = useState('');
-  const [purposeError, setPurposeError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deviceModalOpen, setDeviceModalOpen] = useState(false);
+  const [deviceRoom, setDeviceRoom] = useState<LecturerGridRoomRow | null>(null);
+  const [bookingSuccessDialogOpen, setBookingSuccessDialogOpen] = useState(false);
+  const [bookingSuccessMessage, setBookingSuccessMessage] = useState('');
 
   const loadGrid = useCallback(async () => {
     try {
@@ -157,6 +141,33 @@ const LecturerBookingPage: React.FC = () => {
   useEffect(() => {
     loadGrid();
   }, [loadGrid]);
+
+  useEffect(() => {
+    const state = location.state as { bookingCreated?: boolean; message?: string } | null;
+    const searchParams = new URLSearchParams(location.search);
+    const createdByQuery = searchParams.get('bookingCreated') === '1';
+    const messageByQuery = searchParams.get('message');
+    const messageByStorage = sessionStorage.getItem('lecturer_booking_success_message');
+
+    if (!state?.bookingCreated && !createdByQuery && !messageByStorage) {
+      return;
+    }
+
+    const successMessage =
+      state?.message ||
+      messageByQuery ||
+      messageByStorage ||
+      'Booking successful. Please wait for approval.';
+
+    setBookingSuccessMessage(successMessage);
+    setBookingSuccessDialogOpen(true);
+
+    if (messageByStorage) {
+      sessionStorage.removeItem('lecturer_booking_success_message');
+    }
+
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate, toast]);
 
   useEffect(() => {
     const socket = wsService.connect();
@@ -195,7 +206,7 @@ const LecturerBookingPage: React.FC = () => {
     return grid.rooms.map((room) => {
       const roomBookings = bookingsByRoom.get(room.roomId) || [];
       const isHardBlocked =
-        room.status === 'maintenance' || room.status === 'occupied' || room.isActive === false;
+        room.status === 'maintain' || room.status === 'unavailable' || room.isActive === false;
 
       const cells: LecturerGridCell[] = displaySlots.map((slot) => {
         if (isHardBlocked) {
@@ -272,62 +283,23 @@ const LecturerBookingPage: React.FC = () => {
   }, [grid?.slots, selectedSlotType]);
 
 
-  const openCreateDialog = (room: LecturerGridRoomRow, cell: LecturerGridCell) => {
+  const goToBookingRequest = (room: LecturerGridRoomRow, cell: LecturerGridCell) => {
     if (cell.state !== 'available') {
       return;
     }
 
-    setCreateTarget({
+    const params = new URLSearchParams({
       roomId: room.roomId,
-      roomText: `${room.roomCode} | ${room.roomName}`,
+      roomCode: room.roomCode,
+      roomName: room.roomName,
+      bookingDate: selectedDate,
       startTime: cell.startTime,
       endTime: cell.endTime,
-      slotText: `Slot ${cell.slotNumber} (${cell.startTime}-${cell.endTime})`,
+      slotNumber: String(cell.slotNumber),
+      slotType: selectedSlotType,
     });
-    setPurpose('');
-    setPurposeError('');
-    setCreateDialogOpen(true);
-  };
 
-  const handleCreateFromGrid = async () => {
-    if (!createTarget) return;
-
-    const trimmedPurpose = purpose.trim();
-    if (!trimmedPurpose) {
-      setPurposeError('Please enter booking purpose');
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-      await bookingService.createSelfBooking({
-        roomId: createTarget.roomId,
-        bookingDate: selectedDate,
-        startTime: createTarget.startTime,
-        endTime: createTarget.endTime,
-        purpose: trimmedPurpose,
-      });
-
-      toast({
-        title: 'Success',
-        description: 'Booking request has been created',
-      });
-
-      setCreateDialogOpen(false);
-      setCreateTarget(null);
-      setPurpose('');
-      setPurposeError('');
-
-      await loadGrid();
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error?.message || 'Cannot create booking request',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+    navigate(`/lecturer/booking/request?${params.toString()}`);
   };
 
   const renderCell = (room: LecturerGridRoomRow, cell: LecturerGridCell) => {
@@ -344,7 +316,7 @@ const LecturerBookingPage: React.FC = () => {
           variant="ghost"
           size="sm"
           className="h-7 w-7 p-0 text-lg text-sky-600 hover:bg-sky-100 hover:text-sky-700"
-          onClick={() => openCreateDialog(room, cell)}
+          onClick={() => goToBookingRequest(room, cell)}
           title="Available. Click to create booking"
         >
           +
@@ -371,6 +343,25 @@ const LecturerBookingPage: React.FC = () => {
         x
       </span>
     );
+  };
+
+  const openDeviceModal = (room: LecturerGridRoomRow) => {
+    setDeviceRoom(room);
+    setDeviceModalOpen(true);
+  };
+
+  const getDeviceStatusView = (status?: 'ok' | 'broken') => {
+    if (status === 'broken') {
+      return {
+        text: 'Broken',
+        className: 'bg-red-50 text-red-700 border-red-200',
+      };
+    }
+
+    return {
+      text: 'Active',
+      className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    };
   };
 
   return (
@@ -455,6 +446,14 @@ const LecturerBookingPage: React.FC = () => {
                         <div className="text-[11px] text-muted-foreground truncate">
                           {room.roomName} ({room.capacity || 0})
                         </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 h-7 px-2 text-[11px]"
+                          onClick={() => openDeviceModal(room)}
+                        >
+                          View Devices
+                        </Button>
                       </td>
                       {(room.cells || []).map((cell) => (
                         <td key={`${room.roomId}-${cell.slotNumber}`} className="border px-1 py-2 text-center align-middle">
@@ -476,34 +475,73 @@ const LecturerBookingPage: React.FC = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent>
+      <Dialog
+        open={deviceModalOpen}
+        onOpenChange={(open) => {
+          setDeviceModalOpen(open);
+          if (!open) {
+            setDeviceRoom(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Create Booking Request</DialogTitle>
+            <DialogTitle>
+              Room Devices: {deviceRoom?.roomCode || '--'}
+            </DialogTitle>
           </DialogHeader>
 
-          {createTarget && (
-            <div className="space-y-3 text-sm">
-              <p><span className="text-muted-foreground">Date:</span> <b>{formatDateCell(selectedDate)}</b></p>
-              <p><span className="text-muted-foreground">Room:</span> <b>{createTarget.roomText}</b></p>
-              <p><span className="text-muted-foreground">Slot:</span> <b>{createTarget.slotText}</b></p>
-
-              <div className="space-y-2">
-                <Label htmlFor="grid-purpose">Purpose</Label>
-                <Textarea
-                  id="grid-purpose"
-                  value={purpose}
-                  onChange={(event) => {
-                    setPurpose(event.target.value);
-                    if (purposeError && event.target.value.trim()) {
-                      setPurposeError('');
-                    }
-                  }}
-                  placeholder="Enter booking purpose"
-                  className={purposeError ? 'border-red-500 focus-visible:ring-red-500' : ''}
-                />
-                {purposeError && <p className="text-sm text-red-600">{purposeError}</p>}
+          {deviceRoom && (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-slate-50/80 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-base font-semibold text-slate-900">{deviceRoom.roomName}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Capacity: {deviceRoom.capacity || 0} seats
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="border-slate-300 text-slate-700">
+                    Total Devices: {deviceRoom.devices?.length || 0}
+                  </Badge>
+                </div>
               </div>
+
+              {!deviceRoom.devices || deviceRoom.devices.length === 0 ? (
+                <div className="rounded-md border bg-white px-3 py-8 text-center text-sm text-muted-foreground">
+                  No devices found in this room.
+                </div>
+              ) : (
+                <div className="rounded-lg border bg-white overflow-hidden shadow-sm">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-100/70">
+                      <tr>
+                        <th className="border-b px-4 py-3 text-left font-semibold text-slate-700">Device Code</th>
+                        <th className="border-b px-4 py-3 text-left font-semibold text-slate-700">Device Name</th>
+                        <th className="border-b px-4 py-3 text-center font-semibold text-slate-700">Quantity</th>
+                        <th className="border-b px-4 py-3 text-center font-semibold text-slate-700">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deviceRoom.devices.map((device, index) => (
+                        <tr key={device._id || `${device.deviceCode}-${index}`} className="hover:bg-slate-50/70">
+                          <td className="border-b px-4 py-3 font-medium text-slate-800">{device.deviceCode}</td>
+                          <td className="border-b px-4 py-3 text-slate-700">{device.deviceName}</td>
+                          <td className="border-b px-4 py-3 text-center text-slate-700">{device.quantity ?? 0}</td>
+                          <td className="border-b px-4 py-3 text-center">
+                            <Badge
+                              variant="outline"
+                              className={getDeviceStatusView(device.deviceStatus).className}
+                            >
+                              {getDeviceStatusView(device.deviceStatus).text}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -511,16 +549,49 @@ const LecturerBookingPage: React.FC = () => {
             <Button
               variant="outline"
               onClick={() => {
-                setCreateDialogOpen(false);
-                setCreateTarget(null);
-                setPurpose('');
-                setPurposeError('');
+                setDeviceModalOpen(false);
+                setDeviceRoom(null);
               }}
             >
-              Cancel
+              Close
             </Button>
-            <Button onClick={handleCreateFromGrid} disabled={!createTarget || isSubmitting}>
-              {isSubmitting ? 'Creating...' : 'Create Request'}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bookingSuccessDialogOpen} onOpenChange={setBookingSuccessDialogOpen}>
+        <DialogContent className="max-w-md border-0 p-0 overflow-hidden">
+          <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5 text-white">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
+                <CheckCircle2 className="h-6 w-6" />
+              </span>
+              <div>
+                <p className="text-lg font-semibold leading-tight">Booking Successful</p>
+                <p className="text-sm text-emerald-50">Your request has been submitted</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 px-6 py-5">
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+              {bookingSuccessMessage || 'Booking successful. Please wait for approval.'}
+            </div>
+
+            <p className="text-sm text-slate-600">
+              You can track approval status in <span className="font-semibold">Booking History</span>.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              className="mb-5 mr-6"
+              onClick={() => {
+                setBookingSuccessDialogOpen(false);
+                setBookingSuccessMessage('');
+              }}
+            >
+              OK
             </Button>
           </DialogFooter>
         </DialogContent>

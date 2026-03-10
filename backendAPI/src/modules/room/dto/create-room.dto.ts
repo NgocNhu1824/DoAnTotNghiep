@@ -42,7 +42,7 @@ export class CreateRoomDto {
   @IsMongoId()
   campusId: string;
 
-  @IsEnum(['available', 'occupied', 'maintenance', 'reserved'])
+  @IsEnum(['available', 'unavailable', 'maintain'])
   @IsOptional()
   status?: string;
 

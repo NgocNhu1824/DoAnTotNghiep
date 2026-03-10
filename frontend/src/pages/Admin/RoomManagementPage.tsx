@@ -27,18 +27,16 @@ type Campus = {
 const ITEMS_PER_PAGE = 10;
 
 const ROOM_STATUS_OPTIONS = [
-  { value: 'all', label: 'Tất cả' },
-  { value: 'available', label: 'Khả dụng' },
-  { value: 'occupied', label: 'Đang sử dụng' },
-  { value: 'maintenance', label: 'Bảo trì' },
-  { value: 'reserved', label: 'Đã đặt' },
+  { value: 'all', label: 'All' },
+  { value: 'available', label: 'Available' },
+  { value: 'unavailable', label: 'Unavailable' },
+  { value: 'maintain', label: 'Maintain' },
 ];
 
 const STATUS_BADGE_MAP: Record<string, { label: string; className: string }> = {
-  available: { label: 'Khả dụng', className: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
-  occupied: { label: 'Đang sử dụng', className: 'bg-blue-50 text-blue-600 border-blue-100' },
-  maintenance: { label: 'Bảo trì', className: 'bg-amber-50 text-amber-600 border-amber-100' },
-  reserved: { label: 'Đã đặt', className: 'bg-purple-50 text-purple-600 border-purple-100' },
+  available: { label: 'Available', className: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
+  unavailable: { label: 'Unavailable', className: 'bg-slate-100 text-slate-700 border-slate-200' },
+  maintain: { label: 'Maintain', className: 'bg-amber-50 text-amber-600 border-amber-100' },
 };
 
 const RoomManagementPage: React.FC = () => {
@@ -78,8 +76,8 @@ const RoomManagementPage: React.FC = () => {
       const axiosError = err as AxiosError;
       console.error('Fetch error:', axiosError);
       toast({
-        title: 'Lỗi',
-        description: 'Không thể tải dữ liệu phòng học',
+        title: 'Error',
+        description: 'Unable to load room data',
         variant: 'destructive',
       });
     } finally {
@@ -140,7 +138,7 @@ const RoomManagementPage: React.FC = () => {
       }
       return acc;
     },
-    { available: 0, occupied: 0, maintenance: 0, reserved: 0 }
+    { available: 0, unavailable: 0, maintain: 0 }
   );
 
   useEffect(() => {
@@ -162,16 +160,16 @@ const RoomManagementPage: React.FC = () => {
     try {
       await roomService.createRoom(data);
       toast({
-        title: 'Thành công',
-        description: 'Tạo phòng học thành công!',
+        title: 'Success',
+        description: 'Room created successfully',
       });
       await fetchData();
       setIsCreateModalOpen(false);
     } catch (err) {
       const axiosError = err as AxiosError<any>;
       toast({
-        title: 'Lỗi',
-        description: axiosError.response?.data?.message || 'Lỗi khi tạo phòng học',
+        title: 'Error',
+        description: axiosError.response?.data?.message || 'Failed to create room',
         variant: 'destructive',
       });
     }
@@ -181,16 +179,16 @@ const RoomManagementPage: React.FC = () => {
     try {
       await roomService.updateRoom(id, data);
       toast({
-        title: 'Thành công',
-        description: 'Cập nhật phòng học thành công!',
+        title: 'Success',
+        description: 'Room updated successfully',
       });
       await fetchData();
       setIsEditModalOpen(false);
     } catch (err) {
       const axiosError = err as AxiosError<any>;
       toast({
-        title: 'Lỗi',
-        description: axiosError.response?.data?.message || 'Lỗi khi cập nhật phòng học',
+        title: 'Error',
+        description: axiosError.response?.data?.message || 'Failed to update room',
         variant: 'destructive',
       });
     }
@@ -207,8 +205,8 @@ const RoomManagementPage: React.FC = () => {
       setDeleteLoading(true);
       await roomService.deleteRoom(roomPendingDelete._id);
       toast({
-        title: 'Thành công',
-        description: 'Xóa phòng học thành công!',
+        title: 'Success',
+        description: 'Room deleted successfully',
       });
       await fetchData();
       setConfirmOpen(false);
@@ -216,8 +214,8 @@ const RoomManagementPage: React.FC = () => {
     } catch (err) {
       const axiosError = err as AxiosError<any>;
       toast({
-        title: 'Lỗi',
-        description: axiosError.response?.data?.message || 'Lỗi khi xóa phòng học',
+        title: 'Error',
+        description: axiosError.response?.data?.message || 'Failed to delete room',
         variant: 'destructive',
       });
     } finally {
@@ -235,21 +233,21 @@ const RoomManagementPage: React.FC = () => {
     try {
       await roomService.updateRoomStatus(id, status);
       toast({
-        title: 'Thành công',
-        description: 'Cập nhật trạng thái thành công!',
+        title: 'Success',
+        description: 'Status updated successfully',
       });
       await fetchData();
     } catch (err) {
       toast({
-        title: 'Lỗi',
-        description: 'Lỗi khi cập nhật trạng thái',
+        title: 'Error',
+        description: 'Failed to update status',
         variant: 'destructive',
       });
     }
   };
 
   const getStatusBadge = (status: string) => {
-    const config = STATUS_BADGE_MAP[status] || STATUS_BADGE_MAP.available;
+    const config = STATUS_BADGE_MAP[status] || STATUS_BADGE_MAP.unavailable;
     return (
       <Badge
         variant="outline"
@@ -269,43 +267,42 @@ const RoomManagementPage: React.FC = () => {
   }
 
   const statCards = [
-    { label: 'Tổng số phòng', value: rooms.length, color: 'text-foreground' },
-    { label: 'Khả dụng', value: statusCounts.available, color: 'text-emerald-600' },
-    { label: 'Đang sử dụng', value: statusCounts.occupied, color: 'text-blue-600' },
-    { label: 'Bảo trì', value: statusCounts.maintenance, color: 'text-amber-600' },
-    { label: 'Đã đặt', value: statusCounts.reserved, color: 'text-purple-600' },
+    { label: 'Total Rooms', value: rooms.length, color: 'text-foreground' },
+    { label: 'Available', value: statusCounts.available, color: 'text-emerald-600' },
+    { label: 'Unavailable', value: statusCounts.unavailable, color: 'text-slate-700' },
+    { label: 'Maintain', value: statusCounts.maintain, color: 'text-amber-600' },
   ];
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Quản lý Phòng học</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Room Management</h1>
           <p className="text-muted-foreground mt-2">
-            Theo dõi, tạo mới và quản lý phòng học trong hệ thống
+            Track, create, and manage rooms in the system
           </p>
         </div>
         <Button onClick={() => setIsCreateModalOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
-          Thêm phòng học
+          Add Room
         </Button>
       </div>
 
       {/* Filters */}
       <Card>
         <CardHeader>
-          <CardTitle>Bộ lọc</CardTitle>
-          <CardDescription>Lọc phòng theo nhu cầu tìm kiếm</CardDescription>
+          <CardTitle>Filters</CardTitle>
+          <CardDescription>Filter rooms by your criteria</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
-              <Label htmlFor="room-search">Tìm kiếm</Label>
+              <Label htmlFor="room-search">Search</Label>
               <div className="relative">
                 <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
                 <Input
                   id="room-search"
-                  placeholder="Mã hoặc tên phòng..."
+                  placeholder="Room code or room name..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -316,10 +313,10 @@ const RoomManagementPage: React.FC = () => {
               <Label>Campus</Label>
               <Select value={campusFilter} onValueChange={setCampusFilter}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Tất cả" />
+                  <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tất cả</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
                   {campuses.map((c) => (
                     <SelectItem key={c._id} value={c._id}>
                       {c.campusName}
@@ -329,26 +326,26 @@ const RoomManagementPage: React.FC = () => {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Tòa nhà</Label>
+              <Label>Building</Label>
               <Select value={buildingFilter} onValueChange={setBuildingFilter}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Tất cả" />
+                  <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tất cả</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
                   {buildings.map((building) => (
                     <SelectItem key={building} value={building}>
-                      Tòa {building}
+                      Building {building}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Trạng thái</Label>
+              <Label>Status</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Tất cả" />
+                  <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
                   {ROOM_STATUS_OPTIONS.map((option) => (
@@ -364,7 +361,7 @@ const RoomManagementPage: React.FC = () => {
       </Card>
 
       {/* Statistics */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         {statCards.map((stat) => (
           <Card key={stat.label}>
             <CardHeader className="pb-2">
@@ -380,30 +377,30 @@ const RoomManagementPage: React.FC = () => {
       {/* Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Danh sách phòng học ({sortedRooms.length})</CardTitle>
-          <CardDescription>Theo dõi, cập nhật và quản lý chi tiết từng phòng</CardDescription>
+          <CardTitle>Room List ({sortedRooms.length})</CardTitle>
+          <CardDescription>Monitor, update, and manage each room in detail</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Mã phòng</TableHead>
-                  <TableHead>Tên phòng</TableHead>
-                  <TableHead>Tòa/Tầng</TableHead>
-                  <TableHead>Loại phòng</TableHead>
-                  <TableHead>Sức chứa</TableHead>
-                  <TableHead>Tủ khóa</TableHead>
+                  <TableHead>Room Code</TableHead>
+                  <TableHead>Room Name</TableHead>
+                  <TableHead>Building/Floor</TableHead>
+                  <TableHead>Room Type</TableHead>
+                  <TableHead>Capacity</TableHead>
+                  <TableHead>Locker</TableHead>
                   <TableHead>Campus</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead className="text-right">Hành động</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginatedRooms.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={9} className="h-24 text-center">
-                      <p className="text-muted-foreground">Không tìm thấy phòng học nào</p>
+                      <p className="text-muted-foreground">No rooms found</p>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -412,11 +409,11 @@ const RoomManagementPage: React.FC = () => {
                       <TableCell className="font-medium">{room.roomCode}</TableCell>
                       <TableCell>{room.roomName}</TableCell>
                       <TableCell>
-                        {room.building ? `Tòa ${room.building}` : '—'}
-                        {typeof room.floor === 'number' && ` · Tầng ${room.floor}`}
+                        {room.building ? `Building ${room.building}` : '—'}
+                        {typeof room.floor === 'number' && ` · Floor ${room.floor}`}
                       </TableCell>
                       <TableCell>{room.roomType || '—'}</TableCell>
-                      <TableCell>{room.capacity ? `${room.capacity} người` : '—'}</TableCell>
+                      <TableCell>{room.capacity ? `${room.capacity} seats` : '—'}</TableCell>
                       <TableCell>{room.lockerNumber || '—'}</TableCell>
                       <TableCell>{getCampusName(room)}</TableCell>
                       <TableCell>{getStatusBadge(room.status)}</TableCell>
@@ -429,7 +426,7 @@ const RoomManagementPage: React.FC = () => {
                               setSelectedRoom(room);
                               setIsViewModalOpen(true);
                             }}
-                            title="Xem chi tiết"
+                            title="View details"
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
@@ -440,7 +437,7 @@ const RoomManagementPage: React.FC = () => {
                               setSelectedRoom(room);
                               setIsEditModalOpen(true);
                             }}
-                            title="Chỉnh sửa"
+                            title="Edit"
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -449,7 +446,7 @@ const RoomManagementPage: React.FC = () => {
                             size="icon"
                             className="text-destructive hover:text-destructive"
                             onClick={() => requestDeleteRoom(room)}
-                            title="Xóa"
+                            title="Delete"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -465,8 +462,8 @@ const RoomManagementPage: React.FC = () => {
           {pageCount > 1 && (
             <div className="mt-6 flex justify-center">
               <ReactPaginate
-                previousLabel="← Trước"
-                nextLabel="Sau →"
+                previousLabel="← Prev"
+                nextLabel="Next →"
                 breakLabel="..."
                 pageCount={pageCount}
                 marginPagesDisplayed={2}
@@ -521,13 +518,13 @@ const RoomManagementPage: React.FC = () => {
 
       <ConfirmDialog
         open={confirmOpen}
-        title="Xóa phòng học"
+        title="Delete Room"
         description={
           roomPendingDelete
-            ? `Bạn có chắc chắn muốn xóa phòng ${roomPendingDelete.roomCode} - ${roomPendingDelete.roomName}?`
-            : 'Xác nhận xóa phòng học.'
+            ? `Are you sure you want to delete room ${roomPendingDelete.roomCode} - ${roomPendingDelete.roomName}?`
+            : 'Confirm room deletion.'
         }
-        confirmText={deleteLoading ? 'Đang xóa...' : 'Xóa phòng'}
+        confirmText={deleteLoading ? 'Deleting...' : 'Delete Room'}
         destructive
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
