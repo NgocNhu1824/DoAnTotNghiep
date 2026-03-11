@@ -18,6 +18,8 @@ import { TimeSlotsModule } from './modules/time-slots/time-slots.module';
 import { DeviceModule } from './modules/device/device.module';
 import { TransfersModule } from './modules/transfers/transfers.module';
 import { BookingModule } from './modules/booking/booking.module';
+import { RedisModule } from './common/redis/redis.module';
+import { SettingsModule } from './modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import { BookingModule } from './modules/booking/booking.module';
       envFilePath: '.env',
     }),
     DatabaseModule,
+    RedisModule,
     GatewaysModule,
     AuthModule,
     CampusModule,
@@ -39,6 +42,7 @@ import { BookingModule } from './modules/booking/booking.module';
     TimeSlotsModule,
     TransfersModule,
     BookingModule,
+    SettingsModule,
   ],
   controllers: [AppController],
   providers: [

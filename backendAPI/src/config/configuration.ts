@@ -21,6 +21,18 @@ export default () => ({
   frontend: {
     url: process.env.FRONTEND_URL || 'http://localhost:3001',
   },
+
+  redis: {
+    enabled: process.env.REDIS_ENABLED === 'true' || false,
+    url: process.env.REDIS_URL || '',
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+    username: process.env.REDIS_USERNAME || 'default',
+    password: process.env.REDIS_PASSWORD || '',
+    db: parseInt(process.env.REDIS_DB, 10) || 0,
+    tls: process.env.REDIS_TLS === 'true' || false,
+    keyPrefix: process.env.REDIS_KEY_PREFIX || 'cms:',
+  },
   
   system: {
     maxOverdueMinutes: parseInt(process.env.MAX_OVERDUE_MINUTES, 10) || 15,

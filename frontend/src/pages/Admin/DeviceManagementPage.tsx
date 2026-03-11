@@ -29,6 +29,11 @@ const DEVICE_STATUS_OPTIONS: { value: 'all' | DeviceStatus; label: string }[] = 
   { value: 'broken', label: 'Hư hỏng' },
 ];
 
+const extractRoomId = (roomId: Device['roomId']): string => {
+  if (!roomId) return '';
+  return typeof roomId === 'object' ? roomId._id : roomId;
+};
+
 const DeviceManagementPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -85,7 +90,7 @@ const DeviceManagementPage: React.FC = () => {
     const searchValue = search.trim().toLowerCase();
     return devices.filter((device) => {
       const matchesStatus = statusFilter === 'all' || device.deviceStatus === statusFilter;
-      const roomIdValue = typeof device.roomId === 'object' ? device.roomId._id : device.roomId;
+      const roomIdValue = extractRoomId(device.roomId);
       const matchesRoom = roomFilter === 'all' || roomIdValue === roomFilter;
       const matchesSearch =
         !searchValue ||
@@ -108,7 +113,7 @@ const DeviceManagementPage: React.FC = () => {
     if (roomId && typeof roomId === 'object') {
       return `${roomId.roomCode} - ${roomId.roomName}`;
     }
-    const room = rooms.find((r) => r._id === roomId);
+    const room = rooms.find((r) => r._id === extractRoomId(roomId));
     return room ? `${room.roomCode} - ${room.roomName}` : 'Chưa gán phòng';
   };
 
@@ -136,7 +141,7 @@ const DeviceManagementPage: React.FC = () => {
   };
 
   const openEdit = (device: Device) => {
-    const roomIdValue = typeof device.roomId === 'object' ? device.roomId._id : device.roomId;
+    const roomIdValue = extractRoomId(device.roomId);
     setSelectedDevice(device);
     setFormData({
       deviceCode: device.deviceCode,

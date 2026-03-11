@@ -18,8 +18,10 @@ import ScheduleManagementPage from '../pages/Admin/ScheduleManagementPage';
 import DeviceManagementPage from '../pages/Admin/DeviceManagementPage';
 import UserProfilePage from '../pages/Admin/UserProfilePage';
 import BookingManagementPage from '../pages/Admin/BookingManagementPage';
+import SettingsManagementPage from '../pages/Admin/SettingsManagementPage';
 import LecturerBookingPage from '../pages/Lecturer/LecturerBookingPage';
 import LecturerBookingHistoryPage from '../pages/Lecturer/LecturerBookingHistoryPage';
+import LecturerSchedulePage from '@/pages/Lecturer/LecturerSchedulePage';
 
 
 const AppRoutes: React.FC = () => {
@@ -112,7 +114,7 @@ const AppRoutes: React.FC = () => {
             path="/devices"
             element={
               <ProtectedRoute
-                requiredPermissions={[PERMISSIONS.ROOMS_READ]}
+                requiredPermissions={[PERMISSIONS.DEVICES_READ]}
               >
                 <AdminLayout>
                   <DeviceManagementPage />
@@ -175,7 +177,22 @@ const AppRoutes: React.FC = () => {
             }
           />
 
-          <Route path="/lecturer/demo-self" element={<Navigate to="/lecturer/booking" replace />} />
+          <Route
+            path="/lecturer/schedule"
+            element={
+              <ProtectedRoute
+                allowedRoleCodes={['LECTURER']}
+                requiredScopes={['SELF']}
+                requiredPermissions={[PERMISSIONS.SCHEDULES_READ]}
+              >
+                <AdminLayout>
+                  <LecturerSchedulePage />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+
+         
           
           <Route
             path="/bookings"
@@ -198,10 +215,7 @@ const AppRoutes: React.FC = () => {
                 requiredPermissions={[PERMISSIONS.SETTINGS_UPDATE]}
               >
                 <AdminLayout>
-                  <div className="text-center py-12">
-                    <h2 className="text-2xl font-bold text-gray-900">Cài đặt</h2>
-                    <p className="mt-2 text-gray-600">Trang này đang được phát triển</p>
-                  </div>
+                  <SettingsManagementPage />
                 </AdminLayout>
               </ProtectedRoute>
             }

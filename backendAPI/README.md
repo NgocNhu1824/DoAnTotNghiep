@@ -78,6 +78,39 @@ Xem file `.env.example` để biết các biến môi trường cần thiết:
 - `GOOGLE_CLIENT_SECRET`: Google OAuth Client Secret
 - `JWT_SECRET`: Secret key cho JWT
 
+### Redis Cloud (optional)
+
+Backend hỗ trợ Redis để cache settings theo cơ chế invalidate khi thay đổi.
+
+1. Bật Redis trong `.env`:
+```env
+REDIS_ENABLED=true
+REDIS_URL=rediss://default:<password>@<host>:<port>/0
+REDIS_KEY_PREFIX=cms:dev:
+```
+
+2. Nếu không dùng `REDIS_URL`, có thể dùng host/port và bật TLS:
+```env
+REDIS_HOST=<host>
+REDIS_PORT=<port>
+REDIS_USERNAME=default
+REDIS_PASSWORD=<password>
+REDIS_TLS=true
+```
+
+3. Khi Redis lỗi hoặc không bật, hệ thống vẫn chạy ở chế độ no-cache.
+
+### Settings API
+
+- `POST /api/settings`: Tạo setting mới
+- `GET /api/settings`: Lấy danh sách settings
+- `GET /api/settings/:id`: Lấy chi tiết setting
+- `PATCH /api/settings/:id`: Cập nhật setting
+- `DELETE /api/settings/:id`: Xóa setting
+- `GET /api/settings/effective/:key?campusId=<id|global>`: Lấy giá trị hiệu lực (campus > global > default)
+
+Cache key được xóa tự động khi create/update/delete setting.
+
 ## 🔗 API Endpoints
 
 ### Health Check

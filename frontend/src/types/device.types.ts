@@ -7,6 +7,7 @@ export interface Device {
   deviceStatus: DeviceStatus;
   quantity: number;
   roomId:
+    | null
     | string
     | {
         _id: string;

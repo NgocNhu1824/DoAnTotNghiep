@@ -79,7 +79,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       label: 'Bookings',
       icon: BookOpen,
       path: '/bookings',
-      requiredPermissions: [PERMISSIONS.BOOKINGS_MANAGE],
+      requiredPermissions: [PERMISSIONS.BOOKINGS_READ],
     },
     {
       id: 'rooms',
@@ -93,7 +93,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       label: 'Devices',
       icon: Cpu,
       path: '/devices',
-      requiredPermissions: [PERMISSIONS.ROOMS_READ],
+      requiredPermissions: [PERMISSIONS.DEVICES_READ],
     },
     {
       id: 'approval',
@@ -118,11 +118,18 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     },
   ];
 
-  const lecturerDemoMenuItem = {
+  const lecturerBookingMenuItem = {
     id: 'lecturer-self-demo',
     label: 'Booking Room',
     icon: BookOpen,
     path: '/lecturer/booking',
+  };
+
+  const lecturerScheduleMenuItem = {
+    id: 'lecturer-schedule',
+    label: 'Schedule',
+    icon: Calendar,
+    path: '/lecturer/schedule',
   };
 
   const lecturerHistoryMenuItem = {
@@ -135,7 +142,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   let menuItems = baseMenuItems;
 
   if (userScope === 'SELF') {
-    menuItems = [lecturerDemoMenuItem, lecturerHistoryMenuItem];
+    menuItems = [lecturerBookingMenuItem, lecturerHistoryMenuItem, lecturerScheduleMenuItem];
   } else if (userScope === 'CAMPUS') {
     menuItems = baseMenuItems;
   } else {

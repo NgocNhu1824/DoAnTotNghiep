@@ -394,6 +394,7 @@ export class BookingService {
     campusFilter?: any,
     bookingDate?: string,
     slotType?: 'OLDSLOT' | 'NEWSLOT',
+    canBook?: boolean,
   ) {
     const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
     const campusObjectId = new Types.ObjectId(campusId);
