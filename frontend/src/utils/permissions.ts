@@ -99,6 +99,9 @@ export const PERMISSIONS = {
   INCIDENTS_READ: 'incidents.read',
   INCIDENTS_UPDATE: 'incidents.update',
   INCIDENTS_RESOLVE: 'incidents.resolve',
+
+  // Notifications
+  NOTIFICATIONS_READ: 'notifications.read',
   
   // Reports
   REPORTS_VIEW: 'reports.view',
@@ -158,6 +161,7 @@ export const getPermissionDisplayName = (permissionName: string): string => {
     'incidents.read': 'Xem sự cố',
     'incidents.update': 'Cập nhật sự cố',
     'incidents.resolve': 'Xử lý sự cố',
+    'notifications.read': 'Xem thông báo',
     'reports.view': 'Xem báo cáo',
     'reports.export': 'Xuất báo cáo',
     'logs.read': 'Xem audit log hệ thống',

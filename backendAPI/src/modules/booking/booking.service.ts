@@ -17,6 +17,7 @@ import { BookingQueryHelper } from './helpers/booking-query.helper';
 import { BookingMapperHelper } from './helpers/booking-mapper.helper';
 import { BookingValidationHelper } from './helpers/booking-validation.helper';
 import { TimeSlotsService } from '@/modules/time-slots/time-slots.service';
+import { NotificationsService } from '@/modules/notifications/notifications.service';
 
 @Injectable()
 export class BookingService {
@@ -32,6 +33,7 @@ export class BookingService {
     private readonly roomModel: Model<Room>,
     private readonly eventsGateway: EventsGateway,
     private readonly timeSlotsService: TimeSlotsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private async ensureRoomExistsInCampus(campusId: string, roomId: string): Promise<void> {
@@ -167,6 +169,7 @@ export class BookingService {
     const payload = await this.toBookingPayload(created);
 
     this.eventsGateway.broadcastBookingUpdate('created', payload);
+    await this.notificationsService.notifyBookingPendingApproval(payload);
 
     return payload;
   }
@@ -237,6 +240,7 @@ export class BookingService {
 
     const payload = await this.toBookingPayload(created);
     this.eventsGateway.broadcastBookingUpdate('created', payload);
+    await this.notificationsService.notifyBookingPendingApproval(payload);
     return payload;
   }
 
@@ -462,6 +466,7 @@ export class BookingService {
     const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
 
     const booking = await this.findBookingOrThrow(id, campusId, 'Booking to update was not found');
+    const previousStatus = booking.status;
 
     if (dto.status === 'cancelled') {
       throw new BadRequestException(
@@ -520,6 +525,14 @@ export class BookingService {
     const payload = await this.toBookingPayload(booking);
     this.eventsGateway.broadcastBookingUpdate('updated', payload);
 
+    if (payload.status !== 'pending') {
+      await this.notificationsService.cancelBookingReminder(payload._id?.toString?.() || String(payload._id));
+    }
+
+    if (previousStatus !== payload.status) {
+      await this.notificationsService.notifyBookingDecision(payload);
+    }
+
     return payload;
   }
 
@@ -540,6 +553,7 @@ export class BookingService {
 
     const payload = await this.toBookingPayload(booking);
     this.eventsGateway.broadcastBookingUpdate('updated', payload);
+    await this.notificationsService.cancelBookingReminder(payload._id?.toString?.() || String(payload._id));
     return payload;
   }
 
@@ -564,5 +578,7 @@ export class BookingService {
       _id: id,
       campusId,
     });
+
+    await this.notificationsService.cancelBookingReminder(id);
   }
 }

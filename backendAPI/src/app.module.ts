@@ -21,6 +21,7 @@ import { BookingModule } from './modules/booking/booking.module';
 import { RedisModule } from './common/redis/redis.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { IncidentsModule } from './modules/incidents/incidents.module';
     BookingModule,
     SettingsModule,
     IncidentsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

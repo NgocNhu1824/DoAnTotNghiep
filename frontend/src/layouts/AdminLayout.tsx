@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { PERMISSIONS } from '@/utils/permissions';
+import NotificationBell from '@/components/notifications/NotificationBell';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,12 +21,10 @@ import {
   Shield,
   Lock,
   Menu,
-  Bell,
   LogOut,
   User,
   Settings,
   ChevronDown,
-  ClipboardCheck,
   FileText,
   Cpu,
   TriangleAlert,
@@ -36,8 +35,8 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [notifications] = useState(3);
   const userScope = (roleDetails?.scope || '').toUpperCase();
+  const canReadNotifications = hasAnyPermission([PERMISSIONS.NOTIFICATIONS_READ]);
 
   const baseMenuItems: Array<{
     id: string;
@@ -95,13 +94,6 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       icon: Cpu,
       path: '/devices',
       requiredPermissions: [PERMISSIONS.DEVICES_READ],
-    },
-    {
-      id: 'approval',
-      label: 'Approval',
-      icon: ClipboardCheck,
-      path: '/approval',
-      requiredPermissions: [PERMISSIONS.BOOKINGS_APPROVE],
     },
     {
       id: 'schedule',
@@ -253,16 +245,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
             <div className="flex items-center gap-4">
               {/* Notifications */}
-              <div className="relative">
-                <Button variant="ghost" size="icon" className="relative">
-                  <Bell className="h-5 w-5 text-gray-600" />
-                  {notifications > 0 && (
-                    <span className="absolute top-1 right-1 bg-[#ff6b00] text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                      {notifications}
-                    </span>
-                  )}
-                </Button>
-              </div>
+              <NotificationBell
+                userId={user?._id}
+                userScope={userScope}
+                canReadNotifications={canReadNotifications}
+              />
 
               {/* User Menu */}
               <DropdownMenu>

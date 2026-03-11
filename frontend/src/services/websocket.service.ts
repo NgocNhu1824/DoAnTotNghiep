@@ -3,6 +3,7 @@ import { WS_BASE_URL } from '../constants';
 
 class WebSocketService {
   private socket: Socket | null = null;
+  private connectionRefs = 0;
 
   private getNamespaceUrl(): string {
     if (WS_BASE_URL.endsWith('/events')) {
@@ -12,6 +13,8 @@ class WebSocketService {
   }
 
   connect(): Socket {
+    this.connectionRefs += 1;
+
     if (!this.socket) {
       this.socket = io(this.getNamespaceUrl(), {
         withCredentials: true,
@@ -24,7 +27,9 @@ class WebSocketService {
   }
 
   disconnect(): void {
-    if (this.socket) {
+    this.connectionRefs = Math.max(0, this.connectionRefs - 1);
+
+    if (this.socket && this.connectionRefs === 0) {
       this.socket.disconnect();
       this.socket = null;
     }
