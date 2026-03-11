@@ -165,4 +165,13 @@ export class EventsGateway
       timestamp: new Date(),
     });
   }
+
+  // Broadcast incident change to connected clients
+  broadcastIncidentUpdate(action: 'created' | 'updated' | 'deleted', incident: any) {
+    this.server.emit('incident:updated', {
+      action,
+      incident,
+      timestamp: new Date(),
+    });
+  }
 }

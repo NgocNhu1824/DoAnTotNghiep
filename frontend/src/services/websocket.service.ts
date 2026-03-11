@@ -78,6 +78,13 @@ class WebSocketService {
     this.socket?.on('audit:log', callback);
   }
 
+  // Incident events
+  onIncidentUpdate(
+    callback: (data: { action: 'created' | 'updated' | 'deleted'; incident: any; timestamp: string }) => void,
+  ): void {
+    this.socket?.on('incident:updated', callback);
+  }
+
   // Custom event listener
   on(event: string, callback: (data: any) => void): void {
     this.socket?.on(event, callback);

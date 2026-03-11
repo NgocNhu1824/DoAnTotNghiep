@@ -28,6 +28,7 @@ import {
   ClipboardCheck,
   FileText,
   Cpu,
+  TriangleAlert,
 } from 'lucide-react';
 
 const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -108,6 +109,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       icon: Calendar,
       path: '/schedules',
       requiredPermissions: [PERMISSIONS.SCHEDULES_READ],
+    },
+    {
+      id: 'incidents',
+      label: 'Incidents',
+      icon: TriangleAlert,
+      path: '/incidents',
+      requiredPermissions: [PERMISSIONS.INCIDENTS_READ],
     },
     {
       id: 'settings',

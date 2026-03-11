@@ -94,6 +94,11 @@ export const PERMISSIONS = {
   // Settings
   SETTINGS_READ: 'settings.read',
   SETTINGS_UPDATE: 'settings.update',
+
+  // Incidents
+  INCIDENTS_READ: 'incidents.read',
+  INCIDENTS_UPDATE: 'incidents.update',
+  INCIDENTS_RESOLVE: 'incidents.resolve',
   
   // Reports
   REPORTS_VIEW: 'reports.view',
@@ -150,6 +155,9 @@ export const getPermissionDisplayName = (permissionName: string): string => {
     'attendance.update': 'Cập nhật điểm danh',
     'settings.read': 'Xem cài đặt',
     'settings.update': 'Cập nhật cài đặt',
+    'incidents.read': 'Xem sự cố',
+    'incidents.update': 'Cập nhật sự cố',
+    'incidents.resolve': 'Xử lý sự cố',
     'reports.view': 'Xem báo cáo',
     'reports.export': 'Xuất báo cáo',
     'logs.read': 'Xem audit log hệ thống',

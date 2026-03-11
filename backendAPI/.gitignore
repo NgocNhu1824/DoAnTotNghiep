@@ -38,6 +38,10 @@ lerna-debug.log*
 .env.local
 .env.*.local
 
+# Secrets
+*-service-account.json
+*quick-nexus-*.json
+
 # Temp files
 *.swp
 *.swo

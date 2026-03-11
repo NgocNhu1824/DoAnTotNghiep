@@ -8,6 +8,7 @@ import { PERMISSIONS } from '../utils/permissions';
 // Pages
 import LoginPage from '../pages/LoginPage';
 import AuthCallbackPage from '../pages/AuthCallbackPage';
+import PublicIncidentReportPage from '../pages/Public/PublicIncidentReportPage';
 import DashboardPage from '../pages/Admin/DashboardPage';
 import UserManagementPage from '../pages/Admin/UserManagementPage';
 import LockerManagementPage from '../pages/Admin/LockerManagementPage';
@@ -19,6 +20,7 @@ import DeviceManagementPage from '../pages/Admin/DeviceManagementPage';
 import UserProfilePage from '../pages/Admin/UserProfilePage';
 import BookingManagementPage from '../pages/Admin/BookingManagementPage';
 import SettingsManagementPage from '../pages/Admin/SettingsManagementPage';
+import IncidentManagementPage from '../pages/Admin/IncidentManagementPage';
 import LecturerBookingPage from '../pages/Lecturer/LecturerBookingPage';
 import LecturerBookingHistoryPage from '../pages/Lecturer/LecturerBookingHistoryPage';
 import LecturerSchedulePage from '@/pages/Lecturer/LecturerSchedulePage';
@@ -32,6 +34,8 @@ const AppRoutes: React.FC = () => {
           {/* Public Routes */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route path="/incident-report/:roomId" element={<PublicIncidentReportPage />} />
+          <Route path="/public/incident-report/:roomId" element={<PublicIncidentReportPage />} />
           
           {/* Admin Routes - Permission-based access (Super Admin, Campus Admin, Training Officer) */}
           <Route
@@ -216,6 +220,20 @@ const AppRoutes: React.FC = () => {
               >
                 <AdminLayout>
                   <SettingsManagementPage />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/incidents"
+            element={
+              <ProtectedRoute
+                requiredPermissions={[PERMISSIONS.INCIDENTS_READ]}
+                requiredScopes={['CAMPUS', 'GLOBAL']}
+              >
+                <AdminLayout>
+                  <IncidentManagementPage />
                 </AdminLayout>
               </ProtectedRoute>
             }

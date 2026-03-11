@@ -111,6 +111,38 @@ REDIS_TLS=true
 
 Cache key được xóa tự động khi create/update/delete setting.
 
+### Incident Image Storage (Google Drive)
+
+1. Tạo service account và share thư mục Drive đích cho email service account đó.
+2. Cấu hình biến môi trường:
+```env
+GOOGLE_APPLICATION_CREDENTIALS=./service-account.json
+GDRIVE_INCIDENTS_FOLDER_ID=<folder-id>
+```
+3. Public report endpoint hỗ trợ upload tối đa 5 ảnh, mỗi ảnh tối đa 8MB.
+
+Neu gap loi `Service Accounts do not have storage quota` khi upload vao My Drive, cau hinh OAuth refresh token:
+```env
+GDRIVE_OAUTH_CLIENT_ID=<google-oauth-client-id>
+GDRIVE_OAUTH_CLIENT_SECRET=<google-oauth-client-secret>
+GDRIVE_OAUTH_REFRESH_TOKEN=<google-refresh-token>
+```
+
+Luu y: Khi co `GDRIVE_OAUTH_REFRESH_TOKEN`, backend se uu tien OAuth mode de upload vao My Drive.
+
+### Incident APIs
+
+Public report (khong can login):
+- `GET /api/incidents/public/rooms/:roomId`: Lấy metadata phòng để render trang report
+- `POST /api/incidents/public/rooms/:roomId/report`: Tạo incident + upload ảnh
+
+Management (can auth + permission):
+- `GET /api/incidents`: Danh sách incident
+- `GET /api/incidents/:id`: Chi tiết incident
+- `PATCH /api/incidents/:id`: Cập nhật incident (status, severity, priority, assignee, resolution)
+- `GET /api/incidents/:id/images`: Lazy-load metadata ảnh khi người dùng bấm xem
+- `GET /api/incidents/:id/images/:fileId/content`: Stream nội dung ảnh
+
 ## 🔗 API Endpoints
 
 ### Health Check
