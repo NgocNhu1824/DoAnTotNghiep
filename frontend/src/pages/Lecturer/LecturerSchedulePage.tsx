@@ -1,9 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { scheduleService } from '@/services/schedule.service';
 import { timeSlotService } from '@/services/time-slot.service';
+import bookingService from '@/services/booking.service';
+import { wsService } from '@/services/websocket.service';
 import { Schedule } from '@/types/schedule.types';
 import { TimeSlot } from '@/types/time-slot.types';
+import { Booking } from '@/types/booking.types';
 import { Card } from '@/components/ui/card';
 
 type WeekRange = { label: string; start: Date; end: Date };
@@ -74,6 +77,23 @@ function toScheduleDateTime(schedule: Schedule): Date {
   return date;
 }
 
+type DisplaySchedule = Schedule & {
+  _virtualBooking?: boolean;
+};
+
+function formatDateFromScheduleInput(value: string | Date): string {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+
+  return formatDateOnly(parsed);
+}
+
 const LecturerSchedulePage: React.FC = () => {
   const { user } = useAuth();
 
@@ -89,12 +109,14 @@ const LecturerSchedulePage: React.FC = () => {
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [slotTypeFilter, setSlotTypeFilter] = useState<'OLDSLOT' | 'NEWSLOT'>('NEWSLOT');
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [approvedBookings, setApprovedBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
   const [upcomingSchedules, setUpcomingSchedules] = useState<Schedule[]>([]);
   const [upcomingLoading, setUpcomingLoading] = useState<boolean>(false);
   const [detailSchedule, setDetailSchedule] = useState<Schedule | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [highlightScheduleId, setHighlightScheduleId] = useState<string | null>(null);
 
   useEffect(() => {
     const weeks = getWeeksOfYear(selectedYear);
@@ -115,43 +137,144 @@ const LecturerSchedulePage: React.FC = () => {
       .catch(() => setTimeSlots([]));
   }, []);
 
-  useEffect(() => {
+  const fetchWeekSchedules = useCallback(async () => {
     if (!user?._id) return;
+
     setLoading(true);
     setError('');
     const weekDates = getWeekDates(selectedDate);
     const startDate = formatDateOnly(weekDates[0]);
     const endDate = formatDateOnly(weekDates[6]);
 
-    scheduleService.getAll({ lecturerId: user._id, startDate, endDate, slotType: slotTypeFilter })
-      .then((data) => setSchedules(data || []))
-      .catch(() => setError('Cannot load teaching schedule'))
-      .finally(() => setLoading(false));
+    try {
+      const [weekSchedules, weekApprovedBookings] = await Promise.all([
+        scheduleService.getAll({ lecturerId: user._id, startDate, endDate, slotType: slotTypeFilter }),
+        bookingService.getSelfBookings({ fromDate: startDate, toDate: endDate, status: 'approved' }),
+      ]);
+
+      setSchedules(weekSchedules || []);
+      setApprovedBookings(weekApprovedBookings || []);
+    } catch {
+      setError('Cannot load teaching schedule');
+    } finally {
+      setLoading(false);
+    }
   }, [user, selectedDate, slotTypeFilter]);
 
   useEffect(() => {
+    fetchWeekSchedules();
+  }, [fetchWeekSchedules]);
+
+  const fetchUpcomingSchedules = useCallback(async () => {
     if (!user?._id) return;
     setUpcomingLoading(true);
 
     const today = new Date();
     const futureDate = new Date(today);
     futureDate.setDate(today.getDate() + 90);
+    const startDate = formatDateOnly(today);
+    const endDate = formatDateOnly(futureDate);
 
-    scheduleService
-      .getAll({
-        lecturerId: user._id,
-        startDate: formatDateOnly(today),
-        endDate: formatDateOnly(futureDate),
-      })
-      .then((data) => {
-        const sorted = (data || [])
-          .slice()
-          .sort((a, b) => toScheduleDateTime(a).getTime() - toScheduleDateTime(b).getTime());
-        setUpcomingSchedules(sorted);
-      })
-      .catch(() => setUpcomingSchedules([]))
-      .finally(() => setUpcomingLoading(false));
-  }, [user]);
+    try {
+      const [upcomingData, upcomingApprovedBookings] = await Promise.all([
+        scheduleService.getAll({
+          lecturerId: user._id,
+          startDate,
+          endDate,
+          slotType: slotTypeFilter,
+        }),
+        bookingService.getSelfBookings({
+          fromDate: startDate,
+          toDate: endDate,
+          status: 'approved',
+        }),
+      ]);
+
+      const virtualUpcoming: DisplaySchedule[] = [];
+      (upcomingApprovedBookings || []).forEach((booking) => {
+        const matchedSlots = timeSlots.filter(
+          (slot) =>
+            slot.slotType === slotTypeFilter &&
+            slot.startTime === booking.startTime &&
+            slot.endTime === booking.endTime,
+        );
+
+        matchedSlots.forEach((slot) => {
+          const bookingDateText = formatDateFromScheduleInput(booking.bookingDate);
+          if (!bookingDateText) return;
+
+          const date = new Date(`${bookingDateText}T00:00:00`);
+
+          virtualUpcoming.push({
+            _id: `booking-${booking._id}-${slot.slotType}-${slot.slotNumber}`,
+            campusId: booking.campusId,
+            roomId: booking.roomId as any,
+            lecturerId: booking.lecturerId as any,
+            dateStart: bookingDateText,
+            dayOfWeek: date.getDay() + 1,
+            slotType: slot.slotType,
+            slotNumber: slot.slotNumber,
+            startTime: booking.startTime,
+            endTime: booking.endTime,
+            classCode: 'BOOKING',
+            subjectName: booking.purpose || 'Approved booking',
+            status: 'scheduled',
+            source: 'api',
+            _virtualBooking: true,
+          });
+        });
+      });
+
+      const existingKeys = new Set(
+        (upcomingData || []).map((item) => {
+          const dateText = formatDateFromScheduleInput(item.dateStart);
+          const roomText = typeof item.roomId === 'string' ? item.roomId : item.roomId?._id;
+          return `${roomText}_${dateText}_${item.slotNumber}_${item.slotType}`;
+        }),
+      );
+
+      const mergedUpcoming = [
+        ...(upcomingData || []),
+        ...virtualUpcoming.filter((item) => {
+          const dateText = formatDateFromScheduleInput(item.dateStart);
+          const roomText = typeof item.roomId === 'string' ? item.roomId : item.roomId?._id;
+          const key = `${roomText}_${dateText}_${item.slotNumber}_${item.slotType}`;
+          return !existingKeys.has(key);
+        }),
+      ];
+
+      const sorted = mergedUpcoming
+        .slice()
+        .sort((a, b) => toScheduleDateTime(a).getTime() - toScheduleDateTime(b).getTime());
+      setUpcomingSchedules(sorted);
+    } catch {
+      setUpcomingSchedules([]);
+    } finally {
+      setUpcomingLoading(false);
+    }
+  }, [user, timeSlots, slotTypeFilter]);
+
+  useEffect(() => {
+    if (timeSlots.length === 0) return;
+    fetchUpcomingSchedules();
+  }, [fetchUpcomingSchedules, timeSlots.length]);
+
+  useEffect(() => {
+    wsService.connect();
+
+    const onBookingUpdated = () => {
+      fetchWeekSchedules();
+      if (timeSlots.length > 0) {
+        fetchUpcomingSchedules();
+      }
+    };
+
+    wsService.on('booking:updated', onBookingUpdated);
+
+    return () => {
+      wsService.off('booking:updated', onBookingUpdated);
+    };
+  }, [fetchWeekSchedules, fetchUpcomingSchedules, timeSlots.length]);
 
   const weekDates = getWeekDates(selectedDate);
   const selectedWeekLabel = weeksOfYear[selectedWeekIdx]?.label || '-';
@@ -162,12 +285,77 @@ const LecturerSchedulePage: React.FC = () => {
       .sort((a, b) => a.slotNumber - b.slotNumber);
   }, [timeSlots, slotTypeFilter]);
 
+  const mergedSchedules = useMemo(() => {
+    const base: DisplaySchedule[] = [...schedules];
+    const existingKeys = new Set(
+      schedules.map((item) => {
+        const dateText = formatDateFromScheduleInput(item.dateStart);
+        const roomText = typeof item.roomId === 'string' ? item.roomId : item.roomId?._id;
+        return `${roomText}_${dateText}_${item.slotNumber}_${item.slotType}`;
+      }),
+    );
+
+    approvedBookings.forEach((booking) => {
+      const matchedSlots = timeSlots.filter(
+        (slot) =>
+          slot.slotType === slotTypeFilter &&
+          slot.startTime === booking.startTime &&
+          slot.endTime === booking.endTime,
+      );
+
+      matchedSlots.forEach((slot) => {
+        const bookingDateText = formatDateFromScheduleInput(booking.bookingDate);
+        if (!bookingDateText) return;
+
+        const roomText = typeof booking.roomId === 'string' ? booking.roomId : booking.roomId?._id;
+        const key = `${roomText}_${bookingDateText}_${slot.slotNumber}_${slot.slotType}`;
+        if (existingKeys.has(key)) return;
+
+        const day = new Date(`${bookingDateText}T00:00:00`);
+
+        base.push({
+          _id: `booking-${booking._id}-${slot.slotType}-${slot.slotNumber}`,
+          campusId: booking.campusId,
+          roomId: booking.roomId as any,
+          lecturerId: booking.lecturerId as any,
+          dateStart: bookingDateText,
+          dayOfWeek: day.getDay() + 1,
+          slotType: slot.slotType,
+          slotNumber: slot.slotNumber,
+          startTime: booking.startTime,
+          endTime: booking.endTime,
+          classCode: 'BOOKING',
+          subjectName: booking.purpose || 'Approved booking',
+          status: 'scheduled',
+          source: 'api',
+          _virtualBooking: true,
+        });
+      });
+    });
+
+    return base;
+  }, [schedules, approvedBookings, timeSlots, slotTypeFilter]);
+
   const nextSchedule = useMemo(() => {
     const now = new Date();
-    return upcomingSchedules.find((s) => toScheduleDateTime(s).getTime() >= now.getTime()) || null;
+    const todayStr = formatDateOnly(now);
+
+    return (
+      upcomingSchedules.find((schedule) => {
+        const scheduleDate = toScheduleDate(schedule.dateStart);
+        const scheduleDateStr = formatDateOnly(scheduleDate);
+
+        // Skip all schedules happening today; only show the nearest upcoming future day.
+        if (scheduleDateStr === todayStr) {
+          return false;
+        }
+
+        return toScheduleDateTime(schedule).getTime() > now.getTime();
+      }) || null
+    );
   }, [upcomingSchedules]);
 
-  const currentWeekLessons = useMemo(() => schedules.length, [schedules]);
+  const currentWeekLessons = useMemo(() => mergedSchedules.length, [mergedSchedules]);
 
   const jumpToDate = (targetDate: Date) => {
     const targetYear = targetDate.getFullYear();
@@ -183,11 +371,24 @@ const LecturerSchedulePage: React.FC = () => {
   const handleViewNextSchedule = () => {
     if (!nextSchedule) return;
     jumpToDate(toScheduleDate(nextSchedule.dateStart));
+    setHighlightScheduleId(nextSchedule._id);
   };
+
+  useEffect(() => {
+    if (!highlightScheduleId) return;
+
+    const timer = window.setTimeout(() => {
+      setHighlightScheduleId(null);
+    }, 3000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [highlightScheduleId]);
 
   const getCell = (slot: TimeSlot, weekdayIdx: number) => {
     const dateStr = formatDateOnly(weekDates[weekdayIdx]);
-    return schedules.find((sch) => {
+    return mergedSchedules.find((sch) => {
       const schDate = sch.dateStart instanceof Date ? sch.dateStart : new Date(sch.dateStart);
       const schDateStr = formatDateOnly(schDate);
       return sch.slotNumber === slot.slotNumber && sch.slotType === slot.slotType && schDateStr === dateStr;
@@ -332,8 +533,14 @@ const LecturerSchedulePage: React.FC = () => {
                       {weekDates.map((date, idx) => {
                         const cell = getCell(slot, idx);
                         const roomInfo = cell ? getRoomInfo(cell.roomId) : null;
+                        const isHighlightedCell = Boolean(cell && cell._id === highlightScheduleId);
                         return (
-                          <td key={idx} className="py-2 px-4 align-top text-center min-w-[160px] border border-gray-300">
+                          <td
+                            key={idx}
+                            className={`py-2 px-4 align-top text-center min-w-[160px] border border-gray-300 transition-all ${
+                              isHighlightedCell ? 'bg-amber-50 ring-2 ring-amber-400 ring-inset animate-pulse' : ''
+                            }`}
+                          >
                             {cell ? (
                               <button
                                 className="w-full h-full flex items-center justify-center"

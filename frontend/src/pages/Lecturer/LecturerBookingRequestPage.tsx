@@ -14,6 +14,41 @@ const timeOverlaps = (startA: string, endA: string, startB: string, endB: string
   return startA < endB && endA > startB;
 };
 
+type SlotDefinition = {
+  slotNumber: number;
+  startTime: string;
+  endTime: string;
+};
+
+const OLD_SLOT_DEFINITIONS: SlotDefinition[] = [
+  { slotNumber: 1, startTime: '07:00', endTime: '08:30' },
+  { slotNumber: 2, startTime: '08:45', endTime: '10:15' },
+  { slotNumber: 3, startTime: '10:30', endTime: '12:00' },
+  { slotNumber: 4, startTime: '12:45', endTime: '14:15' },
+  { slotNumber: 5, startTime: '14:30', endTime: '16:00' },
+  { slotNumber: 6, startTime: '16:15', endTime: '17:45' },
+  { slotNumber: 7, startTime: '18:00', endTime: '19:30' },
+  { slotNumber: 8, startTime: '19:45', endTime: '21:15' },
+] ;
+
+const NEW_SLOT_DEFINITIONS: SlotDefinition[] = [
+  { slotNumber: 1, startTime: '07:00', endTime: '09:15' },
+  { slotNumber: 2, startTime: '09:30', endTime: '11:45' },
+  { slotNumber: 3, startTime: '13:00', endTime: '15:15' },
+  { slotNumber: 4, startTime: '15:30', endTime: '17:45' },
+  { slotNumber: 5, startTime: '18:00', endTime: '20:15' },
+];
+
+const resolveSlotNumberByTime = (
+  startTime: string,
+  endTime: string,
+  slotType: 'OLDSLOT' | 'NEWSLOT',
+): string => {
+  const definitions = slotType === 'OLDSLOT' ? OLD_SLOT_DEFINITIONS : NEW_SLOT_DEFINITIONS;
+  const matched = definitions.find((slot) => slot.startTime === startTime && slot.endTime === endTime);
+  return matched ? String(matched.slotNumber) : '--';
+};
+
 const LecturerBookingRequestPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -25,8 +60,12 @@ const LecturerBookingRequestPage: React.FC = () => {
   const bookingDate = searchParams.get('bookingDate') || '';
   const startTime = searchParams.get('startTime') || '';
   const endTime = searchParams.get('endTime') || '';
-  const slotNumber = searchParams.get('slotNumber') || '--';
+  const slotNumberFromQuery = searchParams.get('slotNumber') || '--';
   const slotType = (searchParams.get('slotType') || 'OLDSLOT') as 'OLDSLOT' | 'NEWSLOT';
+  const slotNumber =
+    resolveSlotNumberByTime(startTime, endTime, slotType) !== '--'
+      ? resolveSlotNumberByTime(startTime, endTime, slotType)
+      : slotNumberFromQuery;
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
