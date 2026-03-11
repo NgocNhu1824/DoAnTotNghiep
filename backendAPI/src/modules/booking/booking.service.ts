@@ -16,7 +16,6 @@ import { BookingTimeHelper } from './helpers/booking-time.helper';
 import { BookingQueryHelper } from './helpers/booking-query.helper';
 import { BookingMapperHelper } from './helpers/booking-mapper.helper';
 import { BookingValidationHelper } from './helpers/booking-validation.helper';
-import { RoomService } from '@/modules/room/room.service';
 import { TimeSlotsService } from '@/modules/time-slots/time-slots.service';
 
 @Injectable()
@@ -32,7 +31,6 @@ export class BookingService {
     @InjectModel(Room.name)
     private readonly roomModel: Model<Room>,
     private readonly eventsGateway: EventsGateway,
-    private readonly roomService: RoomService,
     private readonly timeSlotsService: TimeSlotsService,
   ) {}
 
@@ -107,55 +105,6 @@ export class BookingService {
     }
   }
 
-  private async reserveRoom(roomId: any): Promise<void> {
-    await this.roomService.markReservedIfActive(roomId);
-  }
-
-  private async releaseRoomIfNoApprovedBookings(roomId: any): Promise<void> {
-    const roomText = roomId?.toString?.() || roomId;
-    if (!roomText || !Types.ObjectId.isValid(roomText)) {
-      return;
-    }
-
-    const roomObjectId = new Types.ObjectId(roomText);
-
-    const hasApprovedBooking = await this.bookingModel
-      .exists({
-        roomId: roomObjectId,
-        status: 'approved',
-      })
-      .exec();
-
-    if (hasApprovedBooking) {
-      return;
-    }
-
-    await this.roomService.markAvailableIfNotLocked(roomObjectId);
-  }
-
-  private async syncRoomStatusAfterBookingChange(
-    previousStatus: string,
-    nextStatus: string,
-    previousRoomId: any,
-    nextRoomId: any,
-  ): Promise<void> {
-    const prevRoomText = previousRoomId?.toString?.() || '';
-    const nextRoomText = nextRoomId?.toString?.() || '';
-    const roomChanged = prevRoomText !== nextRoomText;
-
-    if (nextStatus === 'approved') {
-      await this.reserveRoom(nextRoomId);
-    }
-
-    if (previousStatus === 'approved' && (nextStatus !== 'approved' || roomChanged)) {
-      await this.releaseRoomIfNoApprovedBookings(previousRoomId);
-    }
-
-    if (nextStatus === 'completed') {
-      await this.releaseRoomIfNoApprovedBookings(nextRoomId);
-    }
-  }
-
   private toDayRange(dateString: string): { start: Date; end: Date } {
     const date = BookingValidationHelper.toUTCDate(dateString);
     const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -217,10 +166,6 @@ export class BookingService {
 
     const payload = await this.toBookingPayload(created);
 
-    if (created.status === 'approved') {
-      await this.reserveRoom(created.roomId);
-    }
-
     this.eventsGateway.broadcastBookingUpdate('created', payload);
 
     return payload;
@@ -240,7 +185,7 @@ export class BookingService {
       .findOne({
         _id: dto.roomId,
         campusId: new Types.ObjectId(campusId),
-        status: 'available',
+        status: { $nin: ['unavailable', 'maintain'] },
         isActive: { $ne: false },
       })
       .select('_id')
@@ -357,7 +302,7 @@ export class BookingService {
     const rooms = await this.roomModel
       .find({
         campusId: campusObjectId,
-        status: 'available',
+        status: { $nin: ['unavailable', 'maintain'] },
         isActive: { $ne: false },
       })
       .select('_id roomCode roomName building floor capacity roomType status isActive')
@@ -409,7 +354,8 @@ export class BookingService {
           campusId: campusObjectId,
           isActive: { $ne: false },
         })
-        .select('_id roomCode roomName building floor capacity status isActive')
+        .select('_id roomCode roomName building floor capacity roomType status isActive')
+        .populate('devices', 'deviceCode deviceName quantity deviceStatus isActive')
         .sort({ roomCode: 1 })
         .lean()
         .exec(),
@@ -517,9 +463,6 @@ export class BookingService {
 
     const booking = await this.findBookingOrThrow(id, campusId, 'Booking to update was not found');
 
-    const previousStatus = booking.status;
-    const previousRoomId = booking.roomId;
-
     if (dto.status === 'cancelled') {
       throw new BadRequestException(
         'Status cancelled can only be set by booking owner cancellation',
@@ -574,15 +517,6 @@ export class BookingService {
     booking.set(updateData);
     await booking.save();
 
-    const nextStatus = dto.status || previousStatus;
-    const nextRoomId = dto.roomId ? new Types.ObjectId(dto.roomId) : previousRoomId;
-    await this.syncRoomStatusAfterBookingChange(
-      previousStatus,
-      nextStatus,
-      previousRoomId,
-      nextRoomId,
-    );
-
     const payload = await this.toBookingPayload(booking);
     this.eventsGateway.broadcastBookingUpdate('updated', payload);
 
@@ -604,8 +538,6 @@ export class BookingService {
     booking.updatedBy = new Types.ObjectId(currentUser._id);
     await booking.save();
 
-    await this.releaseRoomIfNoApprovedBookings(booking.roomId);
-
     const payload = await this.toBookingPayload(booking);
     this.eventsGateway.broadcastBookingUpdate('updated', payload);
     return payload;
@@ -626,10 +558,6 @@ export class BookingService {
 
     if (!deleted) {
       throw new NotFoundException('Booking to delete was not found');
-    }
-
-    if (deleted.status === 'approved') {
-      await this.releaseRoomIfNoApprovedBookings(deleted.roomId);
     }
 
     this.eventsGateway.broadcastBookingUpdate('deleted', {

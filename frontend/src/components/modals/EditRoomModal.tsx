@@ -46,12 +46,12 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
       <div className="bg-white rounded-lg p-6 w-full max-w-2xl m-4 max-h-[90vh] overflow-y-auto">
-        <h2 className="text-2xl font-bold mb-4">Chỉnh sửa Phòng học</h2>
+        <h2 className="text-2xl font-bold mb-4">Edit Room</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Mã phòng <span className="text-red-500">*</span>
+                Room Code <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -64,7 +64,7 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tên phòng <span className="text-red-500">*</span>
+                Room Name <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -79,7 +79,7 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tòa nhà <span className="text-red-500">*</span>
+                Building <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -92,7 +92,7 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tầng <span className="text-red-500">*</span>
+                Floor <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
@@ -108,7 +108,7 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Sức chứa <span className="text-red-500">*</span>
+                Capacity <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
@@ -122,7 +122,7 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Số tủ khóa <span className="text-red-500">*</span>
+                Locker Number <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
@@ -140,7 +140,7 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Loại phòng <span className="text-red-500">*</span>
+                Room Type <span className="text-red-500">*</span>
               </label>
               <select
                 required
@@ -148,12 +148,12 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
                 onChange={(e) => setFormData({ ...formData, roomType: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               >
-                <option value="classroom">Phòng học</option>
-                <option value="lab">Phòng thí nghiệm</option>
-                <option value="computer_lab">Phòng máy tính</option>
-                <option value="meeting_room">Phòng họp</option>
-                <option value="library">Thư viện</option>
-                <option value="auditorium">Hội trường</option>
+                <option value="classroom">Classroom</option>
+                <option value="lab">Laboratory</option>
+                <option value="computer_lab">Computer Lab</option>
+                <option value="meeting_room">Meeting Room</option>
+                <option value="library">Library</option>
+                <option value="auditorium">Auditorium</option>
               </select>
             </div>
 
@@ -167,7 +167,7 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
                 onChange={(e) => setFormData({ ...formData, campusId: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               >
-                <option value="">-- Chọn campus --</option>
+                <option value="">-- Select campus --</option>
                 {campuses.map((c) => (
                   <option key={c._id} value={c._id}>
                     {c.campusName}
@@ -178,32 +178,31 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
           </div>
 
           <div className="rounded-md border border-dashed border-gray-300 p-3 text-sm text-gray-600">
-            <span className="font-medium">Thiết bị</span>: Quản lý riêng trong phần thiết bị của phòng.
+            <span className="font-medium">Devices</span>: Managed separately in the room devices section.
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Trạng thái
+              Status
             </label>
             <select
               value={formData.status || 'available'}
               onChange={(e) =>
                 setFormData({
                   ...formData,
-                  status: e.target.value as 'available' | 'occupied' | 'maintenance' | 'reserved',
+                  status: e.target.value as 'available' | 'unavailable' | 'maintain',
                 })
               }
               className="w-full px-3 py-2 border border-gray-300 rounded-md"
             >
-              <option value="available">Khả dụng</option>
-              <option value="occupied">Đang sử dụng</option>
-              <option value="maintenance">Bảo trì</option>
-              <option value="reserved">Đã đặt</option>
+              <option value="available">Available</option>
+              <option value="unavailable">Unavailable</option>
+              <option value="maintain">Maintain</option>
             </select>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Mô tả</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
             <textarea
               value={formData.description || ''}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
@@ -221,7 +220,7 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
               className="mr-2"
             />
             <label htmlFor="isActive" className="text-sm text-gray-700">
-              Phòng đang hoạt động
+              Room is active
             </label>
           </div>
 
@@ -231,13 +230,13 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
             >
-              Hủy
+              Cancel
             </button>
             <button
               type="submit"
               className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
             >
-              Cập nhật
+              Update
             </button>
           </div>
         </form>

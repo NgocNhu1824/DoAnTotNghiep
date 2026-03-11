@@ -1,10 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { Booking, BookingStatus } from '@/types/booking.types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Table,
   TableBody,
@@ -22,12 +29,64 @@ const STATUS_TEXT: Record<BookingStatus, string> = {
   completed: 'Completed',
 };
 
+const DETAIL_TEXT_LIMIT = 500;
+
+const getLimitedDetailText = (value: string, fallback = 'No details provided'): string => {
+  const text = (value || '').trim();
+  if (!text) {
+    return fallback;
+  }
+
+  if (text.length <= DETAIL_TEXT_LIMIT) {
+    return text;
+  }
+
+  return `${text.slice(0, DETAIL_TEXT_LIMIT)}...`;
+};
+
 const STATUS_CLASS: Record<BookingStatus, string> = {
   pending: 'bg-yellow-50 text-yellow-700 border-yellow-200',
   approved: 'bg-green-50 text-green-700 border-green-200',
   rejected: 'bg-red-50 text-red-700 border-red-200',
   cancelled: 'bg-slate-100 text-slate-700 border-slate-200',
   completed: 'bg-blue-50 text-blue-700 border-blue-200',
+};
+
+const OLD_SLOT_DEFINITIONS = [
+  { slot: 1, startTime: '07:00', endTime: '08:30' },
+  { slot: 2, startTime: '08:45', endTime: '10:15' },
+  { slot: 3, startTime: '10:30', endTime: '12:00' },
+  { slot: 4, startTime: '12:45', endTime: '14:15' },
+  { slot: 5, startTime: '14:30', endTime: '16:00' },
+  { slot: 6, startTime: '16:15', endTime: '17:45' },
+  { slot: 7, startTime: '18:00', endTime: '19:30' },
+  { slot: 8, startTime: '19:45', endTime: '21:15' },
+] as const;
+
+const NEW_SLOT_DEFINITIONS = [
+  { slot: 1, startTime: '07:00', endTime: '09:15' },
+  { slot: 2, startTime: '09:30', endTime: '11:45' },
+  { slot: 3, startTime: '13:00', endTime: '15:15' },
+  { slot: 4, startTime: '15:30', endTime: '17:45' },
+  { slot: 5, startTime: '18:00', endTime: '20:15' },
+] as const;
+
+const getTimeSlotMeta = (startTime: string, endTime: string): { type: string; slot: string } => {
+  const oldMatch = OLD_SLOT_DEFINITIONS.find(
+    (item) => item.startTime === startTime && item.endTime === endTime,
+  );
+  if (oldMatch) {
+    return { type: 'old slot', slot: String(oldMatch.slot) };
+  }
+
+  const newMatch = NEW_SLOT_DEFINITIONS.find(
+    (item) => item.startTime === startTime && item.endTime === endTime,
+  );
+  if (newMatch) {
+    return { type: 'new slot', slot: String(newMatch.slot) };
+  }
+
+  return { type: 'custom', slot: '--' };
 };
 
 const formatDateCell = (dateValue: string): string => {
@@ -102,6 +161,8 @@ const BookingHistoryTable: React.FC<BookingHistoryTableProps> = ({
   onCancel,
   onViewReason,
 }) => {
+  const [purposeDetailDialogOpen, setPurposeDetailDialogOpen] = useState(false);
+  const [purposeDetailBooking, setPurposeDetailBooking] = useState<Booking | null>(null);
   const sortedBookings = [...bookings].sort(compareBookingsByPriority);
 
   return (
@@ -113,15 +174,15 @@ const BookingHistoryTable: React.FC<BookingHistoryTableProps> = ({
           <p className="text-sm text-muted-foreground">No booking requests yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <Table className="min-w-[900px]">
+            <Table className="min-w-[900px] table-fixed">
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
-                  <TableHead>Time</TableHead>
+                  <TableHead>Time Slot</TableHead>
                   <TableHead>Room</TableHead>
                   <TableHead>Purpose</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Reason</TableHead>
+                  <TableHead>Reason Rejected</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
@@ -129,12 +190,31 @@ const BookingHistoryTable: React.FC<BookingHistoryTableProps> = ({
                 {sortedBookings.map((booking) => (
                   <TableRow key={booking._id}>
                     <TableCell>{formatDateCell(booking.bookingDate)}</TableCell>
-                    <TableCell>{booking.startTime} - {booking.endTime}</TableCell>
-                    <TableCell>{getBookingRoomText(booking)}</TableCell>
-                    <TableCell className="max-w-[280px]">
-                      <p className="truncate" title={booking.purpose}>
-                        {booking.purpose}
+                    <TableCell>
+                      <div className="font-medium">{booking.startTime} - {booking.endTime}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {(() => {
+                          const meta = getTimeSlotMeta(booking.startTime, booking.endTime);
+                          return `type: ${meta.type}; slot: ${meta.slot}`;
+                        })()}
+                      </div>
+                    </TableCell>
+                    <TableCell className="max-w-[220px]">
+                      <p className="truncate" title={getBookingRoomText(booking)}>
+                        {getBookingRoomText(booking)}
                       </p>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPurposeDetailBooking(booking);
+                          setPurposeDetailDialogOpen(true);
+                        }}
+                      >
+                        View details
+                      </Button>
                     </TableCell>
                     <TableCell>
                       <Badge className={STATUS_CLASS[booking.status]} variant="outline">
@@ -171,6 +251,45 @@ const BookingHistoryTable: React.FC<BookingHistoryTableProps> = ({
           </div>
         )}
       </CardContent>
+
+      <Dialog open={purposeDetailDialogOpen} onOpenChange={setPurposeDetailDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Purpose Details</DialogTitle>
+          </DialogHeader>
+
+          {purposeDetailBooking && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-3 gap-2">
+                <span className="text-muted-foreground">Date</span>
+                <span className="col-span-2 font-medium">{formatDateCell(purposeDetailBooking.bookingDate)}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <span className="text-muted-foreground">Time</span>
+                <span className="col-span-2 font-medium">{purposeDetailBooking.startTime} - {purposeDetailBooking.endTime}</span>
+              </div>
+              <div className="space-y-2">
+                <p className="text-muted-foreground">Purpose</p>
+                <div className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                  {getLimitedDetailText(purposeDetailBooking.purpose)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPurposeDetailDialogOpen(false);
+                setPurposeDetailBooking(null);
+              }}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };

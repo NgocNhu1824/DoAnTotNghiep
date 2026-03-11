@@ -24,6 +24,7 @@ import IncidentManagementPage from '../pages/Admin/IncidentManagementPage';
 import LecturerBookingPage from '../pages/Lecturer/LecturerBookingPage';
 import LecturerBookingHistoryPage from '../pages/Lecturer/LecturerBookingHistoryPage';
 import LecturerSchedulePage from '@/pages/Lecturer/LecturerSchedulePage';
+import LecturerBookingRequestPage from '../pages/Lecturer/LecturerBookingRequestPage';
 
 
 const AppRoutes: React.FC = () => {
@@ -161,6 +162,21 @@ const AppRoutes: React.FC = () => {
               >
                 <AdminLayout>
                   <LecturerBookingPage />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/lecturer/booking/request"
+            element={
+              <ProtectedRoute
+                allowedRoleCodes={['LECTURER']}
+                requiredScopes={['SELF']}
+                requiredPermissions={[PERMISSIONS.BOOKINGS_CREATE, PERMISSIONS.BOOKINGS_READ]}
+              >
+                <AdminLayout>
+                  <LecturerBookingRequestPage />
                 </AdminLayout>
               </ProtectedRoute>
             }

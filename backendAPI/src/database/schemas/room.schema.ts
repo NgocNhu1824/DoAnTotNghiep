@@ -34,7 +34,7 @@ export class Room {
 
   @Prop({ 
     required: true, 
-    enum: ['available', 'occupied', 'maintenance', 'reserved'], 
+    enum: ['available', 'unavailable', 'maintain'], 
     default: 'available',
     index: true 
   })
