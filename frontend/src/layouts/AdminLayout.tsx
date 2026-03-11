@@ -135,7 +135,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const lecturerScheduleMenuItem = {
     id: 'lecturer-schedule',
-    label: 'Schedule',
+    label: 'My Schedule',
     icon: Calendar,
     path: '/lecturer/schedule',
   };
