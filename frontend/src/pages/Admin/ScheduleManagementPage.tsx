@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Upload, Search, CalendarIcon, X, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { format } from 'date-fns';
@@ -21,9 +21,12 @@ import { PERMISSIONS } from '../../utils/permissions';
 import roomService from '../../services/room.service';
 import { timeSlotService } from '../../services/time-slot.service';
 import { scheduleService, QueryScheduleParams } from '../../services/schedule.service';
+import bookingService from '../../services/booking.service';
+import { wsService } from '../../services/websocket.service';
 import { Room } from '../../types/room.types';
 import { TimeSlot } from '../../types/time-slot.types';
 import { Schedule } from '../../types/schedule.types';
+import { Booking } from '../../types/booking.types';
 import { cn } from '../../lib/utils';
 import ViewScheduleModal from '../../components/modals/ViewScheduleModal';
 import EditScheduleModal from '../../components/modals/EditScheduleModal';
@@ -35,11 +38,20 @@ interface ScheduleCell {
   slotType: 'OLDSLOT' | 'NEWSLOT';
 }
 
+type DisplaySchedule = Schedule & {
+  _virtualBooking?: boolean;
+};
+
+const isVirtualBookingSchedule = (schedule: Schedule | null): schedule is DisplaySchedule => {
+  return Boolean(schedule && (schedule as DisplaySchedule)._virtualBooking);
+};
+
 const ScheduleManagementPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [approvedBookings, setApprovedBookings] = useState<Booking[]>([]);
   
   // Date navigation
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -80,12 +92,18 @@ const ScheduleManagementPage: React.FC = () => {
     fetchData();
   }, []);
 
-  // Fetch schedules when date changes
-  useEffect(() => {
-    if (rooms.length > 0 && timeSlots.length > 0) {
-      fetchSchedules();
+  const toDateKey = (value: string | Date): string => {
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return value;
     }
-  }, [currentDate, rooms.length, timeSlots.length]);
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return format(new Date(), 'yyyy-MM-dd');
+    }
+
+    return format(parsed, 'yyyy-MM-dd');
+  };
 
   const fetchData = async () => {
     try {
@@ -105,7 +123,7 @@ const ScheduleManagementPage: React.FC = () => {
     }
   };
 
-  const fetchSchedules = async () => {
+  const fetchSchedules = useCallback(async () => {
     try {
       // Gửi ngày dạng YYYY-MM-DD để tránh lệch múi giờ khi BE parse Date
       const dateStr = format(currentDate, 'yyyy-MM-dd');
@@ -115,13 +133,43 @@ const ScheduleManagementPage: React.FC = () => {
         endDate: dateStr,
       };
 
-      const schedulesData = await scheduleService.getAll(params);
+      const [schedulesData, approvedBookingData] = await Promise.all([
+        scheduleService.getAll(params),
+        bookingService.getAll({
+          fromDate: dateStr,
+          toDate: dateStr,
+          status: 'approved',
+        }),
+      ]);
+
       setSchedules(schedulesData);
+      setApprovedBookings(approvedBookingData);
     } catch (error: any) {
       console.error('Error fetching schedules:', error);
       toast.error('Không thể tải lịch học');
     }
-  };
+  }, [currentDate]);
+
+  // Fetch schedules when date changes
+  useEffect(() => {
+    if (rooms.length > 0 && timeSlots.length > 0) {
+      fetchSchedules();
+    }
+  }, [currentDate, rooms.length, timeSlots.length, fetchSchedules]);
+
+  useEffect(() => {
+    wsService.connect();
+
+    const onBookingUpdated = () => {
+      fetchSchedules();
+    };
+
+    wsService.on('booking:updated', onBookingUpdated);
+
+    return () => {
+      wsService.off('booking:updated', onBookingUpdated);
+    };
+  }, [fetchSchedules]);
 
   // Filter rooms
   const filteredRooms = useMemo(() => {
@@ -163,6 +211,53 @@ const ScheduleManagementPage: React.FC = () => {
     return map;
   }, [schedules]);
 
+  const approvedBookingMap = useMemo(() => {
+    const map = new Map<string, DisplaySchedule>();
+
+    approvedBookings.forEach((booking) => {
+      const roomId = typeof booking.roomId === 'string' ? booking.roomId : booking.roomId?._id;
+      if (!roomId) return;
+
+      const dateStr = toDateKey(booking.bookingDate);
+
+      const matchingSlots = timeSlots.filter(
+        (slot) => slot.startTime === booking.startTime && slot.endTime === booking.endTime,
+      );
+
+      if (matchingSlots.length === 0) {
+        return;
+      }
+
+      matchingSlots.forEach((slot) => {
+        const key = `${roomId}_${dateStr}_${slot.slotNumber}_${slot.slotType}`;
+
+        const day = new Date(`${dateStr}T00:00:00`);
+        const virtualSchedule: DisplaySchedule = {
+          _id: `booking-${booking._id}-${slot.slotType}-${slot.slotNumber}`,
+          campusId: booking.campusId,
+          roomId: booking.roomId as any,
+          lecturerId: booking.lecturerId as any,
+          dateStart: booking.bookingDate,
+          dayOfWeek: day.getDay() + 1,
+          slotType: slot.slotType,
+          slotNumber: slot.slotNumber,
+          timeSlotId: slot._id,
+          startTime: booking.startTime,
+          endTime: booking.endTime,
+          classCode: 'BOOKING',
+          subjectName: booking.purpose || 'Approved booking',
+          status: 'scheduled',
+          source: 'api',
+          _virtualBooking: true,
+        };
+
+        map.set(key, virtualSchedule);
+      });
+    });
+
+    return map;
+  }, [approvedBookings, timeSlots]);
+
   const scheduleGrid = useMemo(() => {
     const grid: ScheduleCell[][] = [];
     const currentDateStr = format(currentDate, 'yyyy-MM-dd');
@@ -173,7 +268,7 @@ const ScheduleManagementPage: React.FC = () => {
 
       filteredTimeSlots.forEach((slot) => {
         const key = `${roomId}_${currentDateStr}_${slot.slotNumber}_${slot.slotType}`;
-        const schedule = scheduleMap.get(key) || null;
+        const schedule = scheduleMap.get(key) || approvedBookingMap.get(key) || null;
 
         row.push({
           schedule,
@@ -186,7 +281,7 @@ const ScheduleManagementPage: React.FC = () => {
     });
 
     return grid;
-  }, [filteredRooms, filteredTimeSlots, scheduleMap, currentDate]);
+  }, [filteredRooms, filteredTimeSlots, scheduleMap, approvedBookingMap, currentDate]);
 
   const handlePrevDay = () => {
     const prevDate = new Date(currentDate);
@@ -207,6 +302,11 @@ const ScheduleManagementPage: React.FC = () => {
 
   const handleCellClick = (cell: ScheduleCell) => {
     if (cell.schedule) {
+      if (isVirtualBookingSchedule(cell.schedule)) {
+        toast.info('Lịch này được tạo từ booking đã duyệt. Vui lòng cập nhật ở trang Booking.');
+        return;
+      }
+
       setSelectedSchedule(cell.schedule);
       setIsViewModalOpen(true);
     }
