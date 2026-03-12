@@ -142,7 +142,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   let menuItems = baseMenuItems;
 
   if (userScope === 'SELF') {
-    menuItems = [lecturerBookingMenuItem, lecturerHistoryMenuItem, lecturerScheduleMenuItem];
+    menuItems = [
+      lecturerBookingMenuItem,
+      lecturerHistoryMenuItem,
+      lecturerScheduleMenuItem,
+    ];
   } else if (userScope === 'CAMPUS') {
     menuItems = baseMenuItems;
   } else {
