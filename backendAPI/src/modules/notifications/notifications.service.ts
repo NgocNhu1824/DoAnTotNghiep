@@ -134,7 +134,8 @@ export class NotificationsService {
       const campusId = this.extractObjectId(bookingPayload?.campusId);
       const requesterId = this.extractObjectId(bookingPayload?.lecturerId?._id || bookingPayload?.lecturerId);
       const roomCode = bookingPayload?.roomId?.roomCode || 'Unknown room';
-      const requesterName = bookingPayload?.lecturerId?.fullName || bookingPayload?.lecturerId?.email || 'Giảng viên';
+      const requesterName =
+        bookingPayload?.lecturerId?.fullName || bookingPayload?.lecturerId?.email || 'Lecturer';
 
       if (!bookingId || !campusId) {
         return;
@@ -153,8 +154,8 @@ export class NotificationsService {
           campusId,
           senderId: null,
           type: 'booking_pending',
-          title: `Booking mới cần duyệt: ${roomCode}`,
-          message: `${requesterName} vừa tạo yêu cầu booking phòng ${roomCode}`,
+          title: `New booking requires approval: ${roomCode}`,
+          message: `${requesterName} has submitted a booking request for room ${roomCode}`,
           priority: 'high',
           data: {
             bookingId,
@@ -190,7 +191,7 @@ export class NotificationsService {
 
     const roomCode = (booking as any)?.roomId?.roomCode || 'Unknown room';
     const requesterName =
-      (booking as any)?.lecturerId?.fullName || (booking as any)?.lecturerId?.email || 'Giảng viên';
+      (booking as any)?.lecturerId?.fullName || (booking as any)?.lecturerId?.email || 'Lecturer';
 
     const approverIds = await this.findBookingApproverIds(campusId);
     const recipients = approverIds.filter(
@@ -208,8 +209,8 @@ export class NotificationsService {
         campusId,
         senderId: null,
         type: 'booking_pending_reminder',
-        title: `Nhắc duyệt booking: ${roomCode}`,
-        message: `Booking của ${requesterName} vẫn đang chờ duyệt`,
+        title: `Booking approval reminder: ${roomCode}`,
+        message: `${requesterName}'s booking is still pending approval`,
         priority: 'high',
         data: {
           bookingId,
@@ -246,13 +247,13 @@ export class NotificationsService {
         campusId,
         senderId: null,
         type: status === 'approved' ? 'booking_approved' : 'booking_rejected',
-        title: status === 'approved' ? `Booking đã được duyệt: ${roomCode}` : `Booking bị từ chối: ${roomCode}`,
+        title: status === 'approved' ? `Booking approved: ${roomCode}` : `Booking rejected: ${roomCode}`,
         message:
           status === 'approved'
-            ? `Yêu cầu booking phòng ${roomCode} của bạn đã được duyệt`
+            ? `Your booking request for room ${roomCode} has been approved`
             : rejectReason
-              ? `Yêu cầu booking phòng ${roomCode} bị từ chối. Lý do: ${rejectReason}`
-              : `Yêu cầu booking phòng ${roomCode} của bạn đã bị từ chối`,
+              ? `Your booking request for room ${roomCode} was rejected. Reason: ${rejectReason}`
+              : `Your booking request for room ${roomCode} was rejected`,
         priority: status === 'approved' ? 'medium' : 'high',
         data: {
           bookingId,
@@ -266,6 +267,104 @@ export class NotificationsService {
         dedupeKey: `booking-decision:${status}:${bookingId}:recipient:${recipientId}`,
       },
     ]);
+  }
+
+  async notifyTransferRequestCreated(payload: {
+    transferId: string;
+    campusId: string;
+    fromUserId: string;
+    toUserId: string;
+    roomId: string;
+    lockerId: string;
+    fromScheduleId: string;
+    toScheduleId: string;
+    reason?: string | null;
+  }): Promise<void> {
+    const recipientId = this.extractObjectId(payload?.toUserId);
+    const senderId = this.extractObjectId(payload?.fromUserId);
+    const campusId = this.extractObjectId(payload?.campusId);
+    const transferId = String(payload?.transferId || '').trim();
+
+    if (!recipientId || !campusId || !transferId) {
+      return;
+    }
+
+    const reasonText = String(payload?.reason || '').trim();
+    const notificationItems: CreateNotificationInput[] = [];
+
+    notificationItems.push({
+      recipientId,
+      campusId,
+      senderId,
+      type: 'transfer_pending',
+      title: 'New transfer request',
+      message: reasonText
+        ? `You have a new transfer request. Reason: ${reasonText}`
+        : 'You have a new transfer request to process',
+      priority: 'high',
+      data: {
+        transferId,
+        roomId: payload.roomId,
+        lockerId: payload.lockerId,
+        fromScheduleId: payload.fromScheduleId,
+        toScheduleId: payload.toScheduleId,
+        status: 'pending',
+      },
+      dedupeKey: `transfer-created:${transferId}:recipient:${recipientId}`,
+    });
+
+    if (senderId && senderId !== recipientId) {
+      notificationItems.push({
+        recipientId: senderId,
+        campusId,
+        senderId,
+        type: 'transfer_created',
+        title: 'Transfer request created',
+        message: reasonText
+          ? `Your transfer request has been created. Reason: ${reasonText}`
+          : 'Your transfer request has been created successfully',
+        priority: 'medium',
+        data: {
+          transferId,
+          roomId: payload.roomId,
+          lockerId: payload.lockerId,
+          fromScheduleId: payload.fromScheduleId,
+          toScheduleId: payload.toScheduleId,
+          status: 'pending',
+        },
+        dedupeKey: `transfer-created:${transferId}:sender:${senderId}`,
+      });
+    }
+
+    const approverIds = await this.findBookingApproverIds(campusId);
+    const managementRecipients = approverIds.filter(
+      (id) => id !== recipientId && id !== senderId,
+    );
+
+    managementRecipients.forEach((managerId) => {
+      notificationItems.push({
+        recipientId: managerId,
+        campusId,
+        senderId,
+        type: 'transfer_pending_review',
+        title: 'New transfer requires monitoring',
+        message: reasonText
+          ? `A transfer request has been created. Reason: ${reasonText}`
+          : 'A transfer request has been created in your campus',
+        priority: 'medium',
+        data: {
+          transferId,
+          roomId: payload.roomId,
+          lockerId: payload.lockerId,
+          fromScheduleId: payload.fromScheduleId,
+          toScheduleId: payload.toScheduleId,
+          status: 'pending',
+        },
+        dedupeKey: `transfer-created:${transferId}:manager:${managerId}`,
+      });
+    });
+
+    await this.createAndBroadcastMany(notificationItems);
   }
 
   async cancelBookingReminder(bookingId: string): Promise<void> {

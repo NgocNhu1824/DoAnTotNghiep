@@ -10,6 +10,7 @@ import { Room, RoomSchema } from '@/database/schemas/room.schema';
 import { User, UserSchema } from '@/database/schemas/user.schema';
 import { Role, RoleSchema } from '@/database/schemas/role.schema';
 import { GatewaysModule } from '../../common/gateways/gateways.module';
+import { NotificationsModule } from '@/modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { GatewaysModule } from '../../common/gateways/gateways.module';
       { name: Role.name, schema: RoleSchema },
     ]),
     GatewaysModule,
+    NotificationsModule,
   ],
   controllers: [TransfersController],
   providers: [TransfersService],

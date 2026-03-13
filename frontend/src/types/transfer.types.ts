@@ -16,10 +16,14 @@ export interface TransferSourceSchedule {
 
 export interface TransferTargetOption {
   scheduleId: string;
+  dateStart?: string;
   startTime: string;
   endTime: string;
   slotType: 'OLDSLOT' | 'NEWSLOT';
   slotNumber: number;
+  classCode?: string;
+  subjectCode?: string;
+  subjectName?: string;
   lecturer: {
     id: string;
     fullName: string;

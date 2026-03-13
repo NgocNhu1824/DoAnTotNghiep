@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -85,9 +85,6 @@ type DisplaySchedule = Schedule & {
   _virtualBooking?: boolean;
 };
 
-const TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END = 30;
-const TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END = 15;
-
 function formatDateFromScheduleInput(value: string | Date): string {
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return value;
@@ -101,43 +98,34 @@ function formatDateFromScheduleInput(value: string | Date): string {
   return formatDateOnly(parsed);
 }
 
-function parseTimeToMinutes(value?: string): number {
-  const [hoursText, minutesText] = String(value || '').split(':');
-  const hours = Number(hoursText);
-  const minutes = Number(minutesText);
+function parseDateParamToDate(value: string | null): Date | null {
+  if (!value) return null;
+  const trimmed = String(value).trim();
 
-  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
-    return -1;
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const parsedIso = new Date(`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}T00:00:00`);
+    if (!Number.isNaN(parsedIso.getTime())) {
+      return parsedIso;
+    }
   }
 
-  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-    return -1;
+  const viMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+\d{2}:\d{2}(?::\d{2})?)?$/);
+  if (viMatch) {
+    const parsedVi = new Date(`${viMatch[3]}-${viMatch[2]}-${viMatch[1]}T00:00:00`);
+    if (!Number.isNaN(parsedVi.getTime())) {
+      return parsedVi;
+    }
   }
 
-  return hours * 60 + minutes;
+  const fallback = new Date(trimmed);
+  if (!Number.isNaN(fallback.getTime())) {
+    return fallback;
+  }
+
+  return null;
 }
 
-function isWithinTransferRequestWindow(schedule: DisplaySchedule): boolean {
-  const dateText = formatDateFromScheduleInput(schedule.dateStart);
-  const endMinutes = parseTimeToMinutes(schedule.endTime);
-  if (!dateText || endMinutes < 0) {
-    return false;
-  }
-
-  const hours = Math.floor(endMinutes / 60);
-  const minutes = endMinutes % 60;
-  const sourceEndAt = new Date(`${dateText}T00:00:00`);
-  sourceEndAt.setHours(hours, minutes, 0, 0);
-
-  const windowStart = new Date(sourceEndAt);
-  windowStart.setMinutes(windowStart.getMinutes() - TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END);
-
-  const windowEnd = new Date(sourceEndAt);
-  windowEnd.setMinutes(windowEnd.getMinutes() + TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END);
-
-  const now = new Date();
-  return now.getTime() >= windowStart.getTime() && now.getTime() <= windowEnd.getTime();
-}
 
 const LecturerSchedulePage: React.FC = () => {
   const { user } = useAuth();
@@ -165,12 +153,16 @@ const LecturerSchedulePage: React.FC = () => {
   const [detailSchedule, setDetailSchedule] = useState<Schedule | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [highlightScheduleId, setHighlightScheduleId] = useState<string | null>(null);
+  const [pendingHighlightScheduleId, setPendingHighlightScheduleId] = useState<string | null>(null);
   const [checkingTransferScheduleId, setCheckingTransferScheduleId] = useState<string | null>(null);
   const [existingTransfersBySource, setExistingTransfersBySource] = useState<Record<string, TransferRecord>>({});
   const [selectedTransfer, setSelectedTransfer] = useState<TransferRecord | null>(null);
   const [selectedTransferSourceSchedule, setSelectedTransferSourceSchedule] = useState<DisplaySchedule | null>(null);
   const [selectedTransferTargetOption, setSelectedTransferTargetOption] = useState<TransferTargetOption | null>(null);
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [eligibleTransferSourceIds, setEligibleTransferSourceIds] = useState<Set<string>>(new Set());
+  const lastNotifiedTransferIdRef = useRef<string | null>(null);
+  const processedReturnParamsRef = useRef<string>('');
 
   useEffect(() => {
     const weeks = getWeeksOfYear(selectedYear);
@@ -413,6 +405,26 @@ const LecturerSchedulePage: React.FC = () => {
     fetchExistingTransfers();
   }, [mergedSchedules]);
 
+  useEffect(() => {
+    const fetchSelfTransferSources = async () => {
+      const startDate = formatDateOnly(weekDates[0]);
+      const endDate = formatDateOnly(weekDates[6]);
+
+      try {
+        const rows = await transferService.getSelfSourceSchedules({
+          fromDate: startDate,
+          toDate: endDate,
+        });
+
+        setEligibleTransferSourceIds(new Set((rows || []).map((item) => item.id)));
+      } catch {
+        setEligibleTransferSourceIds(new Set());
+      }
+    };
+
+    fetchSelfTransferSources();
+  }, [selectedDate]);
+
   const nextSchedule = useMemo(() => {
     const now = new Date();
     const todayStr = formatDateOnly(now);
@@ -464,31 +476,75 @@ const LecturerSchedulePage: React.FC = () => {
   }, [highlightScheduleId]);
 
   useEffect(() => {
-    const focusScheduleId = searchParams.get('focusScheduleId');
-    const focusDate = searchParams.get('focusDate');
-    const createdTransferId = searchParams.get('createdTransferId');
-
-    if (!focusScheduleId && !focusDate && !createdTransferId) {
+    if (!pendingHighlightScheduleId) {
       return;
     }
 
-    if (focusDate) {
-      const focusDateObj = new Date(`${focusDate}T00:00:00`);
-      if (!Number.isNaN(focusDateObj.getTime())) {
-        jumpToDate(focusDateObj);
+    const matched = mergedSchedules.find(
+      (item) => item._id === pendingHighlightScheduleId || item.id === pendingHighlightScheduleId,
+    );
+
+    if (!matched) {
+      return;
+    }
+
+    setHighlightScheduleId(String(matched._id || matched.id));
+    setPendingHighlightScheduleId(null);
+  }, [mergedSchedules, pendingHighlightScheduleId]);
+
+  useEffect(() => {
+    const focusScheduleId = searchParams.get('focusScheduleId');
+    const focusDate = searchParams.get('focusDate');
+    const focusRawDate = searchParams.get('focusRawDate');
+    const createdTransferId = searchParams.get('createdTransferId');
+    const paramsKey = `${focusScheduleId || ''}|${focusDate || ''}|${focusRawDate || ''}|${createdTransferId || ''}`;
+
+    if (!focusScheduleId && !focusDate && !focusRawDate && !createdTransferId) {
+      return;
+    }
+
+    if (processedReturnParamsRef.current === paramsKey) {
+      return;
+    }
+    processedReturnParamsRef.current = paramsKey;
+
+    const handleReturnParams = async () => {
+      let targetDate: Date | null = parseDateParamToDate(focusDate) || parseDateParamToDate(focusRawDate);
+
+      if (focusScheduleId) {
+        try {
+          const schedule = await scheduleService.getById(focusScheduleId);
+          const scheduleDateText = formatDateFromScheduleInput(schedule?.dateStart as any);
+          targetDate = parseDateParamToDate(scheduleDateText) || targetDate;
+        } catch {
+          // Keep query-derived date fallback when API lookup fails.
+        }
       }
-    }
 
-    if (focusScheduleId) {
-      setHighlightScheduleId(focusScheduleId);
-    }
+      if (targetDate) {
+        jumpToDate(targetDate);
+      }
 
-    if (createdTransferId) {
-      window.alert('Transfer request created successfully');
-    }
+      if (focusScheduleId) {
+        setPendingHighlightScheduleId(focusScheduleId);
+      }
 
-    setSearchParams({}, { replace: true });
-  }, [searchParams, setSearchParams]);
+      if (createdTransferId && lastNotifiedTransferIdRef.current !== createdTransferId) {
+        lastNotifiedTransferIdRef.current = createdTransferId;
+        window.alert('Transfer request created successfully');
+
+        // Refresh immediately so transfer badges/state appear without manual reload.
+        void fetchWeekSchedules();
+        if (timeSlots.length > 0) {
+          void fetchUpcomingSchedules();
+        }
+      }
+
+      setSearchParams({}, { replace: true });
+    };
+
+    void handleReturnParams();
+  }, [searchParams, setSearchParams, fetchWeekSchedules, fetchUpcomingSchedules, timeSlots.length]);
 
   const getCell = (slot: TimeSlot, weekdayIdx: number) => {
     const dateStr = formatDateOnly(weekDates[weekdayIdx]);
@@ -510,15 +566,7 @@ const LecturerSchedulePage: React.FC = () => {
       return false;
     }
 
-    if (!['scheduled', 'ongoing'].includes(schedule.status)) {
-      return false;
-    }
-
-    if (!isWithinTransferRequestWindow(schedule)) {
-      return false;
-    }
-
-    return true;
+    return eligibleTransferSourceIds.has(schedule._id);
   };
 
   const handleCreateTransfer = async (schedule: DisplaySchedule) => {
@@ -547,13 +595,6 @@ const LecturerSchedulePage: React.FC = () => {
 
     try {
       setCheckingTransferScheduleId(schedule._id);
-
-      const targetResult = await transferService.getSelfTargetOptions(schedule._id);
-      if (!targetResult.options?.length) {
-        window.alert('No eligible adjacent lecturer schedule found. Cannot create transfer for this class.');
-        return;
-      }
-
       navigate(`/lecturer/transfers/request?fromScheduleId=${schedule._id}`);
     } catch (error: any) {
       toast({

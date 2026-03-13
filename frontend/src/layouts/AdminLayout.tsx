@@ -36,7 +36,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const userScope = (roleDetails?.scope || '').toUpperCase();
-  const canReadNotifications = hasAnyPermission([PERMISSIONS.NOTIFICATIONS_READ]);
+  const canReadNotifications = Boolean(user?._id);
 
   const baseMenuItems: Array<{
     id: string;

@@ -13,13 +13,17 @@ import { Schedule } from '@/database/schemas/schedule.schema';
 import { Locker } from '@/database/schemas/locker.schema';
 import { Room } from '@/database/schemas/room.schema';
 import { User } from '@/database/schemas/user.schema';
+import { NotificationsService } from '@/modules/notifications/notifications.service';
 
 @Injectable()
 export class TransfersService {
-  private static readonly ALLOWED_RECEIVER_ROLE_CODES = ['LECTURER', 'SECURITY'];
   // Business rule: transfer request is only allowed near source schedule end time.
   private static readonly TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END = 30;
   private static readonly TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END = 15;
+
+  private isTransferWindowEnforced(): boolean {
+    return String(process.env.TRANSFER_ENFORCE_TIME_WINDOW || 'false').toLowerCase() === 'true';
+  }
 
   private buildTargetOptionDiagnostics(sourceEndMinutes: number, candidates: any[]): any {
     const summary = {
@@ -46,11 +50,6 @@ export class TransfersService {
         if (!lecturer?.isActive) {
           reasons.push('LECTURER_INACTIVE');
           summary.invalidCounts.inactiveLecturer += 1;
-        }
-
-        if (!TransfersService.ALLOWED_RECEIVER_ROLE_CODES.includes(roleCode)) {
-          reasons.push('ROLE_NOT_ALLOWED');
-          summary.invalidCounts.disallowedRole += 1;
         }
 
         return {
@@ -86,6 +85,7 @@ export class TransfersService {
     @InjectModel(Room.name) private roomModel: Model<Room>,
     @InjectModel(User.name) private userModel: Model<User>,
     private readonly eventsGateway: EventsGateway,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private normalizeId(value: any): string {
@@ -200,9 +200,11 @@ export class TransfersService {
       .lean()
       .exec();
 
-    return rows
-      .filter((item: any) => this.isWithinTransferRequestWindow(item))
-      .map((item: any) => ({
+    const filteredRows = this.isTransferWindowEnforced()
+      ? rows.filter((item: any) => this.isWithinTransferRequestWindow(item))
+      : rows;
+
+    return filteredRows.map((item: any) => ({
         id: this.normalizeId(item._id),
         dateStart: this.toDateOnlyString(item.dateStart),
         startTime: item.startTime,
@@ -243,7 +245,7 @@ export class TransfersService {
       throw new NotFoundException('Source schedule not found');
     }
 
-    if (!this.isWithinTransferRequestWindow(sourceSchedule)) {
+    if (this.isTransferWindowEnforced() && !this.isWithinTransferRequestWindow(sourceSchedule)) {
       throw new BadRequestException(
         `Transfer request is only allowed from ${TransfersService.TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END} minutes before source end time until ${TransfersService.TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END} minutes after source end time`,
       );
@@ -285,8 +287,7 @@ export class TransfersService {
           item,
           isValid:
             gapMinutes >= 0 &&
-            lecturer?.isActive &&
-            TransfersService.ALLOWED_RECEIVER_ROLE_CODES.includes(roleCode),
+            lecturer?.isActive,
           gapMinutes,
         };
       })
@@ -307,10 +308,14 @@ export class TransfersService {
       .map((row) => row.item)
       .map((item: any) => ({
         scheduleId: this.normalizeId(item._id),
+        dateStart: this.toDateOnlyString(item.dateStart),
         startTime: item.startTime,
         endTime: item.endTime,
         slotType: item.slotType,
         slotNumber: item.slotNumber,
+        classCode: item.classCode,
+        subjectCode: item.subjectCode,
+        subjectName: item.subjectName,
         lecturer: {
           id: this.normalizeId(item.lecturerId._id),
           fullName: item.lecturerId.fullName,
@@ -322,52 +327,6 @@ export class TransfersService {
       })),
       diagnostics: null,
     };
-  }
-
-  async getRoomLockers(roomId: string | undefined, currentUser: any): Promise<any[]> {
-    if (!roomId) {
-      throw new BadRequestException('roomId is required');
-    }
-
-    const campusId = this.normalizeId(currentUser.campusId);
-    const roomObjectId = this.toObjectId(roomId, 'roomId');
-
-    const room = await this.roomModel
-      .findOne({
-        _id: roomObjectId,
-        campusId: this.toObjectId(campusId, 'campusId'),
-        isActive: { $ne: false },
-      })
-      .select('_id')
-      .lean()
-      .exec();
-
-    if (!room) {
-      throw new NotFoundException('Room not found in your campus');
-    }
-
-    const rows = await this.lockerModel
-      .find({
-        roomId,
-        isActive: { $ne: false },
-        $or: [
-          { campusId: this.toObjectId(campusId, 'campusId') },
-          { campusId: { $exists: false } },
-          { campusId: null },
-        ],
-      })
-      .select('_id lockerNumber position status batteryLevel')
-      .sort({ lockerNumber: 1 })
-      .lean()
-      .exec();
-
-    return rows.map((item: any) => ({
-      id: this.normalizeId(item._id),
-      lockerNumber: item.lockerNumber,
-      position: item.position,
-      status: item.status,
-      batteryLevel: item.batteryLevel,
-    }));
   }
 
   async getSelfExistingBySourceSchedules(sourceScheduleIds: string[], currentUser: any): Promise<any> {
@@ -511,11 +470,6 @@ export class TransfersService {
       throw new BadRequestException('Cannot transfer to yourself');
     }
 
-    const toUserRoleCode = (toUser as any).roleId?.roleCode;
-    if (!TransfersService.ALLOWED_RECEIVER_ROLE_CODES.includes(toUserRoleCode)) {
-      throw new BadRequestException('Recipient role is not allowed for transfer requests');
-    }
-
     if (this.normalizeId(toSchedule.lecturerId) !== createTransferDto.toUserId) {
       throw new BadRequestException('Recipient user must match target schedule lecturer');
     }
@@ -552,7 +506,7 @@ export class TransfersService {
       throw new BadRequestException('Target schedule must start after source schedule ends');
     }
 
-    if (!this.isWithinTransferRequestWindow(fromSchedule)) {
+    if (this.isTransferWindowEnforced() && !this.isWithinTransferRequestWindow(fromSchedule)) {
       throw new BadRequestException(
         `Transfer request is only allowed from ${TransfersService.TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END} minutes before source end time until ${TransfersService.TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END} minutes after source end time`,
       );
@@ -609,6 +563,18 @@ export class TransfersService {
     });
 
     const result = await created.save();
+
+    await this.notificationsService.notifyTransferRequestCreated({
+      transferId: this.normalizeId(result._id),
+      campusId,
+      fromUserId: userId,
+      toUserId: createTransferDto.toUserId,
+      roomId: createTransferDto.roomId,
+      lockerId: createTransferDto.lockerId,
+      fromScheduleId: createTransferDto.fromScheduleId,
+      toScheduleId: createTransferDto.toScheduleId,
+      reason: createTransferDto.reason?.trim() || null,
+    });
 
     // Emit websocket event
     this.eventsGateway.server.emit('transfer:created', result);

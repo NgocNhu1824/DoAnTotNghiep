@@ -39,13 +39,6 @@ export class TransfersController {
     };
   }
 
-  @Get('self/room-lockers')
-  @RequirePermissions('transfers.create')
-  async getRoomLockers(@CurrentUser() user: any, @Query('roomId') roomId?: string) {
-    const result = await this.transfersService.getRoomLockers(roomId, user);
-    return { success: true, data: result };
-  }
-
   @Get('self/existing-by-source-schedules')
   @RequirePermissions('transfers.read')
   async getSelfExistingBySourceSchedules(

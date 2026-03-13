@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import { lockerService } from '@/services/locker.service';
 import transferService from '@/services/transfer.service';
 import {
   TransferLockerOption,
@@ -25,6 +26,27 @@ const addDays = (dateString: string, days: number): string => {
   return date.toISOString().slice(0, 10);
 };
 
+const toDateOnly = (value: string | Date | null | undefined): string => {
+  if (!value) return '';
+
+  if (typeof value === 'string') {
+    const isoMatch = value.match(/^\d{4}-\d{2}-\d{2}/);
+    if (isoMatch) {
+      return isoMatch[0];
+    }
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const extractErrorMessage = (error: any, fallback: string): string => {
   const raw = error?.message;
   if (Array.isArray(raw) && raw.length) {
@@ -39,10 +61,14 @@ const extractErrorMessage = (error: any, fallback: string): string => {
   return fallback;
 };
 
+const AUTO_FIELD_CLASS = 'bg-gray-100 border-gray-200 text-gray-700 cursor-not-allowed focus-visible:ring-0';
+
 const LecturerTransferRequestPage: React.FC = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const prefilledSourceScheduleId = String(searchParams.get('fromScheduleId') || '').trim();
+  const isSourceScheduleAutoLocked = Boolean(prefilledSourceScheduleId);
 
   const [isLoadingSources, setIsLoadingSources] = useState(false);
   const [isLoadingTargets, setIsLoadingTargets] = useState(false);
@@ -70,6 +96,17 @@ const LecturerTransferRequestPage: React.FC = () => {
     [targetOptions, selectedTargetScheduleId],
   );
 
+  const targetScheduleDisplay = useMemo(() => {
+    if (!selectedTargetOption) {
+      return 'No eligible adjacent handover schedule found. Cannot transfer.';
+    }
+
+    const classLabel = selectedTargetOption.classCode || selectedTargetOption.subjectCode || 'No class code';
+    const subjectLabel = selectedTargetOption.subjectName || 'No subject name';
+
+    return `${classLabel} | ${subjectLabel} | Slot ${selectedTargetOption.slotNumber} (${selectedTargetOption.startTime}-${selectedTargetOption.endTime})`;
+  }, [selectedTargetOption]);
+
   const autoSelectedLocker = useMemo(() => {
     if (!lockerOptions.length) return null;
     return lockerOptions.find((item) => String(item.status || '').toLowerCase() === 'available') || lockerOptions[0];
@@ -88,6 +125,8 @@ const LecturerTransferRequestPage: React.FC = () => {
         const fromScheduleId = searchParams.get('fromScheduleId') || '';
         if (fromScheduleId && (rows || []).some((item) => item.id === fromScheduleId)) {
           setSelectedSourceScheduleId(fromScheduleId);
+        } else if ((rows || []).length > 0) {
+          setSelectedSourceScheduleId(rows[0].id);
         }
       } catch (error: any) {
         toast({
@@ -118,10 +157,20 @@ const LecturerTransferRequestPage: React.FC = () => {
         setIsLoadingTargets(true);
         setIsLoadingLockers(true);
 
-        const [targetResult, lockers] = await Promise.all([
-          transferService.getSelfTargetOptions(selectedSourceScheduleId),
-          transferService.getRoomLockers(selectedSourceSchedule.room.id),
+        const [targetResult, allLockers] = await Promise.all([
+          transferService.getSelfTargetOptionsFromFrontend(selectedSourceSchedule),
+          lockerService.getAllWithIoT(),
         ]);
+
+        const lockers = (allLockers || [])
+          .filter((item: any) => String(item?.roomMapping?.roomId || '') === selectedSourceSchedule.room?.id)
+          .map((item) => ({
+            id: item.id,
+            lockerNumber: item.lockerNumber,
+            position: item.position,
+            status: item.status,
+            batteryLevel: item.batteryLevel,
+          }));
 
         setTargetOptions(Array.isArray(targetResult?.options) ? targetResult.options : []);
         setTargetDiagnostics(targetResult?.diagnostics || null);
@@ -193,9 +242,21 @@ const LecturerTransferRequestPage: React.FC = () => {
         notes: notes.trim() || undefined,
       });
 
-      navigate(
-        `/lecturer/schedule?focusScheduleId=${selectedSourceSchedule.id}&focusDate=${selectedSourceSchedule.dateStart}&createdTransferId=${createdTransfer._id}`,
-      );
+      const focusDate = toDateOnly(selectedSourceSchedule.dateStart);
+      const focusScheduleId = String(createdTransfer?.fromScheduleId || selectedSourceSchedule.id || '').trim();
+      const query = new URLSearchParams();
+      if (focusScheduleId) {
+        query.set('focusScheduleId', focusScheduleId);
+      }
+      if (focusDate) {
+        query.set('focusDate', focusDate);
+      }
+      if (selectedSourceSchedule.dateStart) {
+        query.set('focusRawDate', String(selectedSourceSchedule.dateStart));
+      }
+      query.set('createdTransferId', createdTransfer._id);
+
+      navigate(`/lecturer/schedule?${query.toString()}`);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -240,9 +301,9 @@ const LecturerTransferRequestPage: React.FC = () => {
             <Select
               value={selectedSourceScheduleId}
               onValueChange={(value) => setSelectedSourceScheduleId(value)}
-              disabled={isLoadingSources}
+              disabled={isLoadingSources || isSourceScheduleAutoLocked}
             >
-              <SelectTrigger>
+              <SelectTrigger className={isSourceScheduleAutoLocked ? AUTO_FIELD_CLASS : ''}>
                 <SelectValue placeholder={isLoadingSources ? 'Loading schedules...' : 'Select your schedule'} />
               </SelectTrigger>
               <SelectContent>
@@ -253,18 +314,22 @@ const LecturerTransferRequestPage: React.FC = () => {
                 ))}
               </SelectContent>
             </Select>
+            {isSourceScheduleAutoLocked && (
+              <p className="text-xs text-muted-foreground">Auto-selected from the schedule you clicked Transfer from.</p>
+            )}
           </div>
 
           <div className="space-y-2">
             <Label>Target Schedule (Auto)</Label>
             <Input
               readOnly
+              aria-readonly="true"
+              tabIndex={-1}
+              className={AUTO_FIELD_CLASS}
               value={
                 isLoadingTargets
                   ? 'Auto-finding adjacent schedule...'
-                  : selectedTargetOption
-                    ? `${selectedTargetOption.lecturer.fullName} | Slot ${selectedTargetOption.slotNumber} (${selectedTargetOption.startTime}-${selectedTargetOption.endTime})`
-                    : 'No eligible adjacent handover schedule found. Cannot transfer.'
+                  : targetScheduleDisplay
               }
             />
             {!isLoadingTargets && selectedSourceScheduleId && targetOptions.length === 0 && (
@@ -272,7 +337,7 @@ const LecturerTransferRequestPage: React.FC = () => {
                 <p>No eligible adjacent lecturer schedule found. Cannot transfer.</p>
                 {targetDiagnostics && (
                   <p>
-                    Candidates: {targetDiagnostics.totalCandidates} | Before source end: {targetDiagnostics.invalidCounts.beforeSourceEnd} | Inactive lecturer: {targetDiagnostics.invalidCounts.inactiveLecturer} | Disallowed role: {targetDiagnostics.invalidCounts.disallowedRole}
+                    Candidates: {targetDiagnostics.totalCandidates} | Before source end: {targetDiagnostics.invalidCounts.beforeSourceEnd} | Inactive lecturer: {targetDiagnostics.invalidCounts.inactiveLecturer}
                   </p>
                 )}
                 {targetDiagnostics?.nearestCandidates?.length ? (
@@ -292,6 +357,9 @@ const LecturerTransferRequestPage: React.FC = () => {
             <Label>Receiver Lecturer (Auto)</Label>
             <Input
               readOnly
+              aria-readonly="true"
+              tabIndex={-1}
+              className={AUTO_FIELD_CLASS}
               value={
                 selectedTargetOption
                   ? `${selectedTargetOption.lecturer.fullName} (${selectedTargetOption.lecturer.email})`
@@ -307,6 +375,9 @@ const LecturerTransferRequestPage: React.FC = () => {
             <Label>Locker (Auto)</Label>
             <Input
               readOnly
+              aria-readonly="true"
+              tabIndex={-1}
+              className={AUTO_FIELD_CLASS}
               value={
                 isLoadingLockers
                   ? 'Auto-finding locker...'
@@ -326,7 +397,7 @@ const LecturerTransferRequestPage: React.FC = () => {
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               placeholder="Enter reason for transfer request"
-              className="min-h-24"
+              className="min-h-24 border border-gray-300"
             />
           </div>
 
@@ -336,7 +407,7 @@ const LecturerTransferRequestPage: React.FC = () => {
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               placeholder="Additional notes (optional)"
-              className="min-h-24"
+              className="min-h-24 border border-gray-300"
             />
           </div>
 
