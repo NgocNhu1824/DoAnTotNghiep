@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Upload, Search, CalendarIcon, X, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { format } from 'date-fns';
-import { vi } from 'date-fns/locale';
+import { enUS } from 'date-fns/locale';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import Loading from '../../components/common/Loading';
 import { Button } from '../../components/ui/button';
@@ -117,7 +117,7 @@ const ScheduleManagementPage: React.FC = () => {
       setTimeSlots(slotsData);
     } catch (error: any) {
       console.error('Error fetching data:', error);
-      toast.error('Không thể tải dữ liệu phòng học và tiết học');
+      toast.error('Unable to load rooms and time slots');
     } finally {
       setLoading(false);
     }
@@ -125,7 +125,7 @@ const ScheduleManagementPage: React.FC = () => {
 
   const fetchSchedules = useCallback(async () => {
     try {
-      // Gửi ngày dạng YYYY-MM-DD để tránh lệch múi giờ khi BE parse Date
+      // Send date as YYYY-MM-DD to avoid timezone shift when backend parses Date
       const dateStr = format(currentDate, 'yyyy-MM-dd');
 
       const params: QueryScheduleParams = {
@@ -146,7 +146,7 @@ const ScheduleManagementPage: React.FC = () => {
       setApprovedBookings(approvedBookingData);
     } catch (error: any) {
       console.error('Error fetching schedules:', error);
-      toast.error('Không thể tải lịch học');
+      toast.error('Unable to load schedules');
     }
   }, [currentDate]);
 
@@ -302,11 +302,6 @@ const ScheduleManagementPage: React.FC = () => {
 
   const handleCellClick = (cell: ScheduleCell) => {
     if (cell.schedule) {
-      if (isVirtualBookingSchedule(cell.schedule)) {
-        toast.info('Lịch này được tạo từ booking đã duyệt. Vui lòng cập nhật ở trang Booking.');
-        return;
-      }
-
       setSelectedSchedule(cell.schedule);
       setIsViewModalOpen(true);
     }
@@ -322,13 +317,13 @@ const ScheduleManagementPage: React.FC = () => {
 
     const MAX_SIZE_MB = 5;
     if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-      toast.error(`File vượt quá ${MAX_SIZE_MB}MB`);
+      toast.error(`File exceeds ${MAX_SIZE_MB}MB`);
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
     if (!isValid) {
-      toast.error('Chỉ chấp nhận file CSV hoặc Excel (.csv, .xlsx, .xls)');
+      toast.error('Only CSV or Excel files are accepted (.csv, .xlsx, .xls)');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -378,7 +373,7 @@ const ScheduleManagementPage: React.FC = () => {
       if (typeof err === 'string') {
         return { message: err };
       }
-      return { message: 'Lỗi không xác định' };
+      return { message: 'Unknown error' };
     });
   };
 
@@ -434,7 +429,7 @@ const ScheduleManagementPage: React.FC = () => {
       const errorData = error?.response?.data || error;
       
       const errorErrors = errorData?.errors ? normalizeErrors(errorData.errors) : 
-             [{ row: 0, message: typeof errorData?.message === 'string' ? errorData.message : 'Import thất bại' }];
+              [{ row: 0, message: typeof errorData?.message === 'string' ? errorData.message : 'Import failed' }];
       
       const total = errorData?.total ?? errorData?.summary?.total ?? (errorErrors.length > 0 ? errorErrors.length : 0);
       const inserted = errorData?.inserted ?? errorData?.summary?.inserted ?? 0;
@@ -471,7 +466,7 @@ const ScheduleManagementPage: React.FC = () => {
 
   // Format date for display
   const formatDate = (date: Date): string => {
-    return date.toLocaleDateString('vi-VN', {
+    return date.toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
@@ -483,9 +478,10 @@ const ScheduleManagementPage: React.FC = () => {
   const getScheduleInfo = (schedule: Schedule) => {
     const room = typeof schedule.roomId === 'object' && schedule.roomId !== null ? schedule.roomId : null;
     const lecturer = typeof schedule.lecturerId === 'object' && schedule.lecturerId !== null ? schedule.lecturerId : null;
+    const isBookingSchedule = isVirtualBookingSchedule(schedule);
     
     return {
-      classCode: schedule.classCode || 'N/A',
+      classCode: isBookingSchedule ? 'BOOKING' : schedule.classCode || 'N/A',
       subjectName: schedule.subjectName || 'N/A',
       lecturerName: lecturer?.fullName || 'N/A',
       timeRange: `${schedule.startTime} - ${schedule.endTime}`,
@@ -500,9 +496,9 @@ const ScheduleManagementPage: React.FC = () => {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Quản lý Lịch học</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Schedule Management</h1>
           <p className="text-muted-foreground mt-2">
-            Tìm kiếm, lọc và theo dõi lịch học theo phòng và tiết trong ngày
+            Search, filter, and monitor schedules by room and time slot for the selected day
           </p>
         </div>
         <PermissionGuard permissions={[PERMISSIONS.SCHEDULES_CREATE]}>
@@ -516,7 +512,7 @@ const ScheduleManagementPage: React.FC = () => {
             />
             <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
               <Upload className="h-4 w-4 mr-2" />
-              {isImporting ? 'Đang import...' : 'Import Excel/CSV'}
+              {isImporting ? 'Importing...' : 'Import Excel/CSV'}
             </Button>
           </div>
         </PermissionGuard>
@@ -525,21 +521,21 @@ const ScheduleManagementPage: React.FC = () => {
       {/* Filters */}
       <Card>
         <CardHeader>
-          <CardTitle>Bộ lọc</CardTitle>
-          <CardDescription>Tìm kiếm và lọc lịch học</CardDescription>
+          <CardTitle>Filters</CardTitle>
+          <CardDescription>Search and filter schedules</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="flex flex-col gap-3">
             <div className="flex flex-col lg:flex-row lg:items-center lg:gap-4">
               <div className="flex items-center gap-2 mb-2 lg:mb-0">
-                <Button variant="outline" size="icon" onClick={handlePrevDay} aria-label="Ngày trước">
+                <Button variant="outline" size="icon" onClick={handlePrevDay} aria-label="Previous day">
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="justify-start text-left font-normal min-w-[220px]">
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {format(currentDate, 'PPP', { locale: vi })}
+                      {format(currentDate, 'PPP', { locale: enUS })}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
@@ -551,26 +547,26 @@ const ScheduleManagementPage: React.FC = () => {
                     />
                   </PopoverContent>
                 </Popover>
-                <Button variant="outline" size="icon" onClick={handleNextDay} aria-label="Ngày sau">
+                <Button variant="outline" size="icon" onClick={handleNextDay} aria-label="Next day">
                   <ChevronRight className="h-4 w-4" />
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setCurrentDate(new Date())}>
-                  Hôm nay
+                  Today
                 </Button>
               </div>
-              <div className="text-sm text-muted-foreground">{format(currentDate, 'EEEE', { locale: vi })}</div>
+              <div className="text-sm text-muted-foreground">{format(currentDate, 'EEEE', { locale: enUS })}</div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="room-search">Tìm kiếm</Label>
+              <Label htmlFor="room-search">Search</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="room-search"
                   type="text"
-                  placeholder="Mã phòng, tên phòng..."
+                  placeholder="Room code, room name..."
                   value={roomSearch}
                   onChange={(e) => setRoomSearch(e.target.value)}
                   className="pl-9"
@@ -579,10 +575,10 @@ const ScheduleManagementPage: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <Label>Loại tiết</Label>
+              <Label>Slot Type</Label>
               <Select value={slotTypeFilter} onValueChange={(value: 'OLDSLOT' | 'NEWSLOT') => setSlotTypeFilter(value)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Chọn loại tiết" />
+                  <SelectValue placeholder="Select slot type" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="OLDSLOT">Old slot (1.5h)</SelectItem>
@@ -594,12 +590,12 @@ const ScheduleManagementPage: React.FC = () => {
 
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="gap-1">
-              {slotTypeFilter === 'OLDSLOT' ? 'Tiết cũ' : 'Tiết mới'}
+              {slotTypeFilter === 'OLDSLOT' ? 'Old slot' : 'New slot'}
             </Badge>
 
             {roomSearch && (
               <Badge variant="secondary" className="gap-1">
-                Tìm: "{roomSearch}"
+                Search: "{roomSearch}"
                 <X 
                   className="h-3 w-3 cursor-pointer" 
                   onClick={() => setRoomSearch('')}
@@ -616,7 +612,7 @@ const ScheduleManagementPage: React.FC = () => {
                   setRoomSearch('');
                 }}
               >
-                Xóa tất cả
+                Clear all
               </Button>
             )}
           </div>
@@ -626,8 +622,8 @@ const ScheduleManagementPage: React.FC = () => {
       {/* Schedule Grid Table - Desktop */}
       <Card>
         <CardHeader>
-          <CardTitle>Lịch học</CardTitle>
-          <CardDescription>Hiển thị lịch theo từng phòng và tiết trong ngày đã chọn</CardDescription>
+          <CardTitle>Schedule</CardTitle>
+          <CardDescription>Display schedules by room and slot for the selected date</CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <div className="inline-block min-w-full">
@@ -641,7 +637,7 @@ const ScheduleManagementPage: React.FC = () => {
                     "text-left text-sm font-semibold text-foreground",
                     "min-w-[120px]"
                   )}>
-                    Phòng học
+                    Room
                   </th>
                   {filteredTimeSlots.map((slot) => (
                     <th
@@ -655,7 +651,7 @@ const ScheduleManagementPage: React.FC = () => {
                       )}
                     >
                       <div className="flex flex-col gap-1">
-                        <span>{slot.slotName || `Tiết ${slot.slotNumber}`}</span>
+                        <span>{slot.slotName || `Slot ${slot.slotNumber}`}</span>
                         <span className="text-xs font-normal text-muted-foreground">
                           {slot.startTime} - {slot.endTime}
                         </span>
@@ -676,9 +672,9 @@ const ScheduleManagementPage: React.FC = () => {
                           <Search className="h-6 w-6 text-muted-foreground" />
                         </div>
                         <div>
-                          <h3 className="font-semibold text-lg">Không tìm thấy phòng học</h3>
+                          <h3 className="font-semibold text-lg">No rooms found</h3>
                           <p className="text-sm text-muted-foreground mt-1">
-                            Thử thay đổi bộ lọc hoặc tìm kiếm với từ khóa khác
+                            Try changing filters or searching with a different keyword
                           </p>
                         </div>
                         <Button 
@@ -689,7 +685,7 @@ const ScheduleManagementPage: React.FC = () => {
                             setSlotTypeFilter('NEWSLOT');
                           }}
                         >
-                          Xóa bộ lọc
+                          Clear filters
                         </Button>
                       </div>
                     </td>
@@ -749,14 +745,14 @@ const ScheduleManagementPage: React.FC = () => {
                                         <div className="text-sm">{scheduleInfo.subjectName}</div>
                                         <div className="text-sm">{scheduleInfo.lecturerName}</div>
                                         <div className="text-sm text-muted-foreground">{scheduleInfo.timeRange}</div>
-                                        <div className="text-xs text-muted-foreground mt-2">Click để xem chi tiết</div>
+                                        <div className="text-xs text-muted-foreground mt-2">Click to view details</div>
                                       </div>
                                     </TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>
                               ) : (
                                 <div className="flex items-center justify-center h-full py-4">
-                                  <span className="text-xs text-muted-foreground/50">Trống</span>
+                                  <span className="text-xs text-muted-foreground/50">Empty</span>
                                 </div>
                               )}
                             </td>
@@ -782,9 +778,9 @@ const ScheduleManagementPage: React.FC = () => {
                   <Search className="h-6 w-6 text-muted-foreground" />
                 </div>
                 <div className="text-center">
-                  <h3 className="font-semibold">Không tìm thấy phòng học</h3>
+                  <h3 className="font-semibold">No rooms found</h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Thử thay đổi bộ lọc
+                    Try adjusting filters
                   </p>
                 </div>
                 <Button 
@@ -795,7 +791,7 @@ const ScheduleManagementPage: React.FC = () => {
                     setSlotTypeFilter('NEWSLOT');
                   }}
                 >
-                  Xóa bộ lọc
+                  Clear filters
                 </Button>
               </div>
             </Card>
@@ -825,7 +821,7 @@ const ScheduleManagementPage: React.FC = () => {
                         >
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-medium">
-                              {slot.slotName || `Tiết ${slot.slotNumber}`}
+                              {slot.slotName || `Slot ${slot.slotNumber}`}
                             </span>
                             <span className="text-xs text-muted-foreground">
                               {slot.startTime} - {slot.endTime}
@@ -842,7 +838,7 @@ const ScheduleManagementPage: React.FC = () => {
                               </div>
                             </div>
                           ) : (
-                            <div className="text-xs text-muted-foreground">Trống</div>
+                            <div className="text-xs text-muted-foreground">Empty</div>
                           )}
                         </div>
                       );
@@ -863,6 +859,11 @@ const ScheduleManagementPage: React.FC = () => {
           setSelectedSchedule(null);
         }}
         onEdit={() => {
+          if (isVirtualBookingSchedule(selectedSchedule)) {
+            toast.info('This schedule is created from an approved booking. Please update it on the Booking page.');
+            return;
+          }
+
           setIsViewModalOpen(false);
           setIsEditModalOpen(true);
         }}
@@ -886,9 +887,9 @@ const ScheduleManagementPage: React.FC = () => {
       <Dialog open={showImportModeDialog} onOpenChange={setShowImportModeDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Chọn chế độ Import</DialogTitle>
+            <DialogTitle>Select Import Mode</DialogTitle>
             <DialogDescription>
-              Chọn cách thức xử lý khi import file lịch học
+              Choose how to process the schedule file during import
             </DialogDescription>
           </DialogHeader>
           
@@ -897,9 +898,9 @@ const ScheduleManagementPage: React.FC = () => {
               <div className="flex items-start space-x-3 space-y-0">
                 <RadioGroupItem value="dryRun" id="dryRun" />
                 <Label htmlFor="dryRun" className="font-normal cursor-pointer flex-1">
-                  <div className="font-semibold">Dry Run (Chạy thử)</div>
+                  <div className="font-semibold">Dry Run</div>
                   <p className="text-sm text-muted-foreground">
-                    Kiểm tra file và hiển thị lỗi mà không lưu vào database
+                    Validate file and show errors without saving to database
                   </p>
                 </Label>
               </div>
@@ -907,9 +908,9 @@ const ScheduleManagementPage: React.FC = () => {
               <div className="flex items-start space-x-3 space-y-0">
                 <RadioGroupItem value="strict" id="strict" />
                 <Label htmlFor="strict" className="font-normal cursor-pointer flex-1">
-                  <div className="font-semibold">Strict (Nghiêm ngặt)</div>
+                  <div className="font-semibold">Strict</div>
                   <p className="text-sm text-muted-foreground">
-                    Dừng ngay khi gặp lỗi, không import dòng nào nếu có lỗi
+                    Stop immediately on error and import nothing if any error exists
                   </p>
                 </Label>
               </div>
@@ -917,9 +918,9 @@ const ScheduleManagementPage: React.FC = () => {
               <div className="flex items-start space-x-3 space-y-0">
                 <RadioGroupItem value="lenient" id="lenient" />
                 <Label htmlFor="lenient" className="font-normal cursor-pointer flex-1">
-                  <div className="font-semibold">Lenient (Linh hoạt)</div>
+                  <div className="font-semibold">Lenient</div>
                   <p className="text-sm text-muted-foreground">
-                    Bỏ qua các dòng lỗi, chỉ import các dòng hợp lệ
+                    Skip invalid rows and import only valid rows
                   </p>
                 </Label>
               </div>
@@ -945,10 +946,10 @@ const ScheduleManagementPage: React.FC = () => {
                 }
               }}
             >
-              Hủy
+              Cancel
             </Button>
             <Button onClick={executeImport} disabled={isImporting}>
-              {isImporting ? 'Đang import...' : 'Import'}
+              {isImporting ? 'Importing...' : 'Import'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -964,7 +965,7 @@ const ScheduleManagementPage: React.FC = () => {
               ) : (
                 <XCircle className="h-5 w-5 text-red-500" />
               )}
-              Kết quả Import
+              Import Results
             </DialogTitle>
           </DialogHeader>
           
@@ -973,15 +974,15 @@ const ScheduleManagementPage: React.FC = () => {
             <div className="grid grid-cols-3 gap-4">
               <div className="text-center p-4 bg-blue-50 rounded-lg">
                 <div className="text-2xl font-bold text-blue-600">{importResult?.total || 0}</div>
-                <div className="text-sm text-muted-foreground">Tổng số</div>
+                <div className="text-sm text-muted-foreground">Total</div>
               </div>
               <div className="text-center p-4 bg-green-50 rounded-lg">
                 <div className="text-2xl font-bold text-green-600">{importResult?.inserted || 0}</div>
-                <div className="text-sm text-muted-foreground">Thành công</div>
+                <div className="text-sm text-muted-foreground">Successful</div>
               </div>
               <div className="text-center p-4 bg-red-50 rounded-lg">
                 <div className="text-2xl font-bold text-red-600">{importResult?.failed || 0}</div>
-                <div className="text-sm text-muted-foreground">Thất bại</div>
+                <div className="text-sm text-muted-foreground">Failed</div>
               </div>
             </div>
 
@@ -990,7 +991,7 @@ const ScheduleManagementPage: React.FC = () => {
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  Chế độ <strong>Dry Run</strong> - Không có dữ liệu nào được lưu vào database.
+                  <strong>Dry Run</strong> mode - No data has been saved to the database.
                 </AlertDescription>
               </Alert>
             )}
@@ -1000,7 +1001,7 @@ const ScheduleManagementPage: React.FC = () => {
               <Alert variant="default" className="border-yellow-200 bg-yellow-50">
                 <AlertCircle className="h-4 w-4 text-yellow-600" />
                 <AlertDescription className="text-yellow-800">
-                  Chế độ <strong>Linh hoạt</strong> - Đã bỏ qua {importResult.failed} dòng lỗi và import {importResult.inserted} dòng hợp lệ.
+                  <strong>Lenient</strong> mode - Skipped {importResult.failed} invalid rows and imported {importResult.inserted} valid rows.
                 </AlertDescription>
               </Alert>
             )}
@@ -1010,20 +1011,20 @@ const ScheduleManagementPage: React.FC = () => {
               <div className="space-y-2">
                 <h4 className="font-semibold text-sm flex items-center gap-2">
                   <AlertCircle className="h-4 w-4 text-red-500" />
-                  Chi tiết lỗi ({importResult.errors.length})
+                  Error Details ({importResult.errors.length})
                 </h4>
                 <div className="max-h-60 overflow-y-auto border rounded-md">
                   <table className="w-full text-sm">
                     <thead className="bg-muted sticky top-0">
                       <tr>
-                        <th className="px-3 py-2 text-left font-medium">Dòng</th>
-                        <th className="px-3 py-2 text-left font-medium">Lỗi</th>
+                        <th className="px-3 py-2 text-left font-medium">Row</th>
+                        <th className="px-3 py-2 text-left font-medium">Error</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {importResult.errors.map((error, idx) => {
                         const rowNumber = error.row ?? error.rowIndex ?? 'N/A';
-                        const errorMessage = error.message ?? error.error ?? 'Lỗi không xác định';
+                        const errorMessage = error.message ?? error.error ?? 'Unknown error';
                         
                         return (
                           <tr key={idx} className="hover:bg-muted/50">
