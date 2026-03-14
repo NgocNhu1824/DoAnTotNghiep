@@ -24,10 +24,20 @@ const ViewScheduleModal: React.FC<Props> = ({ isOpen, onClose, onEdit, schedule 
   const room = typeof schedule.roomId === 'object' ? schedule.roomId : null;
   const lecturer = typeof schedule.lecturerId === 'object' ? schedule.lecturerId : null;
   const createdBy = typeof schedule.createdBy === 'object' ? schedule.createdBy : null;
+  const isBookingGenerated = schedule.classCode === 'BOOKING';
+  const bookingPurpose = (schedule.subjectName || '').trim();
+
+  const roomMeta = room as
+    | (typeof room & {
+        floor?: number;
+        capacity?: number;
+        roomType?: string;
+      })
+    | null;
 
   const formatDate = (date: string | Date): string => {
     const d = typeof date === 'string' ? new Date(date) : date;
-    return d.toLocaleDateString('vi-VN', {
+    return d.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
@@ -35,71 +45,99 @@ const ViewScheduleModal: React.FC<Props> = ({ isOpen, onClose, onEdit, schedule 
   };
 
   const getDayOfWeekName = (day: number): string => {
-    const days = ['', '', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-    return days[day] || `Ngày ${day}`;
+    const days = ['', '', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[day] || `Day ${day}`;
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Chi tiết Lịch học</DialogTitle>
+          <DialogTitle>{isBookingGenerated ? 'Booking Schedule Details' : 'Class Details'}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Basic Info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium text-gray-700">Mã lớp</label>
+              <label className="text-sm font-medium text-gray-700">Class Code</label>
               <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
-                {schedule.classCode || 'N/A'}
+                {isBookingGenerated ? 'BOOKING' : schedule.classCode || 'N/A'}
               </div>
             </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700">Mã môn học</label>
-              <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
-                {schedule.subjectCode || 'N/A'}
+            {!isBookingGenerated && (
+              <div>
+                <label className="text-sm font-medium text-gray-700">Subject Code</label>
+                <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
+                  {schedule.subjectCode || 'N/A'}
+                </div>
               </div>
-            </div>
+            )}
             <div className="col-span-2">
-              <label className="text-sm font-medium text-gray-700">Tên môn học</label>
+              <label className="text-sm font-medium text-gray-700">
+                {isBookingGenerated ? 'Booking Purpose' : 'Subject Name'}
+              </label>
               <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
-                {schedule.subjectName || 'N/A'}
+                {isBookingGenerated ? bookingPurpose || 'N/A' : schedule.subjectName || 'N/A'}
               </div>
             </div>
           </div>
 
           {/* Room Info */}
           <div className="border-t pt-4">
-            <h3 className="font-semibold mb-3">Thông tin Phòng học</h3>
+            <h3 className="font-semibold mb-3">Room Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700">Mã phòng</label>
+                <label className="text-sm font-medium text-gray-700">Room Code</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
                   {room?.roomCode || 'N/A'}
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Tên phòng</label>
+                <label className="text-sm font-medium text-gray-700">Room Name</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
                   {room?.roomName || 'N/A'}
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Tòa nhà</label>
+                <label className="text-sm font-medium text-gray-700">Building</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
                   {room?.building || 'N/A'}
                 </div>
               </div>
+              {typeof roomMeta?.floor === 'number' && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Floor</label>
+                  <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
+                    {roomMeta.floor}
+                  </div>
+                </div>
+              )}
+              {typeof roomMeta?.capacity === 'number' && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Capacity</label>
+                  <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
+                    {roomMeta.capacity} seats
+                  </div>
+                </div>
+              )}
+              {roomMeta?.roomType && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Room Type</label>
+                  <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
+                    {roomMeta.roomType}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Lecturer Info */}
           <div className="border-t pt-4">
-            <h3 className="font-semibold mb-3">Thông tin Giảng viên</h3>
+            <h3 className="font-semibold mb-3">Lecturer Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700">Tên giảng viên</label>
+                <label className="text-sm font-medium text-gray-700">Lecturer Name</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
                   {lecturer?.fullName || 'N/A'}
                 </div>
@@ -115,52 +153,54 @@ const ViewScheduleModal: React.FC<Props> = ({ isOpen, onClose, onEdit, schedule 
 
           {/* Schedule Info */}
           <div className="border-t pt-4">
-            <h3 className="font-semibold mb-3">Thông tin Lịch học</h3>
+            <h3 className="font-semibold mb-3">Schedule Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700">Ngày bắt đầu</label>
+                <label className="text-sm font-medium text-gray-700">Start Date</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
                   {formatDate(schedule.dateStart)}
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Thứ trong tuần</label>
+                <label className="text-sm font-medium text-gray-700">Day of Week</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
                   {getDayOfWeekName(schedule.dayOfWeek)}
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Loại tiết</label>
+                <label className="text-sm font-medium text-gray-700">Slot Type</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
-                  {schedule.slotType === 'OLDSLOT' ? 'Tiết cũ' : 'Tiết mới'}
+                  {schedule.slotType === 'OLDSLOT' ? 'Old Slot' : 'New Slot'}
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Số tiết</label>
+                <label className="text-sm font-medium text-gray-700">Slot Number</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
                   {schedule.slotNumber}
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Giờ bắt đầu</label>
+                <label className="text-sm font-medium text-gray-700">Start Time</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
                   {schedule.startTime}
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Giờ kết thúc</label>
+                <label className="text-sm font-medium text-gray-700">End Time</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
                   {schedule.endTime}
                 </div>
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Học kỳ</label>
-                <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
-                  {schedule.semester || 'N/A'}
+              {!isBookingGenerated && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Semester</label>
+                  <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
+                    {schedule.semester || 'N/A'}
+                  </div>
                 </div>
-              </div>
+              )}
               <div>
-                <label className="text-sm font-medium text-gray-700">Trạng thái</label>
+                <label className="text-sm font-medium text-gray-700">Status</label>
                 <div className="mt-1">
                   <span
                     className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -174,12 +214,12 @@ const ViewScheduleModal: React.FC<Props> = ({ isOpen, onClose, onEdit, schedule 
                     }`}
                   >
                     {schedule.status === 'scheduled'
-                      ? 'Đã lên lịch'
+                      ? 'Scheduled'
                       : schedule.status === 'ongoing'
-                      ? 'Đang diễn ra'
+                      ? 'Ongoing'
                       : schedule.status === 'completed'
-                      ? 'Đã hoàn thành'
-                      : 'Đã hủy'}
+                      ? 'Completed'
+                      : 'Cancelled'}
                   </span>
                 </div>
               </div>
@@ -189,10 +229,10 @@ const ViewScheduleModal: React.FC<Props> = ({ isOpen, onClose, onEdit, schedule 
           {/* Created By */}
           {createdBy && (
             <div className="border-t pt-4">
-              <h3 className="font-semibold mb-3">Thông tin Tạo lịch</h3>
+              <h3 className="font-semibold mb-3">Created By Information</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-700">Người tạo</label>
+                  <label className="text-sm font-medium text-gray-700">Created By</label>
                   <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
                     {createdBy.fullName}
                   </div>
@@ -210,11 +250,13 @@ const ViewScheduleModal: React.FC<Props> = ({ isOpen, onClose, onEdit, schedule 
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Đóng
+            Close
           </Button>
-          <PermissionGuard permissions={[PERMISSIONS.SCHEDULES_UPDATE]}>
-            <Button onClick={onEdit}>Chỉnh sửa</Button>
-          </PermissionGuard>
+          {!isBookingGenerated && (
+            <PermissionGuard permissions={[PERMISSIONS.SCHEDULES_UPDATE]}>
+              <Button onClick={onEdit}>Edit</Button>
+            </PermissionGuard>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
