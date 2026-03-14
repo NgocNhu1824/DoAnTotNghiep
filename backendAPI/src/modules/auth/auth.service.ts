@@ -1,9 +1,11 @@
 import {
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -14,6 +16,7 @@ import { Permission } from '@/database/schemas/permission.schema';
 import { RolePermission } from '@/database/schemas/role-permission.schema';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { JwtPayload } from '@/common/interfaces/auth.interface';
+import { SetPasswordDto } from './dto/set-password.dto';
 
 @Injectable()
 export class AuthService {
@@ -165,7 +168,7 @@ export class AuthService {
   async getProfile(userId: string) {
     const user = await this.userModel
       .findById(userId)
-      .select('-faceData -fingerprintData -googleId')
+      .select('-faceData -fingerprintData -googleId +passwordHash')
       .populate('campusId', 'campusCode campusName address')
       .populate('roleId')
       .exec();
@@ -173,6 +176,10 @@ export class AuthService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
+
+    const hasPassword = Boolean(user.passwordHash);
+    const userData = user.toObject();
+    delete userData.passwordHash;
 
     // Get permissions for this role
     let roleDetails = null;
@@ -213,9 +220,46 @@ export class AuthService {
 
     return {
       success: true,
-      data: user,
+      data: userData,
       roleDetails,
       permissions,
+      hasPassword,
+    };
+  }
+
+  /**
+   * Set initial password for Google-authenticated users.
+   */
+  async setPassword(userId: string, dto: SetPasswordDto) {
+    const { newPassword, confirmPassword } = dto;
+
+    if (newPassword !== confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    const user = await this.userModel
+      .findById(userId)
+      .select('+passwordHash')
+      .exec();
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (!user.isActive) {
+      throw new ForbiddenException('Account is inactive');
+    }
+
+    if (user.passwordHash) {
+      throw new BadRequestException('Password already set');
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    return {
+      success: true,
+      message: 'Password has been set successfully',
     };
   }
 

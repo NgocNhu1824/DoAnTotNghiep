@@ -18,6 +18,9 @@ export class User extends Document {
   @Prop()
   avatar: string;
 
+  @Prop({ select: false })
+  passwordHash: string;
+
   @Prop({ type: Types.ObjectId, ref: 'Role', required: true })
   roleId: Types.ObjectId;
 

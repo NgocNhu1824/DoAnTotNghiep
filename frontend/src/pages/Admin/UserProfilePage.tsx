@@ -1,10 +1,13 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { Button } from '../../components/ui/button';
 import { useAuth } from '../../context/AuthContext';
+import SetPasswordModal from '../../components/auth/SetPasswordModal';
 
 const UserProfilePage: React.FC = () => {
-  const { user, roleDetails, fetchUserProfile } = useAuth();
+  const { user, roleDetails, fetchUserProfile, hasPassword, completePasswordSetup } = useAuth();
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
 
   useEffect(() => {
     fetchUserProfile();
@@ -12,6 +15,12 @@ const UserProfilePage: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <SetPasswordModal
+        open={isPasswordModalOpen}
+        onOpenChange={setIsPasswordModalOpen}
+        onSubmit={completePasswordSetup}
+      />
+
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Hồ sơ cá nhân</h1>
         <p className="text-muted-foreground mt-2">Xem thông tin tài khoản hiện tại</p>
@@ -75,6 +84,28 @@ const UserProfilePage: React.FC = () => {
               <p className="text-sm text-muted-foreground">Mã sinh viên</p>
               <p className="font-medium">{user?.studentId || 'N/A'}</p>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Trạng thái mật khẩu</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Mật khẩu đăng nhập</p>
+              <Badge variant={hasPassword ? 'default' : 'secondary'}>
+                {hasPassword ? 'Đã thiết lập' : 'Chưa thiết lập'}
+              </Badge>
+            </div>
+
+            {!hasPassword && (
+              <Button onClick={() => setIsPasswordModalOpen(true)}>
+                Thiết lập mật khẩu
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

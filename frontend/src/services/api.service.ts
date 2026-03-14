@@ -41,6 +41,9 @@ class ApiService {
           // Handle unauthorized
           localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
           localStorage.removeItem(STORAGE_KEYS.USER_DATA);
+          localStorage.removeItem(STORAGE_KEYS.ROLE_DETAILS);
+          localStorage.removeItem(STORAGE_KEYS.PERMISSIONS);
+          localStorage.removeItem(STORAGE_KEYS.HAS_PASSWORD);
           window.location.href = '/login';
         }
         return Promise.reject(error.response?.data || error);
