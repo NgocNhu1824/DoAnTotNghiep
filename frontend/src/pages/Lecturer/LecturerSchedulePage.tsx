@@ -130,6 +130,35 @@ function parseDateParamToDate(value: string | null): Date | null {
   return null;
 }
 
+function isBookingSchedule(schedule: Schedule | null): boolean {
+  return Boolean(schedule && schedule.classCode === 'BOOKING');
+}
+
+function getScheduleDisplayTitle(schedule: Schedule): string {
+  if (isBookingSchedule(schedule)) {
+    return 'BOOKING';
+  }
+
+  const classCode = schedule.classCode || '-';
+  const subjectCode = schedule.subjectCode || '';
+  return subjectCode ? `${classCode}_${subjectCode}` : classCode;
+}
+
+function getStatusLabel(status?: string): string {
+  switch (status) {
+    case 'scheduled':
+      return 'Scheduled';
+    case 'ongoing':
+      return 'Ongoing';
+    case 'completed':
+      return 'Completed';
+    case 'cancelled':
+    case 'canceled':
+      return 'Cancelled';
+    default:
+      return status || '-';
+  }
+}
 
 const LecturerSchedulePage: React.FC = () => {
   // Locker cache for transfer detail
@@ -994,7 +1023,7 @@ const LecturerSchedulePage: React.FC = () => {
                               <div className="w-full h-full flex items-center justify-center">
                                 <div className="space-y-1 text-center w-full">
                                   <div className="font-semibold text-primary text-sm">
-                                    {cell.classCode || '-'}_{cell.subjectCode || '-'}
+                                    {getScheduleDisplayTitle(cell)}
                                   </div>
                                   <div
                                     className={`inline-flex items-center rounded px-2 py-0.5 text-[16px] font-medium ${
@@ -1060,6 +1089,11 @@ const LecturerSchedulePage: React.FC = () => {
       </Card>
       {showDetailModal && detailSchedule && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          {(() => {
+            const bookingSchedule = isBookingSchedule(detailSchedule);
+            const roomDetail = getRoomInfo(detailSchedule.roomId);
+
+            return (
           <div className="bg-white rounded-2xl shadow-2xl p-5 w-[620px] h-[430px] max-w-[90vw] max-h-[80vh] overflow-y-auto relative border border-blue-200">
             <button
               className="absolute top-3 right-3 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold shadow"
@@ -1067,32 +1101,40 @@ const LecturerSchedulePage: React.FC = () => {
               aria-label="Close"
             >×</button>
             <div className="flex flex-col items-center mb-4">
-              <h2 className="text-2xl font-bold text-blue-700">Schedule Details</h2>
+              <h2 className="text-2xl font-bold text-blue-700">{bookingSchedule ? 'Booking Schedule Details' : 'Schedule Details'}</h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-[15px]">
               <div className="flex flex-col gap-2 border-r border-gray-200 pr-4">
-                <div className="font-semibold text-blue-700 mb-1">Class Code: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.classCode || '-'}</span></div>
-                <div className="font-semibold text-blue-700 mb-1">Subject Code: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.subjectCode || '-'}</span></div>
-                <div className="font-semibold text-blue-700 mb-1">Subject Name: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.subjectName || '-'}</span></div>
+                <div className="font-semibold text-blue-700 mb-1">Class Code: <span className="font-normal text-gray-900 whitespace-normal break-words">{bookingSchedule ? 'BOOKING' : detailSchedule.classCode || '-'}</span></div>
+                {!bookingSchedule && (
+                  <div className="font-semibold text-blue-700 mb-1">Subject Code: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.subjectCode || '-'}</span></div>
+                )}
+                <div className="font-semibold text-blue-700 mb-1">{bookingSchedule ? 'Booking Purpose' : 'Subject Name'}: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.subjectName || '-'}</span></div>
                 <div className="font-semibold text-blue-700 mb-1">Type: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.isOnline ? 'Online' : 'Offline'}</span></div>
                 <div className="font-semibold text-blue-700 mt-2 mb-1">Room Information</div>
-                <div className="ml-2">Room Code: <span className="text-gray-900 whitespace-normal break-words">{getRoomInfo(detailSchedule.roomId).code}</span></div>
-                <div className="ml-2">Room Name: <span className="text-gray-900 whitespace-normal break-words">{getRoomInfo(detailSchedule.roomId).name}</span></div>
-                <div className="ml-2">Building: <span className="text-gray-900 whitespace-normal break-words">{getRoomInfo(detailSchedule.roomId).building}</span></div>
+                <div className="ml-2">Room Code: <span className="text-gray-900 whitespace-normal break-words">{roomDetail.code}</span></div>
+                <div className="ml-2">Room Name: <span className="text-gray-900 whitespace-normal break-words">{roomDetail.name}</span></div>
+                <div className="ml-2">Building: <span className="text-gray-900 whitespace-normal break-words">{roomDetail.building}</span></div>
               </div>
               <div className="flex flex-col gap-2 pl-4">
                 <div className="font-semibold text-blue-700 mt-2 mb-1">Schedule Information</div>
                 <div className="ml-2">Start Date: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.dateStart ? new Date(detailSchedule.dateStart).toLocaleDateString('en-GB') : '-'}</span></div>
-                <div className="ml-2">Weekday: <span className="text-gray-900 whitespace-normal break-words">{getWeekdayLabel(detailSchedule.dateStart)}</span></div>
+                <div className="ml-2">Day of Week: <span className="text-gray-900 whitespace-normal break-words">{getWeekdayLabel(detailSchedule.dateStart)}</span></div>
                 <div className="ml-2">Slot Number: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.slotNumber || '-'}</span></div>
                 <div className="ml-2">Start Time: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.startTime || '-'}</span></div>
                 <div className="ml-2">End Time: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.endTime || '-'}</span></div>
-                <div className="ml-2">Semester: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.semester || '-'}</span></div>
-                <div className="ml-2">Mode: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.isOnline ? 'Online' : 'Offline'}</span></div>
-                <div className="ml-2">Status: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.status || '-'}</span></div>
+                {!bookingSchedule && (
+                  <div className="ml-2">Semester: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.semester || '-'}</span></div>
+                )}
+                {!bookingSchedule && (
+                  <div className="ml-2">Mode: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.isOnline ? 'Online' : 'Offline'}</span></div>
+                )}
+                <div className="ml-2">Status: <span className="text-gray-900 whitespace-normal break-words">{getStatusLabel(detailSchedule.status)}</span></div>
               </div>
             </div>
           </div>
+            );
+          })()}
         </div>
       )}
       {showTransferModal && selectedTransfer && (
