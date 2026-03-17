@@ -61,6 +61,33 @@ const extractErrorMessage = (error: any, fallback: string): string => {
   return fallback;
 };
 
+const getCreateTransferFriendlyError = (error: any): string => {
+  const message = extractErrorMessage(error, 'Failed to create transfer request');
+  const normalized = String(message || '').toLowerCase();
+
+  if (normalized.includes('reason is required') || normalized.includes('reason should not be empty')) {
+    return 'Please enter transfer reason.';
+  }
+
+  if (normalized.includes('reason must be shorter than or equal to 500')) {
+    return 'Transfer reason is too long (maximum 500 characters).';
+  }
+
+  if (normalized.includes('notes must be shorter than or equal to 1000')) {
+    return 'Notes are too long (maximum 1000 characters).';
+  }
+
+  if (normalized.includes('timed out') || normalized.includes('network') || normalized.includes('failed to fetch')) {
+    return 'Network connection issue. Please try again.';
+  }
+
+  if (normalized.includes('invalid') || normalized.includes('not found')) {
+    return 'Transfer data is no longer valid. Please return to Schedule and create a new request.';
+  }
+
+  return message;
+};
+
 const AUTO_FIELD_CLASS = 'bg-gray-100 border-gray-200 text-gray-700 cursor-not-allowed focus-visible:ring-0';
 
 const LecturerTransferRequestPage: React.FC = () => {
@@ -85,6 +112,15 @@ const LecturerTransferRequestPage: React.FC = () => {
   const [selectedLockerId, setSelectedLockerId] = useState('');
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
+
+  const redirectToSchedule = (description: string) => {
+    toast({
+      title: 'Cannot create transfer',
+      description,
+      variant: 'destructive',
+    });
+    navigate('/lecturer/schedule');
+  };
 
   const selectedSourceSchedule = useMemo(
     () => sourceSchedules.find((item) => item.id === selectedSourceScheduleId) || null,
@@ -120,13 +156,23 @@ const LecturerTransferRequestPage: React.FC = () => {
         const toDate = addDays(fromDate, 30);
 
         const rows = await transferService.getSelfSourceSchedules({ fromDate, toDate });
-        setSourceSchedules(rows || []);
+        const validRows = (rows || []).filter((item) => Boolean(item?.id && item?.room?.id));
+
+        if (validRows.length === 0) {
+          redirectToSchedule('No eligible schedule with valid room found to create transfer request.');
+          return;
+        }
+
+        setSourceSchedules(validRows);
 
         const fromScheduleId = searchParams.get('fromScheduleId') || '';
-        if (fromScheduleId && (rows || []).some((item) => item.id === fromScheduleId)) {
+        if (fromScheduleId && validRows.some((item) => item.id === fromScheduleId)) {
           setSelectedSourceScheduleId(fromScheduleId);
-        } else if ((rows || []).length > 0) {
-          setSelectedSourceScheduleId(rows[0].id);
+        } else if (fromScheduleId) {
+          redirectToSchedule('Selected schedule is no longer eligible for transfer request.');
+          return;
+        } else if (validRows.length > 0) {
+          setSelectedSourceScheduleId(validRows[0].id);
         }
       } catch (error: any) {
         toast({
@@ -180,6 +226,11 @@ const LecturerTransferRequestPage: React.FC = () => {
           (lockers || []).find((item) => String(item.status || '').toLowerCase() === 'available') ||
           (lockers || [])[0];
         setSelectedLockerId(preferredLocker?.id || '');
+
+        if (isSourceScheduleAutoLocked && (!targetResult?.options?.length || !preferredLocker?.id)) {
+          redirectToSchedule('Selected schedule no longer has eligible target schedule or locker for transfer.');
+          return;
+        }
       } catch (error: any) {
         toast({
           title: 'Error',
@@ -260,7 +311,7 @@ const LecturerTransferRequestPage: React.FC = () => {
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: extractErrorMessage(error, 'Failed to create transfer request'),
+        description: getCreateTransferFriendlyError(error),
         variant: 'destructive',
       });
     } finally {
@@ -427,7 +478,8 @@ const LecturerTransferRequestPage: React.FC = () => {
                 isLoadingTargets ||
                 isLoadingLockers ||
                 !selectedTargetOption ||
-                !selectedLockerId
+                !selectedLockerId ||
+                !reason.trim()
               }
             >
               {isSubmitting ? 'Submitting...' : 'Create Transfer Request'}

@@ -26,6 +26,7 @@ import LecturerBookingHistoryPage from '../pages/Lecturer/LecturerBookingHistory
 import LecturerSchedulePage from '@/pages/Lecturer/LecturerSchedulePage';
 import LecturerBookingRequestPage from '../pages/Lecturer/LecturerBookingRequestPage';
 import LecturerTransferRequestPage from '../pages/Lecturer/LecturerTransferRequestPage';
+import AdminTransferListPage from '../pages/Admin/AdminTransferListPage';
 
 
 const AppRoutes: React.FC = () => {
@@ -46,6 +47,17 @@ const AppRoutes: React.FC = () => {
               <ProtectedRoute>
                 <AdminLayout>
                   <DashboardPage />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/transfers"
+            element={
+              <ProtectedRoute requiredPermissions={[PERMISSIONS.TRANSFERS_READ]}>
+                <AdminLayout>
+                  <AdminTransferListPage />
                 </AdminLayout>
               </ProtectedRoute>
             }

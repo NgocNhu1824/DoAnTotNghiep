@@ -159,38 +159,7 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
     } else if (notification.type.includes('incident')) {
       navigate('/incidents');
     } else if (notification.type.includes('transfer')) {
-      if (userScope === 'SELF') {
-        const data = (notification.data || {}) as Record<string, any>;
-        const preferredFocusScheduleId =
-          (notification.type === 'transfer_pending' ? data.toScheduleId : data.fromScheduleId) ||
-          data.fromScheduleId ||
-          data.toScheduleId ||
-          '';
-
-        let focusDate = toDateOnly(data.transferDate || data.dateStart);
-        if (preferredFocusScheduleId && !focusDate) {
-          try {
-            const focusSchedule = await scheduleService.getById(preferredFocusScheduleId);
-            focusDate = toDateOnly(focusSchedule?.dateStart);
-          } catch {
-            focusDate = '';
-          }
-        }
-
-        const query = new URLSearchParams();
-        if (preferredFocusScheduleId) {
-          query.set('focusScheduleId', preferredFocusScheduleId);
-        }
-        if (focusDate) {
-          query.set('focusDate', focusDate);
-        }
-        if (data.transferId) {
-          query.set('focusTransferId', String(data.transferId));
-        }
-
-        const suffix = query.toString();
-        navigate(suffix ? `/lecturer/schedule?${suffix}` : '/lecturer/schedule');
-      }
+      navigate('/transfers');
     }
 
     setIsNotificationOpen(false);

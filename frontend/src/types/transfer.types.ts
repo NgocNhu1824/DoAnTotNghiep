@@ -85,6 +85,29 @@ export interface CreateTransferRequestDto {
   notes?: string;
 }
 
+export interface TransferScheduleSummary {
+  id: string;
+  roomId: string;
+  room?: {
+    id: string;
+    roomCode?: string;
+    roomName?: string;
+  } | null;
+  dateStart?: string;
+  startTime: string;
+  endTime: string;
+  slotType: 'OLDSLOT' | 'NEWSLOT';
+  slotNumber: number;
+  classCode?: string;
+  subjectCode?: string;
+  subjectName?: string;
+  lecturer?: {
+    id: string;
+    fullName: string;
+    email: string;
+  } | null;
+}
+
 export interface TransferRecord {
   _id: string;
   roomId: string;
@@ -98,9 +121,26 @@ export interface TransferRecord {
   reason?: string;
   status: string;
   approvedAt?: string;
-  completedAt?: string;
   cancelledAt?: string;
   notes?: string;
+  fromUser?: {
+    id: string;
+    fullName: string;
+    email?: string;
+  } | null;
+  toUser?: {
+    id: string;
+    fullName: string;
+    email?: string;
+  } | null;
+  locker?: {
+    id: string;
+    lockerNumber: number;
+    position?: string;
+    status?: string;
+  } | null;
+  sourceSchedule?: TransferScheduleSummary | null;
+  targetSchedule?: TransferScheduleSummary | null;
   createdAt?: string;
   updatedAt?: string;
 }

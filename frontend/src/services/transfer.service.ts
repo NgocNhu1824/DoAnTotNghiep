@@ -26,6 +26,38 @@ const toDateOnly = (value: string): string => {
 };
 
 const transferService = {
+        approveTransfer: async (transferId: string): Promise<TransferRecord> => {
+          const response = await api.patch<{ success: boolean; data: TransferRecord }>(`/transfers/${transferId}/approve`);
+          return response.data;
+        },
+
+        rejectTransfer: async (transferId: string, reason: string): Promise<TransferRecord> => {
+          const response = await api.patch<{ success: boolean; data: TransferRecord }>(`/transfers/${transferId}/reject`, { reason });
+          return response.data;
+        },
+      list: async (params?: {
+        status?: string;
+        fromDate?: string;
+        toDate?: string;
+        userId?: string;
+      }): Promise<TransferRecord[]> => {
+        const query = new URLSearchParams();
+        if (params?.status) query.append('status', params.status);
+        if (params?.fromDate) query.append('fromDate', params.fromDate);
+        if (params?.toDate) query.append('toDate', params.toDate);
+        if (params?.userId) query.append('userId', params.userId);
+        const response = await api.get<{ success: boolean; data: TransferRecord[] }>(`/transfers?${query.toString()}`);
+        return response.data;
+      },
+
+      detail: async (id: string): Promise<TransferRecord> => {
+        const response = await api.get<{ success: boolean; data: TransferRecord }>(`/transfers/${id}`);
+        return response.data;
+      },
+    cancelTransfer: async (transferId: string, reason: string): Promise<TransferRecord> => {
+      const response = await api.patch<{ success: boolean; data: TransferRecord }>(`/transfers/${transferId}/cancel`, { reason });
+      return response.data;
+    },
   getSelfSourceSchedules: async (params?: {
     fromDate?: string;
     toDate?: string;
@@ -160,6 +192,23 @@ const transferService = {
 
     const response = await api.get<{ success: boolean; data: Record<string, TransferRecord> }>(
       `/transfers/self/existing-by-source-schedules?${query.toString()}`,
+    );
+
+    return response?.data || {};
+  },
+
+  getSelfIncomingByTargetSchedules: async (
+    targetScheduleIds: string[],
+  ): Promise<Record<string, TransferRecord>> => {
+    if (!Array.isArray(targetScheduleIds) || targetScheduleIds.length === 0) {
+      return {};
+    }
+
+    const query = new URLSearchParams();
+    query.append('targetScheduleIds', targetScheduleIds.join(','));
+
+    const response = await api.get<{ success: boolean; data: Record<string, TransferRecord> }>(
+      `/transfers/self/incoming-by-target-schedules?${query.toString()}`,
     );
 
     return response?.data || {};

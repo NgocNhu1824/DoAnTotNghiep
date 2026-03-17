@@ -1,4 +1,7 @@
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import LecturerLayout from '@/layouts/LecturerLayout';
+import ConfirmDialog from '@/components/common/ConfirmDialog';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -6,6 +9,7 @@ import { scheduleService } from '@/services/schedule.service';
 import { timeSlotService } from '@/services/time-slot.service';
 import bookingService from '@/services/booking.service';
 import transferService from '@/services/transfer.service';
+import { lockerService } from '@/services/locker.service';
 import { wsService } from '@/services/websocket.service';
 import { Schedule } from '@/types/schedule.types';
 import { TimeSlot } from '@/types/time-slot.types';
@@ -128,6 +132,25 @@ function parseDateParamToDate(value: string | null): Date | null {
 
 
 const LecturerSchedulePage: React.FC = () => {
+  // Locker cache for transfer detail
+  const [lockerMap, setLockerMap] = useState<Record<string, any>>({});
+  // Helper: get locker display
+  const getLockerDisplay = (lockerId: string) => {
+    if (!lockerId) return '-';
+    const locker = lockerMap[lockerId];
+    if (locker) {
+      let display = `#${locker.lockerNumber}`;
+      if (locker.position) display += ` - ${locker.position}`;
+      if (locker.status) display += ` | ${locker.status}`;
+      return display;
+    }
+    // fetch locker if not in cache
+    lockerService.getAllWithIoT().then((result) => {
+      const found = result.find(l => l.id === lockerId || l._id === lockerId);
+      if (found) setLockerMap(prev => ({ ...prev, [lockerId]: found }));
+    });
+    return '...';
+  };
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -156,13 +179,30 @@ const LecturerSchedulePage: React.FC = () => {
   const [pendingHighlightScheduleId, setPendingHighlightScheduleId] = useState<string | null>(null);
   const [checkingTransferScheduleId, setCheckingTransferScheduleId] = useState<string | null>(null);
   const [existingTransfersBySource, setExistingTransfersBySource] = useState<Record<string, TransferRecord>>({});
+  const [incomingTransfersByTarget, setIncomingTransfersByTarget] = useState<Record<string, TransferRecord>>({});
   const [selectedTransfer, setSelectedTransfer] = useState<TransferRecord | null>(null);
   const [selectedTransferSourceSchedule, setSelectedTransferSourceSchedule] = useState<DisplaySchedule | null>(null);
   const [selectedTransferTargetOption, setSelectedTransferTargetOption] = useState<TransferTargetOption | null>(null);
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
   const [eligibleTransferSourceIds, setEligibleTransferSourceIds] = useState<Set<string>>(new Set());
   const lastNotifiedTransferIdRef = useRef<string | null>(null);
   const processedReturnParamsRef = useRef<string>('');
+  const weekFetchSeqRef = useRef(0);
+  const upcomingFetchSeqRef = useRef(0);
+  const bookingRefreshTimerRef = useRef<number | null>(null);
+
+  const normalizeAnyId = (value: any): string => {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object') {
+      if (value._id) return String(value._id);
+      if (value.id) return String(value.id);
+    }
+    return String(value);
+  };
 
   useEffect(() => {
     const weeks = getWeeksOfYear(selectedYear);
@@ -184,8 +224,10 @@ const LecturerSchedulePage: React.FC = () => {
   }, []);
 
   const fetchWeekSchedules = useCallback(async () => {
-    if (!user?._id) return;
+    const lecturerId = user?._id;
+    if (!lecturerId) return;
 
+    const fetchSeq = ++weekFetchSeqRef.current;
     setLoading(true);
     setError('');
     const weekDates = getWeekDates(selectedDate);
@@ -194,25 +236,36 @@ const LecturerSchedulePage: React.FC = () => {
 
     try {
       const [weekSchedules, weekApprovedBookings] = await Promise.all([
-        scheduleService.getAll({ lecturerId: user._id, startDate, endDate, slotType: slotTypeFilter }),
+        scheduleService.getAll({ lecturerId, startDate, endDate, slotType: slotTypeFilter }),
         bookingService.getSelfBookings({ fromDate: startDate, toDate: endDate, status: 'approved' }),
       ]);
+
+      if (fetchSeq !== weekFetchSeqRef.current) {
+        return;
+      }
 
       setSchedules(weekSchedules || []);
       setApprovedBookings(weekApprovedBookings || []);
     } catch {
+      if (fetchSeq !== weekFetchSeqRef.current) {
+        return;
+      }
       setError('Cannot load teaching schedule');
     } finally {
-      setLoading(false);
+      if (fetchSeq === weekFetchSeqRef.current) {
+        setLoading(false);
+      }
     }
-  }, [user, selectedDate, slotTypeFilter]);
+  }, [user?._id, selectedDate, slotTypeFilter]);
 
   useEffect(() => {
     fetchWeekSchedules();
   }, [fetchWeekSchedules]);
 
   const fetchUpcomingSchedules = useCallback(async () => {
-    if (!user?._id) return;
+    const lecturerId = user?._id;
+    if (!lecturerId) return;
+    const fetchSeq = ++upcomingFetchSeqRef.current;
     setUpcomingLoading(true);
 
     const today = new Date();
@@ -224,7 +277,7 @@ const LecturerSchedulePage: React.FC = () => {
     try {
       const [upcomingData, upcomingApprovedBookings] = await Promise.all([
         scheduleService.getAll({
-          lecturerId: user._id,
+          lecturerId,
           startDate,
           endDate,
           slotType: slotTypeFilter,
@@ -292,35 +345,31 @@ const LecturerSchedulePage: React.FC = () => {
       const sorted = mergedUpcoming
         .slice()
         .sort((a, b) => toScheduleDateTime(a).getTime() - toScheduleDateTime(b).getTime());
+
+      if (fetchSeq !== upcomingFetchSeqRef.current) {
+        return;
+      }
+
       setUpcomingSchedules(sorted);
     } catch {
+      if (fetchSeq !== upcomingFetchSeqRef.current) {
+        return;
+      }
       setUpcomingSchedules([]);
     } finally {
-      setUpcomingLoading(false);
+      if (fetchSeq === upcomingFetchSeqRef.current) {
+        setUpcomingLoading(false);
+      }
     }
-  }, [user, timeSlots, slotTypeFilter]);
+  }, [user?._id, timeSlots, slotTypeFilter]);
 
   useEffect(() => {
     if (timeSlots.length === 0) return;
     fetchUpcomingSchedules();
   }, [fetchUpcomingSchedules, timeSlots.length]);
 
-  useEffect(() => {
-    wsService.connect();
-
-    const onBookingUpdated = () => {
-      fetchWeekSchedules();
-      if (timeSlots.length > 0) {
-        fetchUpcomingSchedules();
-      }
-    };
-
-    wsService.on('booking:updated', onBookingUpdated);
-
-    return () => {
-      wsService.off('booking:updated', onBookingUpdated);
-    };
-  }, [fetchWeekSchedules, fetchUpcomingSchedules, timeSlots.length]);
+  // Keep schedule updates deterministic on this page: refresh is triggered explicitly
+  // after transfer actions and query-return flows to avoid websocket-induced jitter.
 
   const weekDates = getWeekDates(selectedDate);
   const selectedWeekLabel = weeksOfYear[selectedWeekIdx]?.label || '-';
@@ -382,48 +431,57 @@ const LecturerSchedulePage: React.FC = () => {
     return base;
   }, [schedules, approvedBookings, timeSlots, slotTypeFilter]);
 
-  useEffect(() => {
-    const fetchExistingTransfers = async () => {
-      const sourceScheduleIds = mergedSchedules
+  const refreshTransferMappings = useCallback(async (explicitScheduleIds?: string[]) => {
+    const sourceScheduleIds =
+      explicitScheduleIds ||
+      mergedSchedules
         .filter((item) => !item._virtualBooking)
         .map((item) => item._id)
         .filter(Boolean);
 
-      if (!sourceScheduleIds.length) {
-        setExistingTransfersBySource({});
-        return;
-      }
+    if (!sourceScheduleIds.length) {
+      setExistingTransfersBySource({});
+      setIncomingTransfersByTarget({});
+      return;
+    }
 
-      try {
-        const result = await transferService.getSelfExistingBySourceSchedules(sourceScheduleIds);
-        setExistingTransfersBySource(result || {});
-      } catch {
-        setExistingTransfersBySource({});
-      }
-    };
-
-    fetchExistingTransfers();
+    try {
+      const [outgoingResult, incomingResult] = await Promise.all([
+        transferService.getSelfExistingBySourceSchedules(sourceScheduleIds),
+        transferService.getSelfIncomingByTargetSchedules(sourceScheduleIds),
+      ]);
+      setExistingTransfersBySource(outgoingResult || {});
+      setIncomingTransfersByTarget(incomingResult || {});
+    } catch {
+      setExistingTransfersBySource({});
+      setIncomingTransfersByTarget({});
+    }
   }, [mergedSchedules]);
 
-  useEffect(() => {
-    const fetchSelfTransferSources = async () => {
-      const startDate = formatDateOnly(weekDates[0]);
-      const endDate = formatDateOnly(weekDates[6]);
+  const refreshEligibleTransferSources = useCallback(async () => {
+    const weekDatesLocal = getWeekDates(selectedDate);
+    const startDate = formatDateOnly(weekDatesLocal[0]);
+    const endDate = formatDateOnly(weekDatesLocal[6]);
 
-      try {
-        const rows = await transferService.getSelfSourceSchedules({
-          fromDate: startDate,
-          toDate: endDate,
-        });
+    try {
+      const rows = await transferService.getSelfSourceSchedules({
+        fromDate: startDate,
+        toDate: endDate,
+      });
 
-        setEligibleTransferSourceIds(new Set((rows || []).map((item) => item.id)));
-      } catch {
-        setEligibleTransferSourceIds(new Set());
-      }
-    };
-
-    fetchSelfTransferSources();
+      setEligibleTransferSourceIds(new Set((rows || []).map((item) => item.id)));
+    } catch {
+      setEligibleTransferSourceIds(new Set());
+    }
   }, [selectedDate]);
+
+  useEffect(() => {
+    void refreshTransferMappings();
+  }, [refreshTransferMappings]);
+
+  useEffect(() => {
+    void refreshEligibleTransferSources();
+  }, [refreshEligibleTransferSources]);
 
   const nextSchedule = useMemo(() => {
     const now = new Date();
@@ -497,9 +555,10 @@ const LecturerSchedulePage: React.FC = () => {
     const focusDate = searchParams.get('focusDate');
     const focusRawDate = searchParams.get('focusRawDate');
     const createdTransferId = searchParams.get('createdTransferId');
-    const paramsKey = `${focusScheduleId || ''}|${focusDate || ''}|${focusRawDate || ''}|${createdTransferId || ''}`;
+    const focusTransferId = searchParams.get('focusTransferId');
+    const paramsKey = `${focusScheduleId || ''}|${focusDate || ''}|${focusRawDate || ''}|${createdTransferId || ''}|${focusTransferId || ''}`;
 
-    if (!focusScheduleId && !focusDate && !focusRawDate && !createdTransferId) {
+    if (!focusScheduleId && !focusDate && !focusRawDate && !createdTransferId && !focusTransferId) {
       return;
     }
 
@@ -534,9 +593,74 @@ const LecturerSchedulePage: React.FC = () => {
         window.alert('Transfer request created successfully');
 
         // Refresh immediately so transfer badges/state appear without manual reload.
-        void fetchWeekSchedules();
+        await fetchWeekSchedules();
         if (timeSlots.length > 0) {
-          void fetchUpcomingSchedules();
+          await fetchUpcomingSchedules();
+        }
+        await refreshTransferMappings();
+        await refreshEligibleTransferSources();
+      }
+
+      if (focusTransferId) {
+        await fetchWeekSchedules();
+        if (timeSlots.length > 0) {
+          await fetchUpcomingSchedules();
+        }
+        await refreshTransferMappings();
+        await refreshEligibleTransferSources();
+
+        try {
+          const detail = await transferService.detail(focusTransferId);
+          const transferPayload = detail as any;
+          setSelectedTransfer(transferPayload);
+
+          if (transferPayload?.sourceSchedule) {
+            setSelectedTransferSourceSchedule({
+              _id: transferPayload.sourceSchedule.id || transferPayload.fromScheduleId,
+              roomId: transferPayload.sourceSchedule.roomId,
+              dateStart: transferPayload.sourceSchedule.dateStart,
+              startTime: transferPayload.sourceSchedule.startTime,
+              endTime: transferPayload.sourceSchedule.endTime,
+              slotType: transferPayload.sourceSchedule.slotType,
+              slotNumber: transferPayload.sourceSchedule.slotNumber,
+              classCode: transferPayload.sourceSchedule.classCode,
+              subjectCode: transferPayload.sourceSchedule.subjectCode,
+              subjectName: transferPayload.sourceSchedule.subjectName,
+            } as DisplaySchedule);
+          } else {
+            setSelectedTransferSourceSchedule(null);
+          }
+
+          if (transferPayload?.targetSchedule?.lecturer) {
+            setSelectedTransferTargetOption({
+              scheduleId: transferPayload.targetSchedule.id || transferPayload.toScheduleId,
+              dateStart: transferPayload.targetSchedule.dateStart,
+              startTime: transferPayload.targetSchedule.startTime,
+              endTime: transferPayload.targetSchedule.endTime,
+              slotType: transferPayload.targetSchedule.slotType,
+              slotNumber: transferPayload.targetSchedule.slotNumber,
+              classCode: transferPayload.targetSchedule.classCode,
+              subjectCode: transferPayload.targetSchedule.subjectCode,
+              subjectName: transferPayload.targetSchedule.subjectName,
+              lecturer: {
+                id: transferPayload.targetSchedule.lecturer.id,
+                fullName: transferPayload.targetSchedule.lecturer.fullName,
+                email: transferPayload.targetSchedule.lecturer.email,
+              },
+            });
+          } else {
+            setSelectedTransferTargetOption(null);
+          }
+
+          if (transferPayload?.toScheduleId) {
+            setPendingHighlightScheduleId(String(transferPayload.toScheduleId));
+          } else if (transferPayload?.fromScheduleId) {
+            setPendingHighlightScheduleId(String(transferPayload.fromScheduleId));
+          }
+
+          setShowTransferModal(true);
+        } catch {
+          // Ignore invalid transfer focus and keep normal schedule view.
         }
       }
 
@@ -544,7 +668,15 @@ const LecturerSchedulePage: React.FC = () => {
     };
 
     void handleReturnParams();
-  }, [searchParams, setSearchParams, fetchWeekSchedules, fetchUpcomingSchedules, timeSlots.length]);
+  }, [
+    searchParams,
+    setSearchParams,
+    fetchWeekSchedules,
+    fetchUpcomingSchedules,
+    refreshTransferMappings,
+    refreshEligibleTransferSources,
+    timeSlots.length,
+  ]);
 
   const getCell = (slot: TimeSlot, weekdayIdx: number) => {
     const dateStr = formatDateOnly(weekDates[weekdayIdx]);
@@ -570,20 +702,100 @@ const LecturerSchedulePage: React.FC = () => {
   };
 
   const handleCreateTransfer = async (schedule: DisplaySchedule) => {
-    const existing = existingTransfersBySource[schedule._id];
+    let incomingPendingTransfer = incomingTransfersByTarget[schedule._id] || null;
+    let outgoingTransfer = existingTransfersBySource[schedule._id] || null;
+
+    try {
+      const [freshOutgoing, freshIncoming] = await Promise.all([
+        transferService.getSelfExistingBySourceSchedules([schedule._id]),
+        transferService.getSelfIncomingByTargetSchedules([schedule._id]),
+      ]);
+
+      incomingPendingTransfer = freshIncoming?.[schedule._id] || incomingPendingTransfer;
+      outgoingTransfer = freshOutgoing?.[schedule._id] || outgoingTransfer;
+    } catch {
+      // Fallback to cached maps when refresh call fails.
+    }
+
+    const activeOutgoingTransfer =
+      outgoingTransfer && ['pending', 'approved'].includes(String(outgoingTransfer.status || '').toLowerCase())
+        ? outgoingTransfer
+        : null;
+    const existing = incomingPendingTransfer || activeOutgoingTransfer;
+
     if (existing) {
       try {
         setCheckingTransferScheduleId(schedule._id);
-        setSelectedTransfer(existing);
-        setSelectedTransferSourceSchedule(schedule);
-        setSelectedTransferTargetOption(null);
+        const latestDetail = await transferService.detail(existing._id).catch(() => existing);
+        const transferPayload = (latestDetail || existing) as any;
+        setSelectedTransfer(transferPayload);
+
+        if (transferPayload?.sourceSchedule) {
+          setSelectedTransferSourceSchedule({
+            _id: transferPayload.sourceSchedule.id || transferPayload?.fromScheduleId,
+            roomId: transferPayload.sourceSchedule.roomId,
+            dateStart: transferPayload.sourceSchedule.dateStart,
+            startTime: transferPayload.sourceSchedule.startTime,
+            endTime: transferPayload.sourceSchedule.endTime,
+            slotType: transferPayload.sourceSchedule.slotType,
+            slotNumber: transferPayload.sourceSchedule.slotNumber,
+            classCode: transferPayload.sourceSchedule.classCode,
+            subjectCode: transferPayload.sourceSchedule.subjectCode,
+            subjectName: transferPayload.sourceSchedule.subjectName,
+          } as DisplaySchedule);
+        } else {
+          setSelectedTransferSourceSchedule(
+            activeOutgoingTransfer ? schedule : (null as DisplaySchedule | null),
+          );
+        }
+
+        if (transferPayload?.targetSchedule?.lecturer) {
+          setSelectedTransferTargetOption({
+            scheduleId: transferPayload.targetSchedule.id || transferPayload.toScheduleId,
+            dateStart: transferPayload.targetSchedule.dateStart,
+            startTime: transferPayload.targetSchedule.startTime,
+            endTime: transferPayload.targetSchedule.endTime,
+            slotType: transferPayload.targetSchedule.slotType,
+            slotNumber: transferPayload.targetSchedule.slotNumber,
+            classCode: transferPayload.targetSchedule.classCode,
+            subjectCode: transferPayload.targetSchedule.subjectCode,
+            subjectName: transferPayload.targetSchedule.subjectName,
+            lecturer: {
+              id: transferPayload.targetSchedule.lecturer.id,
+              fullName: transferPayload.targetSchedule.lecturer.fullName,
+              email: transferPayload.targetSchedule.lecturer.email,
+            },
+          });
+        } else if (incomingPendingTransfer) {
+          setSelectedTransferTargetOption({
+            scheduleId: schedule._id,
+            dateStart: typeof schedule.dateStart === 'string' ? schedule.dateStart : undefined,
+            startTime: schedule.startTime,
+            endTime: schedule.endTime,
+            slotType: schedule.slotType,
+            slotNumber: schedule.slotNumber,
+            classCode: schedule.classCode,
+            subjectCode: schedule.subjectCode,
+            subjectName: schedule.subjectName,
+            lecturer: {
+              id: String(user?._id || existing.toUserId || ''),
+              fullName: String((user as any)?.fullName || 'Current lecturer'),
+              email: String((user as any)?.email || '-'),
+            },
+          });
+        } else {
+          setSelectedTransferTargetOption(null);
+        }
+
         setShowTransferModal(true);
 
-        const targetResult = await transferService.getSelfTargetOptions(schedule._id);
-        const matchedTarget =
-          targetResult.options?.find((option) => option.scheduleId === existing.toScheduleId) || null;
+        if (activeOutgoingTransfer && !incomingPendingTransfer) {
+          const targetResult = await transferService.getSelfTargetOptions(schedule._id);
+          const matchedTarget =
+            targetResult.options?.find((option) => option.scheduleId === transferPayload.toScheduleId) || null;
 
-        setSelectedTransferTargetOption(matchedTarget);
+          setSelectedTransferTargetOption(matchedTarget);
+        }
       } catch {
         setSelectedTransferTargetOption(null);
       } finally {
@@ -595,6 +807,15 @@ const LecturerSchedulePage: React.FC = () => {
 
     try {
       setCheckingTransferScheduleId(schedule._id);
+
+      const targetResult = await transferService.getSelfTargetOptions(schedule._id);
+      const hasEligibleTarget = Array.isArray(targetResult?.options) && targetResult.options.length > 0;
+
+      if (!hasEligibleTarget) {
+        window.alert('No eligible adjacent schedule found for transfer.');
+        return;
+      }
+
       navigate(`/lecturer/transfers/request?fromScheduleId=${schedule._id}`);
     } catch (error: any) {
       toast({
@@ -610,7 +831,6 @@ const LecturerSchedulePage: React.FC = () => {
   const getTransferStatusBadgeClass = (status: string) => {
     if (status === 'pending') return 'bg-amber-100 text-amber-700';
     if (status === 'approved') return 'bg-blue-100 text-blue-700';
-    if (status === 'completed') return 'bg-emerald-100 text-emerald-700';
     if (status === 'cancelled') return 'bg-slate-100 text-slate-700';
     if (status === 'rejected') return 'bg-rose-100 text-rose-700';
     return 'bg-gray-100 text-gray-700';
@@ -647,7 +867,8 @@ const LecturerSchedulePage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <LecturerLayout>
+      <div className="space-y-6">
       <Card className="p-5 border border-gray-200 rounded-lg">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
@@ -753,7 +974,13 @@ const LecturerSchedulePage: React.FC = () => {
                       </td>
                       {weekDates.map((date, idx) => {
                         const cell = getCell(slot, idx);
-                        const existingTransfer = cell ? existingTransfersBySource[cell._id] : null;
+                        const outgoingTransfer = cell ? existingTransfersBySource[cell._id] : null;
+                        const incomingTransfer = cell ? incomingTransfersByTarget[cell._id] : null;
+                        const activeOutgoingTransfer =
+                          outgoingTransfer && ['pending', 'approved'].includes(String(outgoingTransfer.status || '').toLowerCase())
+                            ? outgoingTransfer
+                            : null;
+                        const existingTransfer = incomingTransfer || activeOutgoingTransfer;
                         const roomInfo = cell ? getRoomInfo(cell.roomId) : null;
                         const isHighlightedCell = Boolean(cell && cell._id === highlightScheduleId);
                         return (
@@ -793,7 +1020,10 @@ const LecturerSchedulePage: React.FC = () => {
                                       Details
                                     </button>
 
-                                    {(existingTransfer || canCreateTransferFromSchedule(cell)) && (
+                                    {(
+                                      existingTransfer ||
+                                      canCreateTransferFromSchedule(cell)
+                                    ) && (
                                       <button
                                         type="button"
                                         className={`inline-flex min-w-[96px] items-center justify-center rounded px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-80 ${
@@ -916,16 +1146,143 @@ const LecturerSchedulePage: React.FC = () => {
                 )}
               </div>
 
+              <p><span className="font-semibold">Locker:</span> {getLockerDisplay(selectedTransfer.lockerId)}</p>
               <p><span className="font-semibold">Transfer Date:</span> {selectedTransfer.transferDate ? new Date(selectedTransfer.transferDate).toLocaleDateString('en-GB') : '-'}</p>
               <p><span className="font-semibold">Reason:</span> {selectedTransfer.reason || '-'}</p>
               <p><span className="font-semibold">Notes:</span> {selectedTransfer.notes || '-'}</p>
               <p><span className="font-semibold">Created At:</span> {selectedTransfer.createdAt ? new Date(selectedTransfer.createdAt).toLocaleString('en-GB') : '-'}</p>
               <p><span className="font-semibold">Updated At:</span> {selectedTransfer.updatedAt ? new Date(selectedTransfer.updatedAt).toLocaleString('en-GB') : '-'}</p>
+              {/* Transfer actions: from lecturer can cancel, to lecturer can approve/reject, both can view */}
+              {selectedTransfer.status === 'pending' && user && (
+                <div className="mt-4 flex justify-end gap-2">
+                  {/* From lecturer: can cancel */}
+                  {user._id === selectedTransfer.fromUserId && (
+                    <button
+                      className="px-4 py-2 rounded bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-60"
+                      disabled={cancelLoading}
+                      onClick={() => {
+                        setCancelReason('');
+                        setShowCancelDialog(true);
+                      }}
+                    >
+                      Cancel Transfer
+                    </button>
+                  )}
+                  {/* To lecturer: can approve/reject */}
+                  {user._id === selectedTransfer.toUserId && (
+                    <>
+                      <button
+                        className="px-4 py-2 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-60"
+                        onClick={async () => {
+                          try {
+                            await transferService.approveTransfer(selectedTransfer._id);
+                            toast({ title: 'Transfer approved', description: 'You have approved the transfer.' });
+                            setShowTransferModal(false);
+                            await fetchWeekSchedules();
+                            if (timeSlots.length > 0) await fetchUpcomingSchedules();
+                            await refreshTransferMappings();
+                            await refreshEligibleTransferSources();
+                          } catch (err: any) {
+                            toast({ title: 'Approve failed', description: err?.message || '', variant: 'destructive' });
+                          }
+                        }}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        className="px-4 py-2 rounded bg-rose-600 text-white font-semibold hover:bg-rose-700 disabled:opacity-60"
+                        onClick={async () => {
+                          const reason = (window.prompt('Reason for rejection?') || '').trim();
+                          if (!reason) {
+                            toast({
+                              title: 'Reject failed',
+                              description: 'Please enter rejection reason.',
+                              variant: 'destructive',
+                            });
+                            return;
+                          }
+                          try {
+                            await transferService.rejectTransfer(selectedTransfer._id, reason);
+                            toast({ title: 'Transfer rejected', description: 'You have rejected the transfer.' });
+                            setShowTransferModal(false);
+                            await fetchWeekSchedules();
+                            if (timeSlots.length > 0) await fetchUpcomingSchedules();
+                            await refreshTransferMappings();
+                            await refreshEligibleTransferSources();
+                          } catch (err: any) {
+                            toast({ title: 'Reject failed', description: err?.message || '', variant: 'destructive' });
+                          }
+                        }}
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+          <ConfirmDialog
+            open={showCancelDialog}
+            title="Are you sure you want to cancel this transfer?"
+            description={
+              <div className="space-y-2">
+                <p>This action cannot be undone. The schedule will return to its original state.</p>
+                <input
+                  className="w-full rounded border px-2 py-1"
+                  placeholder="Enter reason for cancellation"
+                  value={cancelReason}
+                  onChange={(event) => setCancelReason(event.target.value)}
+                  maxLength={500}
+                />
+              </div>
+            }
+            confirmText={cancelLoading ? 'Cancelling...' : 'Yes, Cancel'}
+            cancelText="No, Keep"
+            destructive
+            onCancel={() => {
+              setShowCancelDialog(false);
+              setCancelReason('');
+            }}
+            onConfirm={async () => {
+              if (!selectedTransfer) return;
+              if (!cancelReason.trim()) {
+                toast({
+                  title: 'Validation',
+                  description: 'Please enter cancellation reason.',
+                  variant: 'destructive',
+                });
+                return;
+              }
+              setCancelLoading(true);
+              try {
+                await transferService.cancelTransfer(selectedTransfer._id, cancelReason.trim());
+                toast({ title: 'Transfer cancelled', description: 'The transfer has been cancelled successfully.' });
+                setShowCancelDialog(false);
+                setCancelReason('');
+                setShowTransferModal(false);
+                // Reload schedule and transfer state
+                await fetchWeekSchedules();
+                if (timeSlots.length > 0) await fetchUpcomingSchedules();
+                await refreshTransferMappings();
+                await refreshEligibleTransferSources();
+                // Redirect to schedule with focus on cancelled schedule
+                if (selectedTransfer && selectedTransfer.fromScheduleId) {
+                  setTimeout(() => {
+                    navigate(`?focusScheduleId=${selectedTransfer.fromScheduleId}`);
+                  }, 300);
+                }
+              } catch (err: any) {
+                toast({ title: 'Cancel failed', description: err?.message || 'Could not cancel transfer', variant: 'destructive' });
+              } finally {
+                setCancelLoading(false);
+              }
+            }}
+          />
         </div>
       )}
-    </div>
+      </div>
+    </LecturerLayout>
   );
 };
 

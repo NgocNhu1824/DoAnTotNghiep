@@ -21,8 +21,28 @@ export class TransfersService {
   private static readonly TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END = 30;
   private static readonly TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END = 15;
 
+  private parseBooleanEnv(value: string | undefined, defaultValue = false): boolean {
+    if (typeof value !== 'string') {
+      return defaultValue;
+    }
+
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    return defaultValue;
+  }
+
   private isTransferWindowEnforced(): boolean {
-    return String(process.env.TRANSFER_ENFORCE_TIME_WINDOW || 'false').toLowerCase() === 'true';
+    // Preferred flag: TRANSFER_REALTIME_MODE
+    // true  -> enforce transfer time window
+    // false -> free-time mode for transfer actions
+    const realtimeMode = process.env.TRANSFER_REALTIME_MODE;
+    if (typeof realtimeMode === 'string') {
+      return this.parseBooleanEnv(realtimeMode, false);
+    }
+
+    // Backward compatibility with old flag name.
+    return this.parseBooleanEnv(process.env.TRANSFER_ENFORCE_TIME_WINDOW, false);
   }
 
   private buildTargetOptionDiagnostics(sourceEndMinutes: number, candidates: any[]): any {
@@ -86,7 +106,7 @@ export class TransfersService {
     @InjectModel(User.name) private userModel: Model<User>,
     private readonly eventsGateway: EventsGateway,
     private readonly notificationsService: NotificationsService,
-  ) {}
+  ) { }
 
   private normalizeId(value: any): string {
     return value?.toString?.() || String(value);
@@ -205,22 +225,22 @@ export class TransfersService {
       : rows;
 
     return filteredRows.map((item: any) => ({
-        id: this.normalizeId(item._id),
-        dateStart: this.toDateOnlyString(item.dateStart),
-        startTime: item.startTime,
-        endTime: item.endTime,
-        slotType: item.slotType,
-        slotNumber: item.slotNumber,
-        room: item.roomId
-          ? {
-              id: this.normalizeId(item.roomId._id),
-              roomCode: item.roomId.roomCode,
-              roomName: item.roomId.roomName,
-              building: item.roomId.building,
-              floor: item.roomId.floor,
-            }
-          : null,
-      }));
+      id: this.normalizeId(item._id),
+      dateStart: this.toDateOnlyString(item.dateStart),
+      startTime: item.startTime,
+      endTime: item.endTime,
+      slotType: item.slotType,
+      slotNumber: item.slotNumber,
+      room: item.roomId
+        ? {
+          id: this.normalizeId(item.roomId._id),
+          roomCode: item.roomId.roomCode,
+          roomName: item.roomId.roomName,
+          building: item.roomId.building,
+          floor: item.roomId.floor,
+        }
+        : null,
+    }));
   }
 
   async getSelfTargetOptions(fromScheduleId: string | undefined, currentUser: any): Promise<any> {
@@ -304,27 +324,27 @@ export class TransfersService {
 
     return {
       options: validCandidates
-      .filter((row) => row.gapMinutes === minGap)
-      .map((row) => row.item)
-      .map((item: any) => ({
-        scheduleId: this.normalizeId(item._id),
-        dateStart: this.toDateOnlyString(item.dateStart),
-        startTime: item.startTime,
-        endTime: item.endTime,
-        slotType: item.slotType,
-        slotNumber: item.slotNumber,
-        classCode: item.classCode,
-        subjectCode: item.subjectCode,
-        subjectName: item.subjectName,
-        lecturer: {
-          id: this.normalizeId(item.lecturerId._id),
-          fullName: item.lecturerId.fullName,
-          email: item.lecturerId.email,
-          department: item.lecturerId.department,
-          roleCode: item.lecturerId.roleId?.roleCode,
-          roleName: item.lecturerId.roleId?.roleName,
-        },
-      })),
+        .filter((row) => row.gapMinutes === minGap)
+        .map((row) => row.item)
+        .map((item: any) => ({
+          scheduleId: this.normalizeId(item._id),
+          dateStart: this.toDateOnlyString(item.dateStart),
+          startTime: item.startTime,
+          endTime: item.endTime,
+          slotType: item.slotType,
+          slotNumber: item.slotNumber,
+          classCode: item.classCode,
+          subjectCode: item.subjectCode,
+          subjectName: item.subjectName,
+          lecturer: {
+            id: this.normalizeId(item.lecturerId._id),
+            fullName: item.lecturerId.fullName,
+            email: item.lecturerId.email,
+            department: item.lecturerId.department,
+            roleCode: item.lecturerId.roleId?.roleCode,
+            roleName: item.lecturerId.roleId?.roleName,
+          },
+        })),
       diagnostics: null,
     };
   }
@@ -376,9 +396,126 @@ export class TransfersService {
         reason: item.reason,
         status: item.status,
         approvedAt: item.approvedAt,
-        completedAt: item.completedAt,
         cancelledAt: item.cancelledAt,
         notes: item.notes,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      };
+    });
+
+    return result;
+  }
+
+  async getSelfIncomingByTargetSchedules(targetScheduleIds: string[], currentUser: any): Promise<any> {
+    if (!Array.isArray(targetScheduleIds) || targetScheduleIds.length === 0) {
+      return {};
+    }
+
+    const userId = this.normalizeId(currentUser._id);
+    const campusId = this.normalizeId(currentUser.campusId);
+
+    const objectIds = Array.from(new Set(targetScheduleIds))
+      .filter((id) => Types.ObjectId.isValid(id))
+      .map((id) => new Types.ObjectId(id));
+
+    if (objectIds.length === 0) {
+      return {};
+    }
+
+    const rows = await this.transferModel
+      .find({
+        campusId: this.toObjectId(campusId, 'campusId'),
+        toUserId: this.toObjectId(userId, 'toUserId'),
+        toScheduleId: { $in: objectIds },
+        status: 'pending',
+      })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    const scheduleObjectIds = Array.from(
+      new Set(
+        rows
+          .flatMap((item: any) => [this.normalizeId(item.fromScheduleId), this.normalizeId(item.toScheduleId)])
+          .filter((id) => Types.ObjectId.isValid(id)),
+      ),
+    ).map((id) => new Types.ObjectId(id));
+
+    const scheduleRows = scheduleObjectIds.length
+      ? await this.scheduleModel
+          .find({
+            _id: { $in: scheduleObjectIds },
+            campusId: this.toObjectId(campusId, 'campusId'),
+          })
+          .populate('lecturerId', 'fullName email')
+          .populate('roomId', 'roomCode roomName')
+          .select(
+            '_id roomId lecturerId dateStart startTime endTime slotType slotNumber classCode subjectCode subjectName',
+          )
+          .lean()
+          .exec()
+      : [];
+
+    const scheduleMap: Record<string, any> = {};
+
+    scheduleRows.forEach((row: any) => {
+      const key = this.normalizeId(row._id);
+      const lecturer = row.lecturerId as any;
+      const room = row.roomId as any;
+
+      scheduleMap[key] = {
+        id: key,
+        roomId: this.normalizeId(row.roomId),
+        room: room
+          ? {
+              id: this.normalizeId(room._id),
+              roomCode: room.roomCode,
+              roomName: room.roomName,
+            }
+          : null,
+        dateStart: row.dateStart,
+        startTime: row.startTime,
+        endTime: row.endTime,
+        slotType: row.slotType,
+        slotNumber: row.slotNumber,
+        classCode: row.classCode,
+        subjectCode: row.subjectCode,
+        subjectName: row.subjectName,
+        lecturer: lecturer
+          ? {
+              id: this.normalizeId(lecturer._id),
+              fullName: lecturer.fullName,
+              email: lecturer.email,
+            }
+          : null,
+      };
+    });
+
+    const result: Record<string, any> = {};
+
+    rows.forEach((item: any) => {
+      const key = this.normalizeId(item.toScheduleId);
+      if (result[key]) {
+        return;
+      }
+
+      result[key] = {
+        _id: this.normalizeId(item._id),
+        roomId: this.normalizeId(item.roomId),
+        lockerId: this.normalizeId(item.lockerId),
+        fromUserId: this.normalizeId(item.fromUserId),
+        toUserId: this.normalizeId(item.toUserId),
+        campusId: this.normalizeId(item.campusId),
+        fromScheduleId: this.normalizeId(item.fromScheduleId),
+        toScheduleId: this.normalizeId(item.toScheduleId),
+        transferDate: item.transferDate,
+        reason: item.reason,
+        status: item.status,
+        approvedAt: item.approvedAt,
+        cancelledAt: item.cancelledAt,
+        notes: item.notes,
+        sourceSchedule: scheduleMap[this.normalizeId(item.fromScheduleId)] || null,
+        targetSchedule: scheduleMap[this.normalizeId(item.toScheduleId)] || null,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
       };
@@ -390,6 +527,11 @@ export class TransfersService {
   async create(createTransferDto: CreateTransferDto, currentUser: any): Promise<Transfer> {
     const userId = this.normalizeId(currentUser._id);
     const campusId = this.normalizeId(currentUser.campusId);
+    const reasonText = String(createTransferDto.reason || '').trim();
+
+    if (!reasonText) {
+      throw new BadRequestException('reason is required');
+    }
 
     const [room, locker, toUser, fromSchedule, toSchedule] = await Promise.all([
       this.roomModel
@@ -486,11 +628,11 @@ export class TransfersService {
       throw new BadRequestException('Source and target schedule must be different');
     }
 
-    if (['cancelled', 'completed'].includes(fromSchedule.status)) {
+    if (fromSchedule.status === 'cancelled') {
       throw new BadRequestException('Source schedule is not eligible for transfer');
     }
 
-    if (['cancelled', 'completed'].includes(toSchedule.status)) {
+    if (toSchedule.status === 'cancelled') {
       throw new BadRequestException('Target schedule is not eligible for transfer');
     }
 
@@ -534,17 +676,16 @@ export class TransfersService {
         toScheduleId: this.toObjectId(createTransferDto.toScheduleId, 'toScheduleId'),
         $or: [
           { status: 'pending' },
-          // Approved transfers should only block new requests when not completed yet.
-          { status: 'approved', completedAt: null },
+          { status: 'approved' },
         ],
       })
-      .select('_id status completedAt')
+      .select('_id status')
       .lean()
       .exec();
 
     if (duplicated) {
       throw new BadRequestException(
-        `A transfer request for this handover already exists (transferId=${this.normalizeId(duplicated._id)}, status=${duplicated.status}, completedAt=${duplicated.completedAt || 'null'})`,
+        `A transfer request for this handover already exists (transferId=${this.normalizeId(duplicated._id)}, status=${duplicated.status})`,
       );
     }
 
@@ -555,7 +696,7 @@ export class TransfersService {
       fromScheduleId: this.toObjectId(createTransferDto.fromScheduleId, 'fromScheduleId'),
       toScheduleId: this.toObjectId(createTransferDto.toScheduleId, 'toScheduleId'),
       transferDate,
-      reason: createTransferDto.reason?.trim() || undefined,
+      reason: reasonText,
       notes: createTransferDto.notes?.trim() || undefined,
       fromUserId: this.toObjectId(userId, 'fromUserId'),
       campusId: this.toObjectId(campusId, 'campusId'),
@@ -573,7 +714,7 @@ export class TransfersService {
       lockerId: createTransferDto.lockerId,
       fromScheduleId: createTransferDto.fromScheduleId,
       toScheduleId: createTransferDto.toScheduleId,
-      reason: createTransferDto.reason?.trim() || null,
+      reason: reasonText,
     });
 
     // Emit websocket event
@@ -582,7 +723,12 @@ export class TransfersService {
     return result;
   }
 
-  async cancel(id: string, currentUser: any): Promise<Transfer> {
+  async cancel(id: string, reason: string, currentUser: any): Promise<Transfer> {
+    const cancelReason = String(reason || '').trim();
+    if (!cancelReason) {
+      throw new BadRequestException('Cancel reason is required');
+    }
+
     const transfer = await this.transferModel.findById(id);
 
     if (!transfer) throw new NotFoundException('Transfer not found');
@@ -598,16 +744,13 @@ export class TransfersService {
       throw new ForbiddenException('Only transfer owner or super admin can cancel transfer request');
     }
 
-    if (transfer.status === 'cancelled') {
-      throw new BadRequestException('Transfer request is already cancelled');
-    }
-
-    if (transfer.status === 'rejected') {
-      throw new BadRequestException('Cannot cancel a rejected transfer request');
+    if (transfer.status !== 'pending') {
+      throw new BadRequestException('Only pending transfers can be cancelled');
     }
 
     transfer.status = 'cancelled';
     (transfer as any).cancelledAt = new Date();
+    (transfer as any).cancelReason = cancelReason;
 
     await transfer.save();
 
@@ -616,6 +759,313 @@ export class TransfersService {
       data: transfer,
     });
 
+    // Notify all related users about cancellation
+    await this.notificationsService.notifyTransferCancelled({
+      transferId: this.normalizeId(transfer._id),
+      campusId: transfer.campusId,
+      fromUserId: transfer.fromUserId,
+      toUserId: transfer.toUserId,
+      roomId: transfer.roomId,
+      lockerId: transfer.lockerId,
+      fromScheduleId: transfer.fromScheduleId,
+      toScheduleId: transfer.toScheduleId,
+      reason: cancelReason,
+      cancelledBy: currentUser._id,
+    });
+
+    return transfer;
+  }
+
+  // Xem danh sách transfer
+  async list(query: any, currentUser: any): Promise<any[]> {
+    const filter: any = {};
+    if (!['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(currentUser.roleCode)) {
+      filter.$or = [
+        { fromUserId: currentUser._id },
+        { toUserId: currentUser._id },
+      ];
+    }
+    if (query.status) filter.status = query.status;
+    if (query.fromDate || query.toDate) {
+      filter.createdAt = {};
+      if (query.fromDate) filter.createdAt.$gte = new Date(query.fromDate);
+      if (query.toDate) filter.createdAt.$lte = new Date(query.toDate);
+    }
+    if (query.userId) {
+      filter.$or = [
+        { fromUserId: query.userId },
+        { toUserId: query.userId },
+      ];
+    }
+
+    const transfers = await this.transferModel.find(filter).sort({ createdAt: -1 }).lean().exec();
+
+    if (transfers.length === 0) {
+      return [];
+    }
+
+    const campusId = this.normalizeId(currentUser.campusId);
+    const scheduleIds = Array.from(
+      new Set(
+        transfers
+          .flatMap((item: any) => [this.normalizeId(item.fromScheduleId), this.normalizeId(item.toScheduleId)])
+          .filter((id) => Types.ObjectId.isValid(id)),
+      ),
+    ).map((id) => new Types.ObjectId(id));
+
+    const scheduleRows = scheduleIds.length
+      ? await this.scheduleModel
+          .find({
+            _id: { $in: scheduleIds },
+            campusId: this.toObjectId(campusId, 'campusId'),
+          })
+          .populate('lecturerId', 'fullName email')
+          .populate('roomId', 'roomCode roomName')
+          .select(
+            '_id roomId lecturerId dateStart startTime endTime slotType slotNumber classCode subjectCode subjectName',
+          )
+          .lean()
+          .exec()
+      : [];
+
+    const userIds = Array.from(
+      new Set(
+        transfers
+          .flatMap((item: any) => [this.normalizeId(item.fromUserId), this.normalizeId(item.toUserId)])
+          .filter((id) => Types.ObjectId.isValid(id)),
+      ),
+    ).map((id) => new Types.ObjectId(id));
+
+    const userRows = userIds.length
+      ? await this.userModel
+          .find({
+            _id: { $in: userIds },
+            campusId: this.toObjectId(campusId, 'campusId'),
+          })
+          .select('_id fullName email')
+          .lean()
+          .exec()
+      : [];
+
+    const lockerIds = Array.from(
+      new Set(
+        transfers
+          .map((item: any) => this.normalizeId(item.lockerId))
+          .filter((id) => Types.ObjectId.isValid(id)),
+      ),
+    ).map((id) => new Types.ObjectId(id));
+
+    const lockerRows = lockerIds.length
+      ? await this.lockerModel
+          .find({ _id: { $in: lockerIds } })
+          .select('_id lockerNumber position status')
+          .lean()
+          .exec()
+      : [];
+
+    const scheduleMap: Record<string, any> = {};
+    const userMap: Record<string, any> = {};
+    const lockerMap: Record<string, any> = {};
+
+    userRows.forEach((row: any) => {
+      userMap[this.normalizeId(row._id)] = {
+        id: this.normalizeId(row._id),
+        fullName: row.fullName,
+        email: row.email,
+      };
+    });
+
+    lockerRows.forEach((row: any) => {
+      lockerMap[this.normalizeId(row._id)] = {
+        id: this.normalizeId(row._id),
+        lockerNumber: row.lockerNumber,
+        position: row.position,
+        status: row.status,
+      };
+    });
+
+    scheduleRows.forEach((row: any) => {
+      const key = this.normalizeId(row._id);
+      const lecturer = row.lecturerId as any;
+      const room = row.roomId as any;
+      scheduleMap[key] = {
+        id: key,
+        roomId: this.normalizeId(row.roomId),
+        room: room
+          ? {
+              id: this.normalizeId(room._id),
+              roomCode: room.roomCode,
+              roomName: room.roomName,
+            }
+          : null,
+        dateStart: row.dateStart,
+        startTime: row.startTime,
+        endTime: row.endTime,
+        slotType: row.slotType,
+        slotNumber: row.slotNumber,
+        classCode: row.classCode,
+        subjectCode: row.subjectCode,
+        subjectName: row.subjectName,
+        lecturer: lecturer
+          ? {
+              id: this.normalizeId(lecturer._id),
+              fullName: lecturer.fullName,
+              email: lecturer.email,
+            }
+          : null,
+      };
+    });
+
+    return transfers.map((item: any) => ({
+      ...item,
+      fromUser: userMap[this.normalizeId(item.fromUserId)] || null,
+      toUser: userMap[this.normalizeId(item.toUserId)] || null,
+      locker: lockerMap[this.normalizeId(item.lockerId)] || null,
+      sourceSchedule: scheduleMap[this.normalizeId(item.fromScheduleId)] || null,
+      targetSchedule: scheduleMap[this.normalizeId(item.toScheduleId)] || null,
+    }));
+  }
+
+  // Xem chi tiết transfer
+  async detail(id: string, currentUser: any): Promise<any> {
+    const transfer = await this.transferModel.findById(id).lean().exec();
+    if (!transfer) throw new NotFoundException('Transfer not found');
+
+    const currentUserId = this.normalizeId(currentUser._id);
+    const transferFromUserId = this.normalizeId((transfer as any).fromUserId);
+    const transferToUserId = this.normalizeId((transfer as any).toUserId);
+
+    if (!['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(currentUser.roleCode)) {
+      if (transferFromUserId !== currentUserId && transferToUserId !== currentUserId) {
+        throw new ForbiddenException('Not allowed');
+      }
+    }
+
+    const campusId = this.normalizeId(currentUser.campusId);
+    const scheduleIds = Array.from(
+      new Set([
+        this.normalizeId((transfer as any).fromScheduleId),
+        this.normalizeId((transfer as any).toScheduleId),
+      ].filter((value) => Types.ObjectId.isValid(value))),
+    ).map((value) => new Types.ObjectId(value));
+
+    const scheduleRows = scheduleIds.length
+      ? await this.scheduleModel
+          .find({
+            _id: { $in: scheduleIds },
+            campusId: this.toObjectId(campusId, 'campusId'),
+          })
+          .populate('lecturerId', 'fullName email')
+          .populate('roomId', 'roomCode roomName')
+          .select(
+            '_id roomId lecturerId dateStart startTime endTime slotType slotNumber classCode subjectCode subjectName',
+          )
+          .lean()
+          .exec()
+      : [];
+
+    const scheduleMap: Record<string, any> = {};
+    scheduleRows.forEach((row: any) => {
+      const key = this.normalizeId(row._id);
+      const lecturer = row.lecturerId as any;
+      const room = row.roomId as any;
+      scheduleMap[key] = {
+        id: key,
+        roomId: this.normalizeId(row.roomId),
+        room: room
+          ? {
+              id: this.normalizeId(room._id),
+              roomCode: room.roomCode,
+              roomName: room.roomName,
+            }
+          : null,
+        dateStart: row.dateStart,
+        startTime: row.startTime,
+        endTime: row.endTime,
+        slotType: row.slotType,
+        slotNumber: row.slotNumber,
+        classCode: row.classCode,
+        subjectCode: row.subjectCode,
+        subjectName: row.subjectName,
+        lecturer: lecturer
+          ? {
+              id: this.normalizeId(lecturer._id),
+              fullName: lecturer.fullName,
+              email: lecturer.email,
+            }
+          : null,
+      };
+    });
+
+    return {
+      ...transfer,
+      sourceSchedule: scheduleMap[this.normalizeId((transfer as any).fromScheduleId)] || null,
+      targetSchedule: scheduleMap[this.normalizeId((transfer as any).toScheduleId)] || null,
+    };
+  }
+
+  // Approve transfer
+  async approve(id: string, currentUser: any): Promise<Transfer> {
+    const transfer = await this.transferModel.findById(id);
+    if (!transfer) throw new NotFoundException('Transfer not found');
+    // Chỉ cho phép toUserId (người nhận) hoặc SUPER_ADMIN approve
+    const isRecipient = transfer.toUserId?.toString() === (currentUser._id?.toString?.() || currentUser._id);
+    if (!isRecipient && currentUser.roleCode !== 'SUPER_ADMIN') {
+      throw new ForbiddenException('Only recipient or super admin can approve transfer request');
+    }
+    if (transfer.status !== 'pending') throw new BadRequestException('Only pending transfers can be approved');
+    transfer.status = 'approved';
+    (transfer as any).approvedAt = new Date();
+    await transfer.save();
+    this.eventsGateway.server.emit('transfer:approved', { transferId: this.normalizeId(transfer._id), data: transfer });
+    await this.notificationsService.notifyTransferApproved({
+      transferId: this.normalizeId(transfer._id),
+      campusId: transfer.campusId,
+      fromUserId: transfer.fromUserId,
+      toUserId: transfer.toUserId,
+      roomId: transfer.roomId,
+      lockerId: transfer.lockerId,
+      fromScheduleId: transfer.fromScheduleId,
+      toScheduleId: transfer.toScheduleId,
+      reason: transfer.reason,
+      approvedBy: currentUser._id,
+    });
+    return transfer;
+  }
+
+  // Reject transfer
+  async reject(id: string, reason: string, currentUser: any): Promise<Transfer> {
+    const transfer = await this.transferModel.findById(id);
+    if (!transfer) throw new NotFoundException('Transfer not found');
+    const rejectReason = String(reason || '').trim();
+    if (!rejectReason) {
+      throw new BadRequestException('Reject reason is required');
+    }
+    // Chỉ cho phép toUserId (người nhận) hoặc SUPER_ADMIN reject
+    const isRecipient = transfer.toUserId?.toString() === (currentUser._id?.toString?.() || currentUser._id);
+    if (!isRecipient && currentUser.roleCode !== 'SUPER_ADMIN') {
+      throw new ForbiddenException('Only recipient or super admin can reject transfer request');
+    }
+    if (transfer.status !== 'pending') throw new BadRequestException('Only pending transfers can be rejected');
+    transfer.status = 'rejected';
+    (transfer as any).updatedAt = new Date();
+    (transfer as any).rejectedAt = new Date();
+    (transfer as any).rejectReason = rejectReason;
+    await transfer.save();
+    this.eventsGateway.server.emit('transfer:rejected', { transferId: this.normalizeId(transfer._id), data: transfer });
+    await this.notificationsService.notifyTransferRejected({
+      transferId: this.normalizeId(transfer._id),
+      campusId: transfer.campusId,
+      fromUserId: transfer.fromUserId,
+      toUserId: transfer.toUserId,
+      roomId: transfer.roomId,
+      lockerId: transfer.lockerId,
+      fromScheduleId: transfer.fromScheduleId,
+      toScheduleId: transfer.toScheduleId,
+      reason: transfer.reason,
+      rejectedBy: currentUser._id,
+      rejectReason,
+    });
     return transfer;
   }
 }

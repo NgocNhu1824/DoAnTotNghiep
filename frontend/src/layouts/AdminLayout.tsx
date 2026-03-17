@@ -109,6 +109,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       path: '/incidents',
       requiredPermissions: [PERMISSIONS.INCIDENTS_READ],
     },
+      {
+        id: 'transfers',
+        label: 'Transfer',
+        icon: Cpu, 
+        path: '/transfers',
+        requiredPermissions: [PERMISSIONS.TRANSFERS_READ],
+      },
     {
       id: 'settings',
       label: 'Settings',
