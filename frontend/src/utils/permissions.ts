@@ -102,6 +102,13 @@ export const PERMISSIONS = {
 
   // Notifications
   NOTIFICATIONS_READ: 'notifications.read',
+
+  // Transfers
+  TRANSFERS_CREATE: 'transfers.create',
+  TRANSFERS_READ: 'transfers.read',
+  TRANSFERS_APPROVE: 'transfers.approve',
+  TRANSFERS_REJECT: 'transfers.reject',
+  TRANSFERS_CANCEL: 'transfers.cancel',
   
   // Reports
   REPORTS_VIEW: 'reports.view',
@@ -162,6 +169,11 @@ export const getPermissionDisplayName = (permissionName: string): string => {
     'incidents.update': 'Cập nhật sự cố',
     'incidents.resolve': 'Xử lý sự cố',
     'notifications.read': 'Xem thông báo',
+    'transfers.create': 'Tạo yêu cầu chuyển giao',
+    'transfers.read': 'Xem yêu cầu chuyển giao',
+    'transfers.approve': 'Duyệt yêu cầu chuyển giao',
+    'transfers.reject': 'Từ chối yêu cầu chuyển giao',
+    'transfers.cancel': 'Hủy yêu cầu chuyển giao',
     'reports.view': 'Xem báo cáo',
     'reports.export': 'Xuất báo cáo',
     'logs.read': 'Xem audit log hệ thống',

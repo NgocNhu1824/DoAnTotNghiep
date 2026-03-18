@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import notificationsService from '@/services/notifications.service';
+import { scheduleService } from '@/services/schedule.service';
 import wsService from '@/services/websocket.service';
 import { AppNotification } from '@/types/notification.types';
 
@@ -29,6 +30,27 @@ const formatNotificationTime = (value: string): string => {
     day: '2-digit',
     month: '2-digit',
   });
+};
+
+const toDateOnly = (value?: string | Date | null): string => {
+  if (!value) return '';
+
+  if (typeof value === 'string') {
+    const isoMatch = value.match(/^\d{4}-\d{2}-\d{2}/);
+    if (isoMatch) {
+      return isoMatch[0];
+    }
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 const normalizeIncomingNotification = (payload: any, userId: string): AppNotification => {
@@ -136,6 +158,8 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
       navigate(userScope === 'SELF' ? '/lecturer/booking-history' : '/bookings');
     } else if (notification.type.includes('incident')) {
       navigate('/incidents');
+    } else if (notification.type.includes('transfer')) {
+      navigate('/transfers');
     }
 
     setIsNotificationOpen(false);

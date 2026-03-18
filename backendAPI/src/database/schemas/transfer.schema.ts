@@ -37,10 +37,16 @@ export class Transfer extends Document {
   approvedAt: Date;
 
   @Prop()
-  completedAt: Date;
+  cancelledAt: Date;
 
   @Prop()
-  cancelledAt: Date;
+  cancelReason: string;
+
+  @Prop()
+  rejectedAt: Date;
+
+  @Prop()
+  rejectReason: string;
 
   @Prop()
   notes: string;

@@ -36,7 +36,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const userScope = (roleDetails?.scope || '').toUpperCase();
-  const canReadNotifications = hasAnyPermission([PERMISSIONS.NOTIFICATIONS_READ]);
+  const canReadNotifications = Boolean(user?._id);
 
   const baseMenuItems: Array<{
     id: string;
@@ -109,6 +109,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       path: '/incidents',
       requiredPermissions: [PERMISSIONS.INCIDENTS_READ],
     },
+      {
+        id: 'transfers',
+        label: 'Transfer',
+        icon: Cpu, 
+        path: '/transfers',
+        requiredPermissions: [PERMISSIONS.TRANSFERS_READ],
+      },
     {
       id: 'settings',
       label: 'Settings',
@@ -142,7 +149,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   let menuItems = baseMenuItems;
 
   if (userScope === 'SELF') {
-    menuItems = [lecturerBookingMenuItem, lecturerHistoryMenuItem, lecturerScheduleMenuItem];
+    menuItems = [
+      lecturerBookingMenuItem,
+      lecturerHistoryMenuItem,
+      lecturerScheduleMenuItem,
+    ];
   } else if (userScope === 'CAMPUS') {
     menuItems = baseMenuItems;
   } else {
