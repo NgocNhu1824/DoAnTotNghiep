@@ -3,9 +3,10 @@ import { User, AuthState, Permission, RoleDetails } from '../types/auth.types';
 import { authService } from '../services/auth.service';
 
 interface AuthContextType extends AuthState {
-  login: (token: string, user: User, roleDetails?: RoleDetails, permissions?: Permission[]) => void;
+  login: (token: string, user: User, roleDetails?: RoleDetails, permissions?: Permission[], hasPassword?: boolean) => void;
   logout: () => void;
   fetchUserProfile: () => Promise<void>;
+  completePasswordSetup: (newPassword: string, confirmPassword: string) => Promise<void>;
   hasPermission: (permissionName: string) => boolean;
   hasAnyPermission: (permissionNames: string[]) => boolean;
   hasAllPermissions: (permissionNames: string[]) => boolean;
@@ -15,6 +16,7 @@ interface AuthContextType extends AuthState {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const persistedHasPassword = authService.getHasPassword();
   const [state, setState] = useState<AuthState>({
     user: authService.getUser(),
     token: authService.getToken(),
@@ -22,6 +24,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isLoading: true,
     roleDetails: authService.getRoleDetails(),
     permissions: authService.getPermissions(),
+    hasPassword: persistedHasPassword ?? true,
   });
 
   useEffect(() => {
@@ -42,16 +45,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             isLoading: false,
             roleDetails: existingRoleDetails,
             permissions: existingPermissions,
+            hasPassword: persistedHasPassword ?? true,
           });
           return;
         }
         
         // Otherwise fetch from server
         try {
-          const { user, roleDetails, permissions } = await authService.getCurrentUser();
+          const { user, roleDetails, permissions, hasPassword } = await authService.getCurrentUser();
           authService.saveUser(user);
           authService.saveRoleDetails(roleDetails);
           authService.savePermissions(permissions);
+          authService.saveHasPassword(hasPassword);
           setState({
             user,
             token,
@@ -59,6 +64,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             isLoading: false,
             roleDetails,
             permissions,
+            hasPassword,
           });
         } catch (error) {
           console.error('Failed to fetch user profile:', error);
@@ -67,6 +73,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           localStorage.removeItem('user_data');
           localStorage.removeItem('role_details');
           localStorage.removeItem('permissions');
+          localStorage.removeItem('has_password');
           setState({
             user: null,
             token: null,
@@ -74,6 +81,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             isLoading: false,
             roleDetails: null,
             permissions: [],
+            hasPassword: true,
           });
         }
       } else {
@@ -86,21 +94,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const fetchUserProfile = useCallback(async () => {
     try {
-      const { user, roleDetails, permissions } = await authService.getCurrentUser();
+      const { user, roleDetails, permissions, hasPassword } = await authService.getCurrentUser();
       authService.saveUser(user);
       authService.saveRoleDetails(roleDetails);
       authService.savePermissions(permissions);
-      setState((prev) => ({ ...prev, user, roleDetails, permissions }));
+      authService.saveHasPassword(hasPassword);
+      setState((prev) => ({ ...prev, user, roleDetails, permissions, hasPassword }));
     } catch (error) {
       console.error('Failed to fetch user profile:', error);
     }
   }, []);
 
-  const login = useCallback((token: string, user: User, roleDetails?: RoleDetails, permissions: Permission[] = []) => {
+  const login = useCallback((token: string, user: User, roleDetails?: RoleDetails, permissions: Permission[] = [], hasPassword: boolean = true) => {
     authService.saveToken(token);
     authService.saveUser(user);
     authService.saveRoleDetails(roleDetails || null);
     authService.savePermissions(permissions);
+    authService.saveHasPassword(hasPassword);
     
     setState({
       user,
@@ -109,7 +119,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isLoading: false,
       roleDetails: roleDetails || null,
       permissions,
+      hasPassword,
     });
+  }, []);
+
+  const completePasswordSetup = useCallback(async (newPassword: string, confirmPassword: string) => {
+    await authService.setPassword({ newPassword, confirmPassword });
+    authService.saveHasPassword(true);
+    setState((prev) => ({ ...prev, hasPassword: true }));
   }, []);
 
   const logout = useCallback(async () => {
@@ -121,6 +138,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isLoading: false,
       roleDetails: null,
       permissions: [],
+      hasPassword: true,
     });
   }, []);
 
@@ -160,6 +178,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         login,
         logout,
         fetchUserProfile,
+        completePasswordSetup,
         hasPermission,
         hasAnyPermission,
         hasAllPermissions,

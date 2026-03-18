@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Post,
@@ -15,6 +16,7 @@ import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { User } from '@/database/schemas/user.schema';
+import { SetPasswordDto } from './dto/set-password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -126,6 +128,19 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   async logout(@CurrentUser() user: User) {
     return this.authService.logout(user._id.toString());
+  }
+
+  /**
+   * POST /api/auth/set-password
+   * Set password for the current authenticated user
+   */
+  @Post('set-password')
+  @UseGuards(JwtAuthGuard)
+  async setPassword(
+    @CurrentUser() user: User,
+    @Body() dto: SetPasswordDto,
+  ) {
+    return this.authService.setPassword(user._id.toString(), dto);
   }
 
   /**

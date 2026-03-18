@@ -45,6 +45,7 @@ const AuthCallbackPage: React.FC = () => {
         let user = null;
         let roleDetails = null;
         let permissions = [];
+        let hasPassword = true;
 
         if (userParam) {
           const parsedData = JSON.parse(decodeURIComponent(userParam));
@@ -54,6 +55,7 @@ const AuthCallbackPage: React.FC = () => {
             user = parsedData.user;
             roleDetails = parsedData.roleDetails || null;
             permissions = parsedData.permissions || [];
+            hasPassword = Boolean(parsedData.hasPassword ?? true);
           } else {
             // Legacy format - user data directly
             user = parsedData;
@@ -66,6 +68,7 @@ const AuthCallbackPage: React.FC = () => {
           user = profile.user;
           roleDetails = profile.roleDetails;
           permissions = profile.permissions;
+          hasPassword = profile.hasPassword;
         }
 
         if (!user) {
@@ -81,7 +84,7 @@ const AuthCallbackPage: React.FC = () => {
         authService.savePermissions(permissions);
         
         // Update auth context with permissions
-        login(token, user, roleDetails, permissions);
+        login(token, user, roleDetails, permissions, hasPassword);
         
         const userRoleName = roleDetails?.roleName || 'unknown';
         console.log('Login successful, redirecting based on role:', userRoleName);

@@ -10,6 +10,7 @@ export const STORAGE_KEYS = {
   USER_DATA: 'user_data',
   ROLE_DETAILS: 'role_details',
   PERMISSIONS: 'permissions',
+  HAS_PASSWORD: 'has_password',
 } as const;
 
 export const ROUTES = {

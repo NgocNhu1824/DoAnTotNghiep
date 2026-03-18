@@ -21,19 +21,25 @@ class AuthService {
     }
   }
 
-  async getCurrentUser(): Promise<{ user: User; roleDetails: RoleDetails | null; permissions: Permission[] }> {
+  async getCurrentUser(): Promise<{ user: User; roleDetails: RoleDetails | null; permissions: Permission[]; hasPassword: boolean }> {
     const response = await apiService.get<{ 
       success: boolean; 
       data: User;
       roleDetails?: RoleDetails;
       permissions?: Permission[];
+      hasPassword?: boolean;
     }>('/auth/profile');
     
     return {
       user: response.data,
       roleDetails: response.roleDetails || null,
       permissions: response.permissions || [],
+      hasPassword: Boolean(response.hasPassword),
     };
+  }
+
+  async setPassword(payload: { newPassword: string; confirmPassword: string }): Promise<{ success: boolean; message: string }> {
+    return apiService.post('/auth/set-password', payload);
   }
 
   async checkAuth(): Promise<boolean> {
@@ -82,6 +88,18 @@ class AuthService {
   getPermissions(): Permission[] {
     const permData = localStorage.getItem(STORAGE_KEYS.PERMISSIONS);
     return permData ? JSON.parse(permData) : [];
+  }
+
+  saveHasPassword(hasPassword: boolean): void {
+    localStorage.setItem(STORAGE_KEYS.HAS_PASSWORD, JSON.stringify(hasPassword));
+  }
+
+  getHasPassword(): boolean | null {
+    const hasPassword = localStorage.getItem(STORAGE_KEYS.HAS_PASSWORD);
+    if (hasPassword === null) {
+      return null;
+    }
+    return hasPassword === 'true';
   }
 
   isAuthenticated(): boolean {

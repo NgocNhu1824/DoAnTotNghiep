@@ -52,6 +52,7 @@ export interface AuthState {
   isLoading: boolean;
   roleDetails: RoleDetails | null;
   permissions: Permission[];
+  hasPassword: boolean;
 }
 
 export interface LoginResponse {
