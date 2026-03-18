@@ -71,7 +71,7 @@ export class ScheduleService {
           rowIndex,
           field: 'roomCode',
           code: 'NOT_FOUND_IN_CAMPUS',
-          message: `Không tìm thấy phòng "${row.roomcode}" trong cơ sở của bạn`,
+          message: `Room "${row.roomcode}" was not found in your campus`,
         });
       }
 
@@ -84,7 +84,7 @@ export class ScheduleService {
           rowIndex,
           field: 'lecturerEmail',
           code: 'NOT_FOUND_IN_CAMPUS',
-          message: `Không tìm thấy giảng viên "${row.lectureremail}"`,
+          message: `Lecturer "${row.lectureremail}" was not found`,
         });
       }
 
@@ -99,7 +99,7 @@ export class ScheduleService {
             rowIndex,
             field: 'dateStart',
             code: 'PARSE_ERROR',
-            message: 'Ngày tháng không hợp lệ',
+            message: 'Invalid date format',
           });
         }
       }
@@ -116,7 +116,7 @@ export class ScheduleService {
                 rowIndex,
                 field: 'dayOfWeek',
                 code: 'DAY_MISMATCH',
-                message: `Ngày trong tuần ${csvDayOfWeek} không khớp với ngày ${row.datestart} (phải là ${dayOfWeek})`,
+                message: `Weekday ${csvDayOfWeek} does not match date ${row.datestart} (must be ${dayOfWeek})`,
               });
             }
           }
@@ -205,7 +205,7 @@ export class ScheduleService {
     if (mode === 'strict' && errors.length > 0) {
       const failedCount = new Set(errors.map(e => e.rowIndex)).size;
       throw new BadRequestException({
-        message: 'Dữ liệu import có lỗi',
+        message: 'Import data contains errors',
         errors,
         total: rawRows.length,
         inserted: 0,
@@ -227,7 +227,7 @@ export class ScheduleService {
     if (validRows.length === 0) {
       const failedCount = new Set(errors.map(e => e.rowIndex)).size;
       throw new BadRequestException({
-        message: 'Không có dòng hợp lệ để nhập',
+        message: 'No valid rows to import',
         errors,
         total: rawRows.length,
         inserted: 0,
@@ -262,13 +262,13 @@ export class ScheduleService {
     } catch (error) {
       if (error.code === 11000) {
         throw new ConflictException({
-          message: 'Một số lịch học bị trùng',
+          message: 'Some schedules are duplicated',
           detail: 'Duplicate key error. Check for existing schedules.',
         });
       }
 
       throw new InternalServerErrorException({
-        message: 'Import thất bại',
+        message: 'Import failed',
         error: error.message,
       });
     }
@@ -280,7 +280,7 @@ export class ScheduleService {
     user: any,
   ): Promise<Schedule> {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Mã lịch học không hợp lệ');
+      throw new BadRequestException('Invalid schedule ID');
     }
 
     const schedule = await this.scheduleModel.findOne({
@@ -289,7 +289,7 @@ export class ScheduleService {
     });
 
     if (!schedule) {
-      throw new NotFoundException('Không tìm thấy lịch học trong cơ sở của bạn');
+      throw new NotFoundException('Schedule not found in your campus');
     }
 
     const isCriticalChange =
@@ -338,7 +338,7 @@ export class ScheduleService {
 
       if (conflicts.length > 0) {
         throw new ConflictException({
-          message: 'Lịch học bị trùng',
+          message: 'Schedule conflict detected',
           conflicts,
         });
       }
@@ -395,7 +395,7 @@ export class ScheduleService {
 
   async findOne(id: string, user: any): Promise<Schedule> {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Mã lịch học không hợp lệ');
+      throw new BadRequestException('Invalid schedule ID');
     }
 
     const schedule = await this.scheduleModel
@@ -410,7 +410,7 @@ export class ScheduleService {
       .exec();
 
     if (!schedule) {
-      throw new NotFoundException('Không tìm thấy lịch học');
+      throw new NotFoundException('Schedule not found');
     }
 
     return schedule;
@@ -418,7 +418,7 @@ export class ScheduleService {
 
   async remove(id: string, user: any): Promise<void> {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Mã lịch học không hợp lệ');
+      throw new BadRequestException('Invalid schedule ID');
     }
 
     const schedule = await this.scheduleModel.findOne({
@@ -427,7 +427,7 @@ export class ScheduleService {
     });
 
     if (!schedule) {
-      throw new NotFoundException('Không tìm thấy lịch học');
+      throw new NotFoundException('Schedule not found');
     }
 
     schedule.status = 'cancelled';

@@ -776,7 +776,7 @@ export class TransfersService {
     return transfer;
   }
 
-  // Xem danh sách transfer
+  // View transfer list
   async list(query: any, currentUser: any): Promise<any[]> {
     const filter: any = {};
     if (!['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(currentUser.roleCode)) {
@@ -926,7 +926,7 @@ export class TransfersService {
     }));
   }
 
-  // Xem chi tiết transfer
+  // View transfer details
   async detail(id: string, currentUser: any): Promise<any> {
     const transfer = await this.transferModel.findById(id).lean().exec();
     if (!transfer) throw new NotFoundException('Transfer not found');
@@ -1008,7 +1008,7 @@ export class TransfersService {
   async approve(id: string, currentUser: any): Promise<Transfer> {
     const transfer = await this.transferModel.findById(id);
     if (!transfer) throw new NotFoundException('Transfer not found');
-    // Chỉ cho phép toUserId (người nhận) hoặc SUPER_ADMIN approve
+    // Allow only toUserId (recipient) or SUPER_ADMIN to approve
     const isRecipient = transfer.toUserId?.toString() === (currentUser._id?.toString?.() || currentUser._id);
     if (!isRecipient && currentUser.roleCode !== 'SUPER_ADMIN') {
       throw new ForbiddenException('Only recipient or super admin can approve transfer request');
@@ -1041,7 +1041,7 @@ export class TransfersService {
     if (!rejectReason) {
       throw new BadRequestException('Reject reason is required');
     }
-    // Chỉ cho phép toUserId (người nhận) hoặc SUPER_ADMIN reject
+    // Allow only toUserId (recipient) or SUPER_ADMIN to reject
     const isRecipient = transfer.toUserId?.toString() === (currentUser._id?.toString?.() || currentUser._id);
     if (!isRecipient && currentUser.roleCode !== 'SUPER_ADMIN') {
       throw new ForbiddenException('Only recipient or super admin can reject transfer request');

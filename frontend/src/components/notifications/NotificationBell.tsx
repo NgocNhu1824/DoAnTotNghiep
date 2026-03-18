@@ -24,7 +24,7 @@ const formatNotificationTime = (value: string): string => {
     return '';
   }
 
-  return date.toLocaleString('vi-VN', {
+  return date.toLocaleString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
     day: '2-digit',
@@ -62,7 +62,7 @@ const normalizeIncomingNotification = (payload: any, userId: string): AppNotific
     senderId: payload?.senderId || null,
     campusId: payload?.campusId || null,
     type: payload?.type || 'info',
-    title: payload?.title || 'Thong bao moi',
+    title: payload?.title || 'New notification',
     message: payload?.message || '',
     data: payload?.data || {},
     priority: payload?.priority || 'medium',

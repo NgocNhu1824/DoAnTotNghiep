@@ -58,7 +58,7 @@ const PublicIncidentReportPage: React.FC = () => {
   useEffect(() => {
     const loadRoomMeta = async () => {
       if (!roomId) {
-        setRoomError('Link report khong hop le.');
+        setRoomError('Invalid report link.');
         setLoadingRoom(false);
         return;
       }
@@ -71,7 +71,7 @@ const PublicIncidentReportPage: React.FC = () => {
         setRoomMeta(data);
       } catch (error: any) {
         setRoomMeta(null);
-        setRoomError(error?.message || 'Khong tim thay phong hoc de report.');
+        setRoomError(error?.message || 'No classroom found for reporting.');
       } finally {
         setLoadingRoom(false);
       }
@@ -116,8 +116,8 @@ const PublicIncidentReportPage: React.FC = () => {
 
       if (prev.length + validFiles.length > MAX_FILES) {
         toast({
-          title: 'Gioi han file',
-          description: `Chi duoc tai toi da ${MAX_FILES} anh.`,
+          title: 'File limit',
+          description: `You can upload up to ${MAX_FILES} images.`,
         });
       }
 
@@ -126,8 +126,8 @@ const PublicIncidentReportPage: React.FC = () => {
 
     if (rejectedCount > 0) {
       toast({
-        title: 'File khong hop le',
-        description: `${rejectedCount} file bi bo qua (chi nhan anh <= 8MB).`,
+        title: 'Invalid file',
+        description: `${rejectedCount} file(s) were ignored (images only, <= 8MB).`,
         variant: 'destructive',
       });
     }
@@ -148,8 +148,8 @@ const PublicIncidentReportPage: React.FC = () => {
 
     if (!canSubmit) {
       toast({
-        title: 'Thieu thong tin',
-        description: 'Vui long nhap tieu de va mo ta hop le truoc khi gui.',
+        title: 'Missing information',
+        description: 'Please enter a valid title and description before submitting.',
         variant: 'destructive',
       });
       return;
@@ -174,13 +174,13 @@ const PublicIncidentReportPage: React.FC = () => {
       setFiles([]);
 
       toast({
-        title: 'Gui thanh cong',
-        description: 'Bao cao su co da duoc tiep nhan.',
+        title: 'Submitted successfully',
+        description: 'Your incident report has been received.',
       });
     } catch (error: any) {
       toast({
-        title: 'Gui that bai',
-        description: error?.message || 'Khong the gui bao cao luc nay.',
+        title: 'Submission failed',
+        description: error?.message || 'Unable to submit the report right now.',
         variant: 'destructive',
       });
     } finally {
@@ -198,7 +198,7 @@ const PublicIncidentReportPage: React.FC = () => {
               Report Incident
             </CardTitle>
             <CardDescription>
-              Gui thong tin su co cua phong hoc de bo phan quan ly xu ly nhanh hon.
+              Submit classroom incident details so the management team can handle them faster.
             </CardDescription>
           </CardHeader>
 
@@ -214,13 +214,13 @@ const PublicIncidentReportPage: React.FC = () => {
               </Alert>
             ) : (
               <div className="rounded-lg border bg-muted/50 p-4">
-                <p className="text-sm text-muted-foreground">Phong tiep nhan bao cao</p>
+                <p className="text-sm text-muted-foreground">Reported classroom</p>
                 <p className="mt-1 text-lg font-semibold">
                   {roomMeta?.roomCode} - {roomMeta?.roomName}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {roomMeta?.building ? `Toa ${roomMeta.building}` : ''}
-                  {roomMeta?.floor !== undefined ? ` - Tang ${roomMeta.floor}` : ''}
+                  {roomMeta?.building ? `Building ${roomMeta.building}` : ''}
+                  {roomMeta?.floor !== undefined ? ` - Floor ${roomMeta.floor}` : ''}
                 </p>
               </div>
             )}
@@ -229,7 +229,7 @@ const PublicIncidentReportPage: React.FC = () => {
               <Alert className="border-green-200 bg-green-50 text-green-800">
                 <CheckCircle2 className="h-4 w-4" />
                 <AlertDescription>
-                  Da tao su co thanh cong. Ma su co: <b>{submitResult.code}</b>
+                  Incident created successfully. Incident code: <b>{submitResult.code}</b>
                 </AlertDescription>
               </Alert>
             )}
@@ -237,7 +237,7 @@ const PublicIncidentReportPage: React.FC = () => {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Loai su co</Label>
+                  <Label>Incident type</Label>
                   <Select
                     value={formData.incidentType}
                     onValueChange={(value) =>
@@ -248,19 +248,19 @@ const PublicIncidentReportPage: React.FC = () => {
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Chon loai su co" />
+                      <SelectValue placeholder="Select incident type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="equipment_damage">Hong thiet bi</SelectItem>
-                      <SelectItem value="cleanliness">Ve sinh</SelectItem>
-                      <SelectItem value="safety">An toan</SelectItem>
-                      <SelectItem value="other">Khac</SelectItem>
+                      <SelectItem value="equipment_damage">Equipment damage</SelectItem>
+                      <SelectItem value="cleanliness">Cleanliness</SelectItem>
+                      <SelectItem value="safety">Safety</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Muc do nghiem trong</Label>
+                  <Label>Severity</Label>
                   <Select
                     value={formData.severity}
                     onValueChange={(value) =>
@@ -271,23 +271,23 @@ const PublicIncidentReportPage: React.FC = () => {
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Chon muc do" />
+                      <SelectValue placeholder="Select severity" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="low">Thap</SelectItem>
-                      <SelectItem value="medium">Trung binh</SelectItem>
-                      <SelectItem value="high">Cao</SelectItem>
-                      <SelectItem value="critical">Khan cap</SelectItem>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="critical">Critical</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="incident-title">Tieu de</Label>
+                <Label htmlFor="incident-title">Title</Label>
                 <Input
                   id="incident-title"
-                  placeholder="Vi du: May chieu phong hoc khong hoat dong"
+                  placeholder="Example: Classroom projector is not working"
                   value={formData.title}
                   onChange={(event) =>
                     setFormData((prev) => ({ ...prev, title: event.target.value }))
@@ -297,10 +297,10 @@ const PublicIncidentReportPage: React.FC = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="incident-description">Mo ta chi tiet</Label>
+                <Label htmlFor="incident-description">Detailed description</Label>
                 <Textarea
                   id="incident-description"
-                  placeholder="Mo ta ngan gon hien trang de bo phan xu ly de danh gia..."
+                  placeholder="Briefly describe the current issue so the team can assess it..."
                   value={formData.description}
                   onChange={(event) =>
                     setFormData((prev) => ({ ...prev, description: event.target.value }))
@@ -312,10 +312,10 @@ const PublicIncidentReportPage: React.FC = () => {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="reporter-name">Ten nguoi bao cao (tuy chon)</Label>
+                  <Label htmlFor="reporter-name">Reporter name (optional)</Label>
                   <Input
                     id="reporter-name"
-                    placeholder="Nguyen Van A"
+                    placeholder="John Doe"
                     value={formData.reporterName}
                     onChange={(event) =>
                       setFormData((prev) => ({ ...prev, reporterName: event.target.value }))
@@ -324,10 +324,10 @@ const PublicIncidentReportPage: React.FC = () => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="reporter-contact">Thong tin lien he (tuy chon)</Label>
+                  <Label htmlFor="reporter-contact">Contact information (optional)</Label>
                   <Input
                     id="reporter-contact"
-                    placeholder="Email hoac so dien thoai"
+                    placeholder="Email or phone number"
                     value={formData.reporterContact}
                     onChange={(event) =>
                       setFormData((prev) => ({ ...prev, reporterContact: event.target.value }))
@@ -338,7 +338,7 @@ const PublicIncidentReportPage: React.FC = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="incident-images">Hinh anh dinh kem (toi da 5 anh, 8MB/anh)</Label>
+                <Label htmlFor="incident-images">Attachments (up to 5 images, 8MB/image)</Label>
                 <Input
                   id="incident-images"
                   type="file"
@@ -374,12 +374,12 @@ const PublicIncidentReportPage: React.FC = () => {
                 {submitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Dang gui...
+                    Submitting...
                   </>
                 ) : (
                   <>
                     <Send className="mr-2 h-4 w-4" />
-                    Gui bao cao su co
+                    Submit incident report
                   </>
                 )}
               </Button>

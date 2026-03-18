@@ -1,16 +1,16 @@
 import { IsEmail, IsNotEmpty, IsOptional, IsString, Matches, IsMongoId } from 'class-validator';
 
 export class CreateUserDto {
-  @IsEmail({}, { message: 'Email không hợp lệ' })
-  @IsNotEmpty({ message: 'Email không được để trống' })
+  @IsEmail({}, { message: 'Invalid email format' })
+  @IsNotEmpty({ message: 'Email must not be empty' })
   email: string;
 
-  @IsString({ message: 'Họ tên phải là chuỗi' })
-  @IsNotEmpty({ message: 'Họ tên không được để trống' })
+  @IsString({ message: 'Full name must be a string' })
+  @IsNotEmpty({ message: 'Full name must not be empty' })
   fullName: string;
 
-  @IsMongoId({ message: 'RoleId không hợp lệ' })
-  @IsNotEmpty({ message: 'RoleId không được để trống' })
+  @IsMongoId({ message: 'Invalid roleId' })
+  @IsNotEmpty({ message: 'RoleId must not be empty' })
   roleId: string;
 
   @IsOptional()
@@ -27,7 +27,7 @@ export class CreateUserDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^[0-9]{10}$/, { message: 'Số điện thoại phải có 10 chữ số' })
+  @Matches(/^[0-9]{10}$/, { message: 'Phone number must contain exactly 10 digits' })
   phone?: string;
 
   @IsOptional()

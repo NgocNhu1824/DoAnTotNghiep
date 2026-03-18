@@ -21,7 +21,7 @@ export class CreateRoleDto {
   @IsOptional()
   scope?: string; // GLOBAL, CAMPUS, or SELF
 
-  @IsMongoId({ message: 'Campus ID không hợp lệ' })
+  @IsMongoId({ message: 'Invalid campus ID' })
   @IsOptional()
   campusId?: string; // Required if scope is CAMPUS
 

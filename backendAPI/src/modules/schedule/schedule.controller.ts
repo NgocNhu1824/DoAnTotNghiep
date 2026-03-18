@@ -44,7 +44,7 @@ export class ScheduleController {
     @CurrentUser() user: any,
   ) {
     if (!file) {
-      throw new BadRequestException('Bạn chưa chọn file nào');
+      throw new BadRequestException('No file selected');
     }
 
     // Validate file type (CSV or Excel)
@@ -53,7 +53,7 @@ export class ScheduleController {
     const isValid = validExtensions.some(ext => fileName.endsWith(ext));
     
     if (!isValid) {
-      throw new BadRequestException('Chỉ chấp nhận file CSV hoặc Excel (.csv, .xlsx, .xls)');
+      throw new BadRequestException('Only CSV or Excel files are accepted (.csv, .xlsx, .xls)');
     }
 
     const result = await this.scheduleService.importSchedules(
@@ -66,8 +66,8 @@ export class ScheduleController {
       success: true,
       message:
         dto.mode === 'dryRun'
-          ? 'Đã kiểm tra xong file'
-          : `Đã nhập ${result.inserted}/${result.total} lịch học`,
+          ? 'File validation completed'
+          : `Imported ${result.inserted}/${result.total} schedules`,
       data: result,
     };
   }
@@ -113,7 +113,7 @@ export class ScheduleController {
 
     return {
       success: true,
-      message: 'Đã cập nhật lịch học',
+      message: 'Schedule updated successfully',
       data: updated,
     };
   }
@@ -128,7 +128,7 @@ export class ScheduleController {
 
     return {
       success: true,
-      message: 'Đã xóa lịch học',
+      message: 'Schedule deleted successfully',
     };
   }
 }

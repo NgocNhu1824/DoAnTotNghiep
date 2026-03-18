@@ -36,12 +36,12 @@ const LoginPage: React.FC = () => {
       } else {
         console.error('Invalid campuses data:', data);
         setCampuses([]);
-        setError('Dữ liệu campus không hợp lệ. Vui lòng kiểm tra backend.');
+        setError('Invalid campus data. Please check the backend.');
       }
     } catch (err: any) {
       console.error('Error fetching campuses:', err);
       setCampuses([]);
-      setError(err?.message || 'Không thể tải danh sách campus. Vui lòng kiểm tra backend đã chạy chưa.');
+      setError(err?.message || 'Unable to load campus list. Please check whether the backend is running.');
     } finally {
       setIsLoading(false);
     }
@@ -49,7 +49,7 @@ const LoginPage: React.FC = () => {
 
   const handleGoogleLogin = () => {
     if (!selectedCampus) {
-      setError('Vui lòng chọn campus trước khi đăng nhập');
+      setError('Please select a campus before signing in');
       return;
     }
     authService.loginWithGoogle(selectedCampus);
@@ -58,7 +58,7 @@ const LoginPage: React.FC = () => {
   const handleForgotPassword = (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetEmail || !resetEmail.includes('@')) {
-      setError('Vui lòng nhập email hợp lệ');
+      setError('Please enter a valid email');
       return;
     }
     setResetSuccess(true);
@@ -88,14 +88,14 @@ const LoginPage: React.FC = () => {
                 <Building2 className="h-12 w-12 text-white" />
               </div>
             </div>
-            <h1 className="text-2xl font-bold mb-2">Đặt lại mật khẩu</h1>
-            <p className="text-gray-600">Nhập email để nhận hướng dẫn đặt lại mật khẩu</p>
+            <h1 className="text-2xl font-bold mb-2">Reset Password</h1>
+            <p className="text-gray-600">Enter your email to receive password reset instructions</p>
           </div>
 
           {resetSuccess && (
             <Alert className="mb-6 bg-green-50 border-green-200">
               <AlertDescription className="text-green-800">
-                Hướng dẫn đặt lại mật khẩu đã được gửi đến email của bạn.
+                Password reset instructions have been sent to your email.
               </AlertDescription>
             </Alert>
           )}
@@ -109,11 +109,11 @@ const LoginPage: React.FC = () => {
 
           <form onSubmit={handleForgotPassword} className="space-y-6">
             <div>
-              <Label htmlFor="reset-email">Địa chỉ Email</Label>
+              <Label htmlFor="reset-email">Email Address</Label>
               <Input
                 id="reset-email"
                 type="email"
-                placeholder="email.cua.ban@fpt.edu.vn"
+                placeholder="your.email@fpt.edu.vn"
                 value={resetEmail}
                 onChange={(e) => setResetEmail(e.target.value)}
                 className="mt-2 border-gray-300"
@@ -121,7 +121,7 @@ const LoginPage: React.FC = () => {
             </div>
 
             <Button type="submit" className="w-full bg-[#ff6b00] hover:bg-[#e56000]">
-              Gửi link đặt lại
+              Send reset link
             </Button>
 
             <Button
@@ -134,7 +134,7 @@ const LoginPage: React.FC = () => {
                 setResetEmail('');
               }}
             >
-              Quay lại đăng nhập
+              Back to sign in
             </Button>
           </form>
         </Card>
@@ -151,8 +151,8 @@ const LoginPage: React.FC = () => {
               <Building2 className="h-12 w-12 text-white" />
             </div>
           </div>
-          <h1 className="text-2xl font-bold mb-2">Quản lý Phòng học IoT</h1>
-          <p className="text-gray-600">Đăng nhập vào tài khoản của bạn</p>
+          <h1 className="text-2xl font-bold mb-2">IoT Classroom Management</h1>
+          <p className="text-gray-600">Sign in to your account</p>
         </div>
 
         {error && (
@@ -164,7 +164,7 @@ const LoginPage: React.FC = () => {
 
         <form className="space-y-6">
           <div>
-            <Label htmlFor="campus">Chọn Campus</Label>
+            <Label htmlFor="campus">Select Campus</Label>
             <div className="relative mt-2">
               <select
                 id="campus"
@@ -172,7 +172,7 @@ const LoginPage: React.FC = () => {
                 onChange={(e) => setSelectedCampus(e.target.value)}
                 className="block w-full px-4 py-3 pr-10 text-base border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6b00] focus:border-transparent bg-white shadow-sm transition-all appearance-none"
               >
-                <option value="">-- Chọn campus --</option>
+                <option value="">-- Select campus --</option>
                 {Array.isArray(campuses) &&
                   campuses.map((campus) => (
                     <option key={campus._id} value={campus._id}>
@@ -197,7 +197,7 @@ const LoginPage: React.FC = () => {
               </div>
             </div>
             <p className="mt-2 text-xs text-gray-500">
-              Vui lòng chọn campus trước khi đăng nhập
+              Please select a campus before signing in
             </p>
           </div>
 
@@ -213,7 +213,7 @@ const LoginPage: React.FC = () => {
               <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
               <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
             </svg>
-            Đăng nhập với Google
+            Sign in with Google
           </Button>
 
           <div className="relative my-6">
@@ -221,13 +221,13 @@ const LoginPage: React.FC = () => {
               <div className="w-full border-t border-gray-300"></div>
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-4 bg-white text-gray-500">hoặc liên hệ</span>
+              <span className="px-4 bg-white text-gray-500">or contact</span>
             </div>
           </div>
 
           <div className="text-center space-y-2">
             <p className="text-sm text-gray-600">
-              <span className="font-medium">Phòng Đào tạo</span> để được hỗ trợ tài khoản
+              Contact the <span className="font-medium">Training Department</span> for account support
             </p>
             <div className="flex items-center justify-center gap-2 text-sm text-[#0066cc]">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

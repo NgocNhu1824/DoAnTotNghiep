@@ -24,9 +24,9 @@ import { Device, DeviceStatus, CreateDeviceDto, UpdateDeviceDto } from '../../ty
 import { Room } from '../../types/room.types';
 
 const DEVICE_STATUS_OPTIONS: { value: 'all' | DeviceStatus; label: string }[] = [
-  { value: 'all', label: 'Tất cả' },
-  { value: 'ok', label: 'Hoạt động' },
-  { value: 'broken', label: 'Hư hỏng' },
+  { value: 'all', label: 'All' },
+  { value: 'ok', label: 'Operational' },
+  { value: 'broken', label: 'Broken' },
 ];
 
 const extractRoomId = (roomId: Device['roomId']): string => {
@@ -73,8 +73,8 @@ const DeviceManagementPage: React.FC = () => {
     } catch (error) {
       console.error('Fetch devices error:', error);
       toast({
-        title: 'Lỗi',
-        description: 'Không thể tải danh sách thiết bị',
+        title: 'Error',
+        description: 'Failed to load device list',
         variant: 'destructive',
       });
     } finally {
@@ -114,13 +114,13 @@ const DeviceManagementPage: React.FC = () => {
       return `${roomId.roomCode} - ${roomId.roomName}`;
     }
     const room = rooms.find((r) => r._id === extractRoomId(roomId));
-    return room ? `${room.roomCode} - ${room.roomName}` : 'Chưa gán phòng';
+    return room ? `${room.roomCode} - ${room.roomName}` : 'Unassigned';
   };
 
   const getStatusBadge = (status: DeviceStatus) => {
     const config = status === 'ok'
-      ? { label: 'Hoạt động', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
-      : { label: 'Hư hỏng', className: 'bg-red-50 text-red-700 border-red-100' };
+      ? { label: 'Operational', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
+      : { label: 'Broken', className: 'bg-red-50 text-red-700 border-red-100' };
     return (
       <Badge variant="outline" className={`border ${config.className} px-2 py-1 text-xs font-medium`}>
         {config.label}
@@ -162,8 +162,8 @@ const DeviceManagementPage: React.FC = () => {
   const handleSubmitCreate = async () => {
     if (!formData.roomId) {
       toast({
-        title: 'Thiếu thông tin',
-        description: 'Vui lòng chọn phòng cho thiết bị',
+        title: 'Missing information',
+        description: 'Please select a room for this device',
         variant: 'destructive',
       });
       return;
@@ -172,14 +172,14 @@ const DeviceManagementPage: React.FC = () => {
       const created = await deviceService.create(formData);
       setDevices((prev) => [created, ...prev]);
       toast({
-        title: 'Thành công',
-        description: 'Tạo thiết bị thành công',
+        title: 'Success',
+        description: 'Device created successfully',
       });
       setIsCreateOpen(false);
     } catch (error: any) {
       toast({
-        title: 'Lỗi',
-        description: error?.message || 'Không thể tạo thiết bị',
+        title: 'Error',
+        description: error?.message || 'Failed to create device',
         variant: 'destructive',
       });
     }
@@ -194,15 +194,15 @@ const DeviceManagementPage: React.FC = () => {
       const updated = await deviceService.update(selectedDevice._id, payload);
       setDevices((prev) => prev.map((d) => (d._id === updated._id ? updated : d)));
       toast({
-        title: 'Thành công',
-        description: 'Cập nhật thiết bị thành công',
+        title: 'Success',
+        description: 'Device updated successfully',
       });
       setIsEditOpen(false);
       setSelectedDevice(null);
     } catch (error: any) {
       toast({
-        title: 'Lỗi',
-        description: error?.message || 'Không thể cập nhật thiết bị',
+        title: 'Error',
+        description: error?.message || 'Failed to update device',
         variant: 'destructive',
       });
     }
@@ -220,15 +220,15 @@ const DeviceManagementPage: React.FC = () => {
       await deviceService.remove(selectedDevice._id);
       setDevices((prev) => prev.filter((d) => d._id !== selectedDevice._id));
       toast({
-        title: 'Thành công',
-        description: 'Xóa thiết bị thành công',
+        title: 'Success',
+        description: 'Device deleted successfully',
       });
       setConfirmOpen(false);
       setSelectedDevice(null);
     } catch (error: any) {
       toast({
-        title: 'Lỗi',
-        description: error?.message || 'Không thể xóa thiết bị',
+        title: 'Error',
+        description: error?.message || 'Failed to delete device',
         variant: 'destructive',
       });
     } finally {
@@ -254,31 +254,31 @@ const DeviceManagementPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Quản lý Thiết bị</h1>
-          <p className="text-muted-foreground mt-2">Quản lý thiết bị theo phòng học</p>
+          <h1 className="text-3xl font-bold tracking-tight">Device Management</h1>
+          <p className="text-muted-foreground mt-2">Manage devices by classroom</p>
         </div>
         <Button onClick={openCreate}>
           <Plus className="mr-2 h-4 w-4" />
-          Thêm thiết bị
+          Add Device
         </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Tổng thiết bị</CardDescription>
+            <CardDescription>Total devices</CardDescription>
             <CardTitle className="text-3xl font-bold">{devices.length}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Hoạt động</CardDescription>
+            <CardDescription>Operational</CardDescription>
             <CardTitle className="text-3xl font-bold text-emerald-600">{statusCounts.ok}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Hư hỏng</CardDescription>
+            <CardDescription>Broken</CardDescription>
             <CardTitle className="text-3xl font-bold text-red-600">{statusCounts.broken}</CardTitle>
           </CardHeader>
         </Card>
@@ -286,17 +286,17 @@ const DeviceManagementPage: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Bộ lọc</CardTitle>
-          <CardDescription>Tìm kiếm thiết bị nhanh chóng</CardDescription>
+          <CardTitle>Filters</CardTitle>
+          <CardDescription>Quickly search devices</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="space-y-2">
-              <Label>Tìm kiếm</Label>
+              <Label>Search</Label>
               <div className="relative">
                 <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
                 <Input
-                  placeholder="Mã hoặc tên thiết bị..."
+                  placeholder="Device code or device name..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -304,13 +304,13 @@ const DeviceManagementPage: React.FC = () => {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Phòng</Label>
+              <Label>Room</Label>
               <Select value={roomFilter} onValueChange={setRoomFilter}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Tất cả" />
+                  <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tất cả</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
                   {rooms.map((room) => (
                     <SelectItem key={room._id} value={room._id}>
                       {room.roomCode} - {room.roomName}
@@ -320,10 +320,10 @@ const DeviceManagementPage: React.FC = () => {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Trạng thái</Label>
+              <Label>Status</Label>
               <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as 'all' | DeviceStatus)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Tất cả" />
+                  <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
                   {DEVICE_STATUS_OPTIONS.map((option) => (
@@ -340,27 +340,27 @@ const DeviceManagementPage: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Danh sách thiết bị ({filteredDevices.length})</CardTitle>
-          <CardDescription>Thiết bị được gắn theo từng phòng học</CardDescription>
+          <CardTitle>Device List ({filteredDevices.length})</CardTitle>
+          <CardDescription>Devices assigned by classroom</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Mã thiết bị</TableHead>
-                  <TableHead>Tên thiết bị</TableHead>
-                  <TableHead>Phòng</TableHead>
-                  <TableHead>Số lượng</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead className="text-right">Hành động</TableHead>
+                  <TableHead>Device Code</TableHead>
+                  <TableHead>Device Name</TableHead>
+                  <TableHead>Room</TableHead>
+                  <TableHead>Quantity</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredDevices.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                      Không tìm thấy thiết bị nào
+                      No devices found
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -401,21 +401,21 @@ const DeviceManagementPage: React.FC = () => {
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Thêm thiết bị</DialogTitle>
-            <DialogDescription>Thiết bị sẽ được gắn với một phòng cụ thể.</DialogDescription>
+            <DialogTitle>Add Device</DialogTitle>
+            <DialogDescription>The device will be assigned to a specific room.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="space-y-2">
-              <Label>Mã thiết bị</Label>
+              <Label>Device Code</Label>
               <Input value={formData.deviceCode} onChange={(e) => setFormData({ ...formData, deviceCode: e.target.value })} />
             </div>
             <div className="space-y-2">
-              <Label>Tên thiết bị</Label>
+              <Label>Device Name</Label>
               <Input value={formData.deviceName} onChange={(e) => setFormData({ ...formData, deviceName: e.target.value })} />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Số lượng</Label>
+                <Label>Quantity</Label>
                 <Input
                   type="number"
                   min={1}
@@ -424,7 +424,7 @@ const DeviceManagementPage: React.FC = () => {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Trạng thái</Label>
+                <Label>Status</Label>
                 <Select
                   value={formData.deviceStatus || 'ok'}
                   onValueChange={(value) => setFormData({ ...formData, deviceStatus: value as DeviceStatus })}
@@ -433,17 +433,17 @@ const DeviceManagementPage: React.FC = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ok">Hoạt động</SelectItem>
-                    <SelectItem value="broken">Hư hỏng</SelectItem>
+                    <SelectItem value="ok">Operational</SelectItem>
+                    <SelectItem value="broken">Broken</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Phòng</Label>
+              <Label>Room</Label>
               <Select value={formData.roomId} onValueChange={(value) => setFormData({ ...formData, roomId: value })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Chọn phòng" />
+                  <SelectValue placeholder="Select room" />
                 </SelectTrigger>
                 <SelectContent>
                   {rooms.map((room) => (
@@ -456,8 +456,8 @@ const DeviceManagementPage: React.FC = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Hủy</Button>
-            <Button onClick={handleSubmitCreate}>Tạo thiết bị</Button>
+            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
+            <Button onClick={handleSubmitCreate}>Create Device</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -465,21 +465,21 @@ const DeviceManagementPage: React.FC = () => {
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Chỉnh sửa thiết bị</DialogTitle>
-            <DialogDescription>Cập nhật thông tin thiết bị trong phòng.</DialogDescription>
+            <DialogTitle>Edit Device</DialogTitle>
+            <DialogDescription>Update device information in the room.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="space-y-2">
-              <Label>Mã thiết bị</Label>
+              <Label>Device Code</Label>
               <Input value={formData.deviceCode} onChange={(e) => setFormData({ ...formData, deviceCode: e.target.value })} />
             </div>
             <div className="space-y-2">
-              <Label>Tên thiết bị</Label>
+              <Label>Device Name</Label>
               <Input value={formData.deviceName} onChange={(e) => setFormData({ ...formData, deviceName: e.target.value })} />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Số lượng</Label>
+                <Label>Quantity</Label>
                 <Input
                   type="number"
                   min={1}
@@ -488,7 +488,7 @@ const DeviceManagementPage: React.FC = () => {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Trạng thái</Label>
+                <Label>Status</Label>
                 <Select
                   value={formData.deviceStatus || 'ok'}
                   onValueChange={(value) => setFormData({ ...formData, deviceStatus: value as DeviceStatus })}
@@ -497,17 +497,17 @@ const DeviceManagementPage: React.FC = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ok">Hoạt động</SelectItem>
-                    <SelectItem value="broken">Hư hỏng</SelectItem>
+                    <SelectItem value="ok">Operational</SelectItem>
+                    <SelectItem value="broken">Broken</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Phòng</Label>
+              <Label>Room</Label>
               <Select value={formData.roomId} onValueChange={(value) => setFormData({ ...formData, roomId: value })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Chọn phòng" />
+                  <SelectValue placeholder="Select room" />
                 </SelectTrigger>
                 <SelectContent>
                   {rooms.map((room) => (
@@ -520,8 +520,8 @@ const DeviceManagementPage: React.FC = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditOpen(false)}>Hủy</Button>
-            <Button onClick={handleSubmitEdit}>Cập nhật</Button>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+            <Button onClick={handleSubmitEdit}>Update</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -529,28 +529,28 @@ const DeviceManagementPage: React.FC = () => {
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Chi tiết thiết bị</DialogTitle>
+            <DialogTitle>Device Details</DialogTitle>
           </DialogHeader>
           {selectedDevice && (
             <div className="grid gap-3 text-sm">
               <div>
-                <span className="text-muted-foreground">Mã thiết bị: </span>
+                <span className="text-muted-foreground">Device code: </span>
                 <span className="font-medium">{selectedDevice.deviceCode}</span>
               </div>
               <div>
-                <span className="text-muted-foreground">Tên thiết bị: </span>
+                <span className="text-muted-foreground">Device name: </span>
                 <span className="font-medium">{selectedDevice.deviceName}</span>
               </div>
               <div>
-                <span className="text-muted-foreground">Phòng: </span>
+                <span className="text-muted-foreground">Room: </span>
                 <span className="font-medium">{getRoomLabel(selectedDevice.roomId)}</span>
               </div>
               <div>
-                <span className="text-muted-foreground">Số lượng: </span>
+                <span className="text-muted-foreground">Quantity: </span>
                 <span className="font-medium">{selectedDevice.quantity}</span>
               </div>
               <div>
-                <span className="text-muted-foreground">Trạng thái: </span>
+                <span className="text-muted-foreground">Status: </span>
                 {getStatusBadge(selectedDevice.deviceStatus)}
               </div>
             </div>
@@ -560,9 +560,9 @@ const DeviceManagementPage: React.FC = () => {
 
       <ConfirmDialog
         open={confirmOpen}
-        title="Xóa thiết bị"
-        description={selectedDevice ? `Bạn có chắc muốn xóa thiết bị ${selectedDevice.deviceName}?` : 'Xác nhận xóa thiết bị.'}
-        confirmText={deleteLoading ? 'Đang xóa...' : 'Xóa thiết bị'}
+        title="Delete device"
+        description={selectedDevice ? `Are you sure you want to delete device ${selectedDevice.deviceName}?` : 'Confirm device deletion.'}
+        confirmText={deleteLoading ? 'Deleting...' : 'Delete device'}
         destructive
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}

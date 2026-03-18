@@ -35,7 +35,7 @@ export class UsersController {
     const newUser = await this.usersService.create(createUserDto, user);
     return {
       success: true,
-      message: 'Tạo user thành công',
+      message: 'User created successfully',
       data: newUser,
     };
   }
@@ -94,7 +94,7 @@ export class UsersController {
     const user = await this.usersService.update(id, updateUserDto);
     return {
       success: true,
-      message: 'Cập nhật user thành công',
+      message: 'User updated successfully',
       data: user,
     };
   }
@@ -109,7 +109,7 @@ export class UsersController {
     const user = await this.usersService.activate(id);
     return {
       success: true,
-      message: 'Kích hoạt user thành công',
+      message: 'User activated successfully',
       data: user,
     };
   }
@@ -124,7 +124,7 @@ export class UsersController {
     const user = await this.usersService.ban(id);
     return {
       success: true,
-      message: 'Ban user thành công',
+      message: 'User banned successfully',
       data: user,
     };
   }
@@ -139,7 +139,7 @@ export class UsersController {
     const user = await this.usersService.unban(id);
     return {
       success: true,
-      message: 'Unban user thành công',
+      message: 'User unbanned successfully',
       data: user,
     };
   }
@@ -154,7 +154,7 @@ export class UsersController {
     await this.usersService.remove(id);
     return {
       success: true,
-      message: 'Xóa user thành công',
+      message: 'User deleted successfully',
     };
   }
 }

@@ -37,7 +37,7 @@ export class ConflictDetectorHelper {
         errors.push({
           rowIndex,
           code: 'DUPLICATE_IN_FILE',
-          message: `Trùng lịch với dòng ${seen.get(slotKey)} (cùng phòng, ngày, tiết)`,
+          message: `Duplicate schedule with row ${seen.get(slotKey)} (same room, date, and slot)`,
         });
       } else {
         seen.set(slotKey, rowIndex);
@@ -52,7 +52,7 @@ export class ConflictDetectorHelper {
           rowIndex,
           field: 'slotType',
           code: 'SLOT_TYPE_MISMATCH_IN_FILE',
-          message: `Phòng ngày ${dateStr} đã dùng ${existingSlotType.slotType} (dòng ${existingSlotType.rowIndex}). Không được trộn 2 loại tiết trong cùng ngày`,
+          message: `Room on ${dateStr} already uses ${existingSlotType.slotType} (row ${existingSlotType.rowIndex}). Mixing slot types in the same day is not allowed`,
         });
       } else if (!existingSlotType) {
         roomDateSlotTypes.set(roomDateKey, { slotType: row.slotType, rowIndex });
@@ -99,7 +99,7 @@ export class ConflictDetectorHelper {
             rowIndex,
             field: 'slotType',
             code: 'SLOT_TYPE_MISMATCH',
-            message: `Phòng "${newSch.roomCode}" ngày ${newDateDisplay} đã dùng ${existing.slotType}. Không được trộn 2 loại tiết`,
+            message: `Room "${newSch.roomCode}" on ${newDateDisplay} already uses ${existing.slotType}. Mixing slot types is not allowed`,
           });
           hasSlotTypeMismatch = true;
         }
@@ -109,7 +109,7 @@ export class ConflictDetectorHelper {
             rowIndex,
             field: 'roomCode',
             code: 'ROOM_CONFLICT',
-            message: `Phòng "${newSch.roomCode}" đã có lịch lúc này (${newDateDisplay}, tiết ${newSch.slotNumber})`,
+            message: `Room "${newSch.roomCode}" is already booked at this time (${newDateDisplay}, slot ${newSch.slotNumber})`,
           });
           hasRoomConflict = true;
         }
@@ -119,7 +119,7 @@ export class ConflictDetectorHelper {
             rowIndex,
             field: 'lecturerEmail',
             code: 'LECTURER_CONFLICT',
-            message: `Giảng viên đã có lớp lúc này (${newDateDisplay}, tiết ${newSch.slotNumber})`,
+            message: `Lecturer already has a class at this time (${newDateDisplay}, slot ${newSch.slotNumber})`,
           });
           hasLecturerConflict = true;
         }
@@ -179,7 +179,7 @@ export class ConflictDetectorHelper {
     const jsDay = date.getUTCDay();
     
     if (jsDay === 0) {
-      throw new Error('Không dạy học vào Chủ nhật');
+      throw new Error('Classes are not scheduled on Sunday');
     }
     
     return jsDay + 1;

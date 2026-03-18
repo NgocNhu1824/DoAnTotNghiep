@@ -52,7 +52,7 @@ export class LockerService {
       isActive: item.isActive,
 
       campusId: campus ? campus._id.toString() : null,
-      campusName: campus ? campus.campusName : 'Chưa gán cơ sở',
+      campusName: campus ? campus.campusName : 'Campus not assigned',
 
       lastConnection: item.lastConnection
         ? item.lastConnection.toISOString()

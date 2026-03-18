@@ -50,10 +50,10 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="text-center max-w-md mx-auto p-6">
           <div className="text-6xl mb-4">🚫</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Không thể truy cập Web</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Web Access Unavailable</h2>
           <p className="text-gray-600 mb-4">
-            Vai trò <strong>{roleDetails.roleName}</strong> chỉ có thể sử dụng ứng dụng Mobile.
-            Vui lòng sử dụng app di động để truy cập hệ thống.
+            Role <strong>{roleDetails.roleName}</strong> can only use the mobile application.
+            Please use the mobile app to access the system.
           </p>
           <button
             onClick={() => {
@@ -62,7 +62,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
             }}
             className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
           >
-            Đăng xuất
+            Sign out
           </button>
         </div>
       </div>
@@ -77,13 +77,13 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-100">
           <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Truy cập bị từ chối</h2>
-            <p className="text-gray-600 mb-4">Vai trò của bạn không phù hợp với trang này.</p>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Access denied</h2>
+            <p className="text-gray-600 mb-4">Your role does not match this page.</p>
             <button
               onClick={() => window.history.back()}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
             >
-              Quay lại
+              Go back
             </button>
           </div>
         </div>
@@ -99,13 +99,13 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-100">
           <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Truy cập bị từ chối</h2>
-            <p className="text-gray-600 mb-4">Scope hiện tại không được phép truy cập trang này.</p>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Access denied</h2>
+            <p className="text-gray-600 mb-4">Your current scope is not allowed to access this page.</p>
             <button
               onClick={() => window.history.back()}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
             >
-              Quay lại
+              Go back
             </button>
           </div>
         </div>
@@ -122,13 +122,13 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-100">
           <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Truy cập bị từ chối</h2>
-            <p className="text-gray-600 mb-4">Bạn không có quyền truy cập trang này.</p>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Access denied</h2>
+            <p className="text-gray-600 mb-4">You do not have permission to access this page.</p>
             <button
               onClick={() => window.history.back()}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
             >
-              Quay lại
+              Go back
             </button>
           </div>
         </div>
@@ -144,13 +144,13 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-100">
           <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Truy cập bị từ chối</h2>
-            <p className="text-gray-600 mb-4">Bạn không có đủ quyền để truy cập trang này.</p>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Access denied</h2>
+            <p className="text-gray-600 mb-4">You do not have sufficient permissions to access this page.</p>
             <button
               onClick={() => window.history.back()}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
             >
-              Quay lại
+              Go back
             </button>
           </div>
         </div>
@@ -166,15 +166,15 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-100">
           <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Truy cập bị từ chối</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Access denied</h2>
             <p className="text-gray-600 mb-4">
-              Bạn không có quyền <strong>{action}</strong> trên <strong>{resource}</strong>.
+              You do not have permission <strong>{action}</strong> on <strong>{resource}</strong>.
             </p>
             <button
               onClick={() => window.history.back()}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
             >
-              Quay lại
+              Go back
             </button>
           </div>
         </div>

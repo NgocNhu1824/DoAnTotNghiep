@@ -40,8 +40,8 @@ const ViewRoomModal: React.FC<ViewRoomModalProps> = ({
 
   const getDeviceStatusBadge = (status: string) => {
     const statusConfig = {
-      ok: { text: 'Hoạt động', className: 'bg-emerald-100 text-emerald-800' },
-      broken: { text: 'Hư hỏng', className: 'bg-red-100 text-red-800' },
+      ok: { text: 'Operational', className: 'bg-emerald-100 text-emerald-800' },
+      broken: { text: 'Broken', className: 'bg-red-100 text-red-800' },
     };
     const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.ok;
     return (
@@ -176,11 +176,11 @@ const ViewRoomModal: React.FC<ViewRoomModalProps> = ({
           <div className="grid grid-cols-2 gap-4 text-sm text-gray-500">
             <div>
               <label className="block font-medium">Created At</label>
-              <p>{new Date(room.createdAt).toLocaleString('vi-VN')}</p>
+              <p>{new Date(room.createdAt).toLocaleString('en-US')}</p>
             </div>
             <div>
               <label className="block font-medium">Last Updated</label>
-              <p>{new Date(room.updatedAt).toLocaleString('vi-VN')}</p>
+              <p>{new Date(room.updatedAt).toLocaleString('en-US')}</p>
             </div>
           </div>
         </div>

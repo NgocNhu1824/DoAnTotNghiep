@@ -103,7 +103,7 @@ const CreateScheduleModal: React.FC<Props> = ({
       }
     } catch (error: any) {
       console.error('Error fetching data:', error);
-      toast.error('Không thể tải dữ liệu');
+      toast.error('Unable to load data');
     }
   };
 
@@ -124,13 +124,13 @@ const CreateScheduleModal: React.FC<Props> = ({
   const validate = (): boolean => {
     const errs: { [key: string]: string } = {};
 
-    if (!form.roomId) errs.roomId = 'Vui lòng chọn phòng học';
-    if (!form.lecturerId) errs.lecturerId = 'Vui lòng chọn giảng viên';
-    if (!form.dateStart) errs.dateStart = 'Vui lòng chọn ngày';
-    if (!form.startTime) errs.startTime = 'Vui lòng nhập giờ bắt đầu';
-    if (!form.endTime) errs.endTime = 'Vui lòng nhập giờ kết thúc';
-    if (!form.classCode?.trim()) errs.classCode = 'Vui lòng nhập mã lớp';
-    if (!form.subjectName?.trim()) errs.subjectName = 'Vui lòng nhập tên môn học';
+    if (!form.roomId) errs.roomId = 'Please select a classroom';
+    if (!form.lecturerId) errs.lecturerId = 'Please select a lecturer';
+    if (!form.dateStart) errs.dateStart = 'Please select a date';
+    if (!form.startTime) errs.startTime = 'Please enter start time';
+    if (!form.endTime) errs.endTime = 'Please enter end time';
+    if (!form.classCode?.trim()) errs.classCode = 'Please enter class code';
+    if (!form.subjectName?.trim()) errs.subjectName = 'Please enter subject name';
 
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -146,19 +146,19 @@ const CreateScheduleModal: React.FC<Props> = ({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Tạo Lịch học mới</DialogTitle>
+          <DialogTitle>Create New Schedule</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Room Selection */}
           <div>
-            <Label htmlFor="roomId">Phòng học *</Label>
+            <Label htmlFor="roomId">Classroom *</Label>
             <Select
               value={form.roomId}
               onValueChange={(value) => setForm((prev) => ({ ...prev, roomId: value }))}
             >
               <SelectTrigger id="roomId">
-                <SelectValue placeholder="Chọn phòng học" />
+                <SelectValue placeholder="Select classroom" />
               </SelectTrigger>
               <SelectContent>
                 {rooms.map((room) => (
@@ -173,13 +173,13 @@ const CreateScheduleModal: React.FC<Props> = ({
 
           {/* Lecturer Selection */}
           <div>
-            <Label htmlFor="lecturerId">Giảng viên *</Label>
+            <Label htmlFor="lecturerId">Lecturer *</Label>
             <Select
               value={form.lecturerId}
               onValueChange={(value) => setForm((prev) => ({ ...prev, lecturerId: value }))}
             >
               <SelectTrigger id="lecturerId">
-                <SelectValue placeholder="Chọn giảng viên" />
+                <SelectValue placeholder="Select lecturer" />
               </SelectTrigger>
               <SelectContent>
                 {lecturers.map((lecturer) => (
@@ -194,7 +194,7 @@ const CreateScheduleModal: React.FC<Props> = ({
 
           {/* Date */}
           <div>
-            <Label htmlFor="dateStart">Ngày bắt đầu *</Label>
+            <Label htmlFor="dateStart">Start date *</Label>
             <Input
               id="dateStart"
               type="date"
@@ -214,7 +214,7 @@ const CreateScheduleModal: React.FC<Props> = ({
 
           {/* Slot Type */}
           <div>
-            <Label htmlFor="slotType">Loại tiết *</Label>
+            <Label htmlFor="slotType">Slot type *</Label>
             <Select
               value={form.slotType}
               onValueChange={(value) => {
@@ -229,21 +229,21 @@ const CreateScheduleModal: React.FC<Props> = ({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="OLDSLOT">Tiết cũ</SelectItem>
-                <SelectItem value="NEWSLOT">Tiết mới</SelectItem>
+                <SelectItem value="OLDSLOT">Old slot</SelectItem>
+                <SelectItem value="NEWSLOT">New slot</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Slot Number */}
           <div>
-            <Label htmlFor="slotNumber">Số tiết *</Label>
+            <Label htmlFor="slotNumber">Slot number *</Label>
             <Select
               value={form.timeSlotId || ''}
               onValueChange={handleSlotChange}
             >
               <SelectTrigger id="slotNumber">
-                <SelectValue placeholder="Chọn tiết học" />
+                <SelectValue placeholder="Select time slot" />
               </SelectTrigger>
               <SelectContent>
                 {filteredSlots.map((slot) => (
@@ -255,7 +255,7 @@ const CreateScheduleModal: React.FC<Props> = ({
             </Select>
             {selectedSlot && (
               <p className="text-sm text-gray-500 mt-1">
-                Tiết {selectedSlot.slotNumber}: {selectedSlot.startTime} - {selectedSlot.endTime}
+                Slot {selectedSlot.slotNumber}: {selectedSlot.startTime} - {selectedSlot.endTime}
               </p>
             )}
           </div>
@@ -263,7 +263,7 @@ const CreateScheduleModal: React.FC<Props> = ({
           {/* Time Range */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="startTime">Giờ bắt đầu *</Label>
+              <Label htmlFor="startTime">Start time *</Label>
               <Input
                 id="startTime"
                 type="time"
@@ -273,7 +273,7 @@ const CreateScheduleModal: React.FC<Props> = ({
               {errors.startTime && <p className="text-sm text-red-500 mt-1">{errors.startTime}</p>}
             </div>
             <div>
-              <Label htmlFor="endTime">Giờ kết thúc *</Label>
+              <Label htmlFor="endTime">End time *</Label>
               <Input
                 id="endTime"
                 type="time"
@@ -286,47 +286,47 @@ const CreateScheduleModal: React.FC<Props> = ({
 
           {/* Class Code */}
           <div>
-            <Label htmlFor="classCode">Mã lớp *</Label>
+            <Label htmlFor="classCode">Class code *</Label>
             <Input
               id="classCode"
               value={form.classCode}
               onChange={(e) => setForm((prev) => ({ ...prev, classCode: e.target.value }))}
-              placeholder="VD: SE1801"
+              placeholder="E.g.: SE1801"
             />
             {errors.classCode && <p className="text-sm text-red-500 mt-1">{errors.classCode}</p>}
           </div>
 
           {/* Subject Code */}
           <div>
-            <Label htmlFor="subjectCode">Mã môn học</Label>
+            <Label htmlFor="subjectCode">Subject code</Label>
             <Input
               id="subjectCode"
               value={form.subjectCode}
               onChange={(e) => setForm((prev) => ({ ...prev, subjectCode: e.target.value }))}
-              placeholder="VD: PRN231"
+              placeholder="E.g.: PRN231"
             />
           </div>
 
           {/* Subject Name */}
           <div>
-            <Label htmlFor="subjectName">Tên môn học *</Label>
+            <Label htmlFor="subjectName">Subject name *</Label>
             <Input
               id="subjectName"
               value={form.subjectName}
               onChange={(e) => setForm((prev) => ({ ...prev, subjectName: e.target.value }))}
-              placeholder="VD: Lập trình .NET"
+              placeholder="E.g.: .NET Programming"
             />
             {errors.subjectName && <p className="text-sm text-red-500 mt-1">{errors.subjectName}</p>}
           </div>
 
           {/* Semester */}
           <div>
-            <Label htmlFor="semester">Học kỳ</Label>
+            <Label htmlFor="semester">Semester</Label>
             <Input
               id="semester"
               value={form.semester}
               onChange={(e) => setForm((prev) => ({ ...prev, semester: e.target.value }))}
-              placeholder="VD: Spring2025"
+              placeholder="E.g.: Spring2025"
             />
           </div>
         </div>

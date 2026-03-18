@@ -51,7 +51,7 @@ export const lockerService = {
   create: async (data: LockerPayload): Promise<LockerEntity> => {
     const { lastConnection, ...payload } = data;
 
-    // 🔥 res CHÍNH LÀ locker
+    // Response is the locker object itself
     const locker = await api.post('/lockers', payload);
 
     if (!locker || !locker.id) {

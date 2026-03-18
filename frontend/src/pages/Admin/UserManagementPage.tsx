@@ -50,8 +50,8 @@ const UserManagementPage: React.FC = () => {
     } catch (error: any) {
       console.error('Error fetching users:', error);
       toast({
-        title: "Lỗi",
-        description: error?.message || 'Không thể tải danh sách người dùng',
+        title: "Error",
+        description: error?.message || 'Failed to load user list',
         variant: "destructive"
       });
     } finally {
@@ -114,22 +114,22 @@ const UserManagementPage: React.FC = () => {
 
   // Handle ban user
   const handleBanUser = (id: string, fullName: string) => {
-    setConfirmTitle('Xác nhận ban user');
-    setConfirmDescription(`Bạn có chắc muốn ban user "${fullName}"?`);
+    setConfirmTitle('Confirm user ban');
+    setConfirmDescription(`Are you sure you want to ban user "${fullName}"?`);
     setConfirmDestructive(true);
     setConfirmAction(() => async () => {
       try {
         await userService.ban(id);
         toast({
-          title: "Thành công",
-          description: 'Ban user thành công'
+          title: "Success",
+          description: 'User banned successfully'
         });
         fetchUsers();
       } catch (error: any) {
         console.error('Error banning user:', error);
         toast({
-          title: "Lỗi",
-          description: error?.message || 'Không thể ban user',
+          title: "Error",
+          description: error?.message || 'Failed to ban user',
           variant: "destructive"
         });
       } finally {
@@ -141,22 +141,22 @@ const UserManagementPage: React.FC = () => {
 
   // Handle unban user
   const handleUnbanUser = (id: string, fullName: string) => {
-    setConfirmTitle('Xác nhận unban user');
-    setConfirmDescription(`Bạn có chắc muốn unban user "${fullName}"?`);
+    setConfirmTitle('Confirm user unban');
+    setConfirmDescription(`Are you sure you want to unban user "${fullName}"?`);
     setConfirmDestructive(false);
     setConfirmAction(() => async () => {
       try {
         await userService.unban(id);
         toast({
-          title: "Thành công",
-          description: 'Unban user thành công'
+          title: "Success",
+          description: 'User unbanned successfully'
         });
         fetchUsers();
       } catch (error: any) {
         console.error('Error unbanning user:', error);
         toast({
-          title: "Lỗi",
-          description: error?.message || 'Không thể unban user',
+          title: "Error",
+          description: error?.message || 'Failed to unban user',
           variant: "destructive"
         });
       } finally {
@@ -174,10 +174,10 @@ const UserManagementPage: React.FC = () => {
   const getRoleBadge = (role: string) => {
     const badges: Record<string, { label: string; variant: "default" | "destructive" | "outline" | "secondary" }> = {
       SUPER_ADMIN: { label: 'Super Admin', variant: 'destructive' },
-      TRAINING_OFFICER: { label: 'Đào tạo', variant: 'default' },
-      LECTURER: { label: 'Giảng viên', variant: 'outline' },
-      STUDENT: { label: 'Sinh viên', variant: 'secondary' },
-      SECURITY: { label: 'Bảo vệ', variant: 'outline' },
+      TRAINING_OFFICER: { label: 'Training Officer', variant: 'default' },
+      LECTURER: { label: 'Lecturer', variant: 'outline' },
+      STUDENT: { label: 'Student', variant: 'secondary' },
+      SECURITY: { label: 'Security', variant: 'outline' },
     };
 
     const badge = badges[role] || { label: role, variant: 'outline' as const };
@@ -198,15 +198,15 @@ const UserManagementPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Quản lý Người dùng</h1>
+          <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
           <p className="text-muted-foreground mt-2">
-            Tạo và quản lý tài khoản người dùng trong hệ thống
+            Create and manage user accounts in the system
           </p>
         </div>
         <PermissionGuard permissions={[PERMISSIONS.USERS_CREATE]}>
           <Button onClick={() => setShowCreateModal(true)}>
             <UserPlus className="mr-2 h-4 w-4" />
-            Thêm người dùng
+            Add User
           </Button>
         </PermissionGuard>
       </div>
@@ -214,20 +214,20 @@ const UserManagementPage: React.FC = () => {
       {/* Filters */}
       <Card>
         <CardHeader>
-          <CardTitle>Bộ lọc</CardTitle>
-          <CardDescription>Tìm kiếm và lọc người dùng</CardDescription>
+          <CardTitle>Filters</CardTitle>
+          <CardDescription>Search and filter users</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Search */}
             <div className="space-y-2">
-              <Label htmlFor="search">Tìm kiếm</Label>
+              <Label htmlFor="search">Search</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground " />
                 <Input
                   id="search"
                   type="text"
-                  placeholder="Tên, email, mã NV, mã SV..."
+                  placeholder="Name, email, employee ID, student ID..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-9"
@@ -237,13 +237,13 @@ const UserManagementPage: React.FC = () => {
 
             {/* Role Filter */}
             <div className="space-y-2">
-              <Label htmlFor="role-filter">Vai trò</Label>
+              <Label htmlFor="role-filter">Role</Label>
               <Select value={roleFilter} onValueChange={setRoleFilter}>
                 <SelectTrigger id="role-filter">
-                  <SelectValue placeholder="Tất cả" />
+                  <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tất cả</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
                   {roles.map((role) => (
                     <SelectItem key={role._id || role.id} value={String(role._id || role.id)}>
                       {role.roleName}
@@ -258,10 +258,10 @@ const UserManagementPage: React.FC = () => {
               <Label htmlFor="campus-filter">Campus</Label>
               <Select value={campusFilter} onValueChange={setCampusFilter}>
                 <SelectTrigger id="campus-filter">
-                  <SelectValue placeholder="Tất cả" />
+                  <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tất cả</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
                   {campuses?.map((campus) => (
                     <SelectItem key={campus._id} value={campus._id}>
                       {campus.campusName}
@@ -277,28 +277,28 @@ const UserManagementPage: React.FC = () => {
       {/* Users Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Danh sách người dùng ({filteredUsers.length})</CardTitle>
-          <CardDescription>Quản lý tất cả người dùng trong hệ thống</CardDescription>
+          <CardTitle>User List ({filteredUsers.length})</CardTitle>
+          <CardDescription>Manage all users in the system</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-left">Họ tên</TableHead>
+                  <TableHead className="text-left">Full Name</TableHead>
                   <TableHead>Email</TableHead>
-                  <TableHead>Vai trò</TableHead>
-                  <TableHead>Mã NV/SV</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Employee/Student ID</TableHead>
                   <TableHead>Campus</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead className="text-right">Hành động</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredUsers.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="h-24 text-center">
-                      <p className="text-muted-foreground">Không tìm thấy người dùng nào</p>
+                      <p className="text-muted-foreground">No users found</p>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -326,10 +326,10 @@ const UserManagementPage: React.FC = () => {
                       <TableCell>
                         {user.isActive ? (
                           <Badge variant="secondary" className="bg-green-100 text-green-800">
-                            Hoạt động
+                            Active
                           </Badge>
                         ) : (
-                          <Badge variant="outline">Vô hiệu</Badge>
+                          <Badge variant="outline">Inactive</Badge>
                         )}
                       </TableCell>
                       <TableCell className="text-center">
@@ -340,7 +340,7 @@ const UserManagementPage: React.FC = () => {
                               size="sm"
                               onClick={() => handleEditUser(user)}
                             >
-                              Chỉnh sửa
+                              Edit
                             </Button>
                           </PermissionGuard>
                           <PermissionGuard permissions={[PERMISSIONS.USERS_DELETE]}>
@@ -407,8 +407,8 @@ const UserManagementPage: React.FC = () => {
         open={confirmOpen}
         title={confirmTitle}
         description={confirmDescription}
-        confirmText="Xác nhận"
-        cancelText="Hủy"
+        confirmText="Confirm"
+        cancelText="Cancel"
         destructive={confirmDestructive}
         onCancel={() => {
           setConfirmOpen(false);
@@ -465,8 +465,8 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ roles, onClose, onSuc
     // Validation
     if (!formData.email || !formData.fullName || !formData.roleId) {
       toast({
-        title: "Lỗi",
-        description: 'Vui lòng điền đầy đủ thông tin bắt buộc',
+        title: "Error",
+        description: 'Please fill in all required fields',
         variant: "destructive"
       });
       return;
@@ -485,15 +485,15 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ roles, onClose, onSuc
 
       await userService.create(cleanData);
       toast({
-        title: "Thành công",
-        description: 'Tạo người dùng thành công! Tài khoản đã được kích hoạt.'
+        title: "Success",
+        description: 'User created successfully! The account has been activated.'
       });
       onSuccess();
     } catch (error: any) {
       console.error('Error creating user:', error);
       toast({
-        title: "Lỗi",
-        description: error?.message || 'Không thể tạo người dùng',
+        title: "Error",
+        description: error?.message || 'Failed to create user',
         variant: "destructive"
       });
     } finally {
@@ -505,9 +505,9 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ roles, onClose, onSuc
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Thêm người dùng mới</DialogTitle>
+          <DialogTitle>Add New User</DialogTitle>
           <DialogDescription>
-            Tài khoản sẽ ở trạng thái hoạt động sau khi tạo
+            The account will be active after creation
           </DialogDescription>
         </DialogHeader>
 
@@ -530,7 +530,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ roles, onClose, onSuc
           {/* Full Name */}
           <div className="space-y-2">
             <Label htmlFor="fullName">
-              Họ và tên <span className="text-destructive">*</span>
+              Full Name <span className="text-destructive">*</span>
             </Label>
             <Input
               id="fullName"
@@ -538,21 +538,21 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ roles, onClose, onSuc
               required
               value={formData.fullName}
               onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-              placeholder="Nguyễn Văn A"
+              placeholder="John Doe"
             />
           </div>
 
           {/* Role */}
           <div className="space-y-2">
             <Label htmlFor="role">
-              Vai trò <span className="text-destructive">*</span>
+              Role <span className="text-destructive">*</span>
             </Label>
             <Select
               value={formData.roleId}
               onValueChange={(value) => setFormData({ ...formData, roleId: value })}
             >
               <SelectTrigger id="role">
-                <SelectValue placeholder="Chọn vai trò" />
+                <SelectValue placeholder="Select role" />
               </SelectTrigger>
               <SelectContent>
                 {roles.map((role) => (
@@ -572,7 +572,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ roles, onClose, onSuc
               onValueChange={(value) => setFormData({ ...formData, campusId: value })}
             >
               <SelectTrigger id="campus">
-                <SelectValue placeholder="Chọn campus" />
+                <SelectValue placeholder="Select campus" />
               </SelectTrigger>
               <SelectContent>
                 {campuses?.map((campus) => (
@@ -587,7 +587,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ roles, onClose, onSuc
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Employee ID */}
             <div className="space-y-2">
-              <Label htmlFor="employeeId">Mã nhân viên</Label>
+              <Label htmlFor="employeeId">Employee ID</Label>
               <Input
                 id="employeeId"
                 type="text"
@@ -599,7 +599,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ roles, onClose, onSuc
 
             {/* Student ID */}
             <div className="space-y-2">
-              <Label htmlFor="studentId">Mã sinh viên</Label>
+              <Label htmlFor="studentId">Student ID</Label>
               <Input
                 id="studentId"
                 type="text"
@@ -612,19 +612,19 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ roles, onClose, onSuc
 
           {/* Department */}
           <div className="space-y-2">
-            <Label htmlFor="department">Khoa/Phòng ban</Label>
+            <Label htmlFor="department">Department</Label>
             <Input
               id="department"
               type="text"
               value={formData.department}
               onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-              placeholder="Khoa Công nghệ Phần mềm"
+              placeholder="Software Engineering Department"
             />
           </div>
 
           {/* Phone */}
           <div className="space-y-2">
-            <Label htmlFor="phone">Số điện thoại</Label>
+            <Label htmlFor="phone">Phone Number</Label>
             <Input
               id="phone"
               type="tel"
@@ -638,11 +638,11 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ roles, onClose, onSuc
           {/* Actions */}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
-              Hủy
+              Cancel
             </Button>
             <Button type="submit" disabled={loading}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Tạo người dùng
+              Create User
             </Button>
           </DialogFooter>
         </form>
@@ -691,8 +691,8 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onS
 
     if (!formData.email || !formData.fullName || !formData.roleId) {
       toast({
-        title: "Lỗi",
-        description: 'Vui lòng điền đầy đủ thông tin bắt buộc',
+        title: "Error",
+        description: 'Please fill in all required fields',
         variant: "destructive"
       });
       return;
@@ -710,15 +710,15 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onS
 
       await userService.update(user._id, cleanData);
       toast({
-        title: "Thành công",
-        description: 'Cập nhật người dùng thành công'
+        title: "Success",
+        description: 'User updated successfully'
       });
       onSuccess();
     } catch (error: any) {
       console.error('Error updating user:', error);
       toast({
-        title: "Lỗi",
-        description: error?.message || 'Không thể cập nhật người dùng',
+        title: "Error",
+        description: error?.message || 'Failed to update user',
         variant: "destructive"
       });
     } finally {
@@ -730,9 +730,9 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onS
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Chỉnh sửa người dùng</DialogTitle>
+          <DialogTitle>Edit User</DialogTitle>
           <DialogDescription>
-            Cập nhật thông tin tài khoản người dùng
+            Update user account information
           </DialogDescription>
         </DialogHeader>
 
@@ -753,7 +753,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onS
 
           <div className="space-y-2">
             <Label htmlFor="edit-fullName">
-              Họ và tên <span className="text-destructive">*</span>
+              Full Name <span className="text-destructive">*</span>
             </Label>
             <Input
               id="edit-fullName"
@@ -761,20 +761,20 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onS
               required
               value={formData.fullName || ''}
               onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-              placeholder="Nguyễn Văn A"
+              placeholder="John Doe"
             />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="edit-role">
-              Vai trò <span className="text-destructive">*</span>
+              Role <span className="text-destructive">*</span>
             </Label>
             <Select
               value={formData.roleId || ''}
               onValueChange={(value) => setFormData({ ...formData, roleId: value })}
             >
               <SelectTrigger id="edit-role">
-                <SelectValue placeholder="Chọn vai trò" />
+                <SelectValue placeholder="Select role" />
               </SelectTrigger>
               <SelectContent>
                 {roles.map((role) => (
@@ -793,7 +793,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onS
               onValueChange={(value) => setFormData({ ...formData, campusId: value })}
             >
               <SelectTrigger id="edit-campus">
-                <SelectValue placeholder="Chọn campus" />
+                <SelectValue placeholder="Select campus" />
               </SelectTrigger>
               <SelectContent>
                 {campuses?.map((campus) => (
@@ -807,7 +807,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onS
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-employeeId">Mã nhân viên</Label>
+              <Label htmlFor="edit-employeeId">Employee ID</Label>
               <Input
                 id="edit-employeeId"
                 type="text"
@@ -818,7 +818,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onS
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-studentId">Mã sinh viên</Label>
+              <Label htmlFor="edit-studentId">Student ID</Label>
               <Input
                 id="edit-studentId"
                 type="text"
@@ -830,18 +830,18 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onS
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-department">Khoa/Phòng ban</Label>
+            <Label htmlFor="edit-department">Department</Label>
             <Input
               id="edit-department"
               type="text"
               value={formData.department || ''}
               onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-              placeholder="Khoa Công nghệ Phần mềm"
+              placeholder="Software Engineering Department"
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-phone">Số điện thoại</Label>
+            <Label htmlFor="edit-phone">Phone Number</Label>
             <Input
               id="edit-phone"
               type="tel"
@@ -854,11 +854,11 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onS
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
-              Hủy
+              Cancel
             </Button>
             <Button type="submit" disabled={loading}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Lưu thay đổi
+              Save changes
             </Button>
           </DialogFooter>
         </form>

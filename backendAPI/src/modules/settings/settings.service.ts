@@ -85,7 +85,7 @@ export class SettingsService {
     if (normalizedCampusInput !== undefined) {
       if (!isSuperAdmin) {
         if (!userCampusId || normalizedCampusInput !== userCampusId) {
-          throw new ForbiddenException('Bạn chỉ có thể xem setting của campus hiện tại');
+          throw new ForbiddenException('You can only view settings of your current campus');
         }
       }
 
@@ -242,7 +242,7 @@ export class SettingsService {
       }
 
       if (requestedCampus !== undefined && requestedCampus !== userCampusId) {
-        throw new ForbiddenException('Bạn chỉ có thể đọc setting hiệu lực của campus hiện tại');
+        throw new ForbiddenException('You can only read effective settings of your current campus');
       }
 
       targetCampusId = userCampusId;
@@ -465,7 +465,7 @@ export class SettingsService {
     }
 
     if (inputCampusId !== undefined && inputCampusId !== userCampusId) {
-      throw new ForbiddenException('Bạn chỉ có thể tạo setting cho campus hiện tại');
+      throw new ForbiddenException('You can only create settings for your current campus');
     }
 
     await this.ensureCampusExists(userCampusId);
@@ -492,7 +492,7 @@ export class SettingsService {
     }
 
     if (inputCampusId !== undefined && inputCampusId !== userCampusId) {
-      throw new ForbiddenException('Bạn chỉ có thể cập nhật setting cho campus hiện tại');
+      throw new ForbiddenException('You can only update settings for your current campus');
     }
 
     await this.ensureCampusExists(userCampusId);
@@ -512,7 +512,7 @@ export class SettingsService {
     }
 
     if (settingCampusId && settingCampusId !== userCampusId) {
-      throw new ForbiddenException('Bạn không có quyền xem setting này');
+      throw new ForbiddenException('You do not have permission to view this setting');
     }
   }
 
@@ -529,7 +529,7 @@ export class SettingsService {
     }
 
     if (!settingCampusId || settingCampusId !== userCampusId) {
-      throw new ForbiddenException('Bạn không có quyền cập nhật setting này');
+      throw new ForbiddenException('You do not have permission to update this setting');
     }
   }
 

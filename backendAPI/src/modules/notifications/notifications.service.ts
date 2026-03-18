@@ -267,7 +267,7 @@ export class NotificationsService {
           dedupeKey: `transfer-cancelled:${transferId}:sender:${senderId}`,
         });
       }
-      // Gửi notification cho tất cả admin (approver) trong campus
+      // Send notifications to all campus admins (approvers)
       const approverIds = await this.findBookingApproverIds(campusId);
       const adminRecipients = approverIds.filter(
         (id) => id !== recipientId && id !== senderId

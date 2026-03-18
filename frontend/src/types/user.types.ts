@@ -1,6 +1,6 @@
 /**
- * UserRole là string, lấy từ database roles collection
- * Sử dụng constants từ src/constants/roles.ts
+ * UserRole is a string value sourced from the database roles collection
+ * Use constants from src/constants/roles.ts
  */
 export type UserRole = string;
 

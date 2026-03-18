@@ -75,7 +75,7 @@ const CreateLockerModal: React.FC<Props> = ({
       try {
         console.log('[CreateLockerModal] Fetching ESP32 devices...');
         const devices = await lockerService.getEsp32Devices(); // Updated to match new backend route
-        console.log('[CreateLockerModal] Fetched ESP32 devices:', devices); // Log để kiểm tra dữ liệu
+        console.log('[CreateLockerModal] Fetched ESP32 devices:', devices); // Log fetched data for debugging.
         console.log('[CreateLockerModal] Updating esp32Devices state with:', devices);
         setEsp32Devices(devices);
       } catch (error) {
@@ -99,12 +99,12 @@ const CreateLockerModal: React.FC<Props> = ({
     console.log('[CreateLockerModal] Validation started with form state:', form);
 
     if (!form.lockerNumber || form.lockerNumber < 1) {
-      errs.lockerNumber = 'Số tủ phải lớn hơn 0';
+      errs.lockerNumber = 'Locker number must be greater than 0';
       console.log('[CreateLockerModal] Validation error: lockerNumber is invalid');
     }
 
     if (!form.position.trim()) {
-      errs.position = 'Vị trí không được để trống';
+      errs.position = 'Position cannot be empty';
       console.log('[CreateLockerModal] Validation error: position is empty');
     }
 
@@ -113,22 +113,22 @@ const CreateLockerModal: React.FC<Props> = ({
       form.batteryLevel < 0 ||
       form.batteryLevel > 100
     ) {
-      errs.batteryLevel = 'Pin phải từ 0 đến 100';
+      errs.batteryLevel = 'Battery level must be between 0 and 100';
       console.log('[CreateLockerModal] Validation error: batteryLevel is out of range');
     }
 
     if (!form.campusId) {
-      errs.campusId = 'Vui lòng chọn cơ sở';
+      errs.campusId = 'Please select a campus';
       console.log('[CreateLockerModal] Validation error: campusId is not selected');
     }
 
     if (!form.deviceId || !form.deviceId.trim()) {
-      errs.deviceId = 'Mã thiết bị không được để trống';
+      errs.deviceId = 'Device ID cannot be empty';
       console.log('[CreateLockerModal] Validation error: deviceId is empty');
     }
 
     if (!form.esp32Id) {
-      errs.esp32Id = 'Vui lòng chọn thiết bị ESP32'; // ✅ Correct validation for esp32Id
+      errs.esp32Id = 'Please select an ESP32 device'; // Correct validation for esp32Id
     }
 
     console.log('[CreateLockerModal] Validation errors:', errs);
@@ -154,7 +154,7 @@ const CreateLockerModal: React.FC<Props> = ({
     if (value < 0 || value > 100) {
       setErrors((prev) => ({
         ...prev,
-        batteryLevel: 'Pin phải từ 0 đến 100',
+        batteryLevel: 'Battery level must be between 0 and 100',
       }));
       return;
     }
@@ -207,7 +207,7 @@ const CreateLockerModal: React.FC<Props> = ({
     try {
       const selectedDevice = esp32Devices.find((device) => device.id === form.esp32Id);
       if (!selectedDevice) {
-        toast.error('Vui lòng chọn thiết bị ESP32 hợp lệ.', {
+        toast.error('Please select a valid ESP32 device.', {
           position: 'top-right',
           autoClose: 3000,
           hideProgressBar: true,
@@ -244,7 +244,7 @@ const CreateLockerModal: React.FC<Props> = ({
     } catch (err) {
       console.error('[CreateLockerModal] Error occurred during onCreate execution:', err);
 
-      toast.error('Tạo tủ thất bại.', {
+      toast.error('Failed to create locker.', {
         position: 'top-right',
         autoClose: 3000,
         hideProgressBar: true,
@@ -312,13 +312,13 @@ const CreateLockerModal: React.FC<Props> = ({
     <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
       <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-2xl">
         <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">
-          Tạo Tủ Khóa
+          Create Locker
         </h2>
 
         <form className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Số Tủ
+              Locker Number
             </label>
             <input
               type="text" // Changed from number to text
@@ -330,7 +330,7 @@ const CreateLockerModal: React.FC<Props> = ({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Vị Trí
+              Position
             </label>
             <input
               type="text"
@@ -344,7 +344,7 @@ const CreateLockerModal: React.FC<Props> = ({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Mức Pin
+              Battery Level
             </label>
             <input
               type="number"
@@ -356,7 +356,7 @@ const CreateLockerModal: React.FC<Props> = ({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Trạng Thái
+              Status
             </label>
             <select
               value={form.status}
@@ -365,15 +365,15 @@ const CreateLockerModal: React.FC<Props> = ({
               }
               className="w-full px-4 py-2 border rounded-lg"
             >
-              <option value="available">Có sẵn</option>
-              <option value="occupied">Đang sử dụng</option>
-              <option value="maintenance">Bảo trì</option>
+              <option value="available">Available</option>
+              <option value="occupied">In use</option>
+              <option value="maintenance">Maintenance</option>
             </select>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Cơ Sở
+              Campus
             </label>
             <select
               value={form.campusId || ''}
@@ -382,7 +382,7 @@ const CreateLockerModal: React.FC<Props> = ({
               }
               className="w-full px-4 py-2 border rounded-lg"
             >
-              <option value="">Chọn Cơ Sở</option>
+              <option value="">Select Campus</option>
               {campuses.map((campus) => (
                 <option key={campus._id} value={campus._id}>
                   {campus.campusName}
@@ -393,7 +393,7 @@ const CreateLockerModal: React.FC<Props> = ({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Mã Thiết Bị
+              Device ID
             </label>
             <select
               value={form.esp32Id || ''} // Correctly bind esp32Id to the dropdown
@@ -412,7 +412,7 @@ const CreateLockerModal: React.FC<Props> = ({
               }}
               className="w-full px-4 py-2 border rounded-lg"
             >
-              <option value="">Chọn Mã Thiết Bị</option>
+              <option value="">Select Device ID</option>
               {esp32Devices.map((device) => (
                 <option key={device.id} value={device.id}>
                   {device.deviceId} - {device.status}
@@ -423,7 +423,7 @@ const CreateLockerModal: React.FC<Props> = ({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Trạng Thái Hoạt Động
+              Activation Status
             </label>
             <select
               value={form.isActive ? 'active' : 'inactive'}
@@ -432,27 +432,27 @@ const CreateLockerModal: React.FC<Props> = ({
               }
               className="w-full px-4 py-2 border rounded-lg"
             >
-              <option value="active">Hoạt động</option>
-              <option value="inactive">Không hoạt động</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
             </select>
           </div>
 
           <div className="col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Danh Sách Khóa Điện Tử (Tổng số: {esp32Devices.find((device) => device.id === form.esp32Id)?.solenoids?.length || 0})
+              Solenoid List (Total: {esp32Devices.find((device) => device.id === form.esp32Id)?.solenoids?.length || 0})
             </label>
             <div className="bg-gray-100 p-4 rounded-lg max-h-40 overflow-y-auto">
               {esp32Devices
                 .find((device) => device.id === form.esp32Id)?.solenoids?.map((solenoid, index) => (
                   <li key={index} className="text-gray-700">
-                    Khóa {index + 1}: {' '}
+                    Lock {index + 1}: {' '}
                     <span
                       className={solenoid.connected ? 'text-green-600' : 'text-red-600'}
                     >
-                      {solenoid.connected ? ' Kết nối' : ' Mất kết nối'}
+                      {solenoid.connected ? ' Connected' : ' Disconnected'}
                     </span>
                   </li>
-                )) || <p className="text-gray-500">Không có khóa điện tử nào</p>}
+                )) || <p className="text-gray-500">No solenoids available</p>}
             </div>
           </div>
         </form>
@@ -463,14 +463,14 @@ const CreateLockerModal: React.FC<Props> = ({
             variant="secondary"
             className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded shadow-md"
           >
-            Đóng
+            Close
           </Button>
 
           <Button
             onClick={handleSubmit}
             className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded shadow-md"
           >
-            Tạo
+            Create
           </Button>
         </div>
       </div>
