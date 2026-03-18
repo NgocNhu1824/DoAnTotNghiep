@@ -1,5 +1,11 @@
 import apiService from './api.service';
-import { Room, CreateRoomDto, UpdateRoomDto, RoomStatistics } from '../types/room.types';
+import {
+  Room,
+  CreateRoomDto,
+  UpdateRoomDto,
+  RoomStatistics,
+  RoomImportResult,
+} from '../types/room.types';
 
 class RoomService {
   private readonly BASE_PATH = '/rooms';
@@ -52,6 +58,30 @@ class RoomService {
   async getRoomStatistics(campusId?: string): Promise<RoomStatistics> {
     const params = campusId ? { campusId } : {};
     return await apiService.get<RoomStatistics>(`${this.BASE_PATH}/statistics`, { params });
+  }
+
+  async importRooms(file: File, mode: 'dryRun' | 'strict' = 'strict'): Promise<RoomImportResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('mode', mode);
+
+    const res = await apiService.post<{
+      success: boolean;
+      message: string;
+      data: RoomImportResult;
+    }>(`${this.BASE_PATH}/import`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    return res?.data ?? (res as unknown as RoomImportResult);
+  }
+
+  async downloadImportTemplate(): Promise<Blob> {
+    return await apiService.get<Blob>(`${this.BASE_PATH}/import/template`, {
+      responseType: 'blob' as any,
+    });
   }
 }
 

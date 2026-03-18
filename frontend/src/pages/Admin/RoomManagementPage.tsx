@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactPaginate from 'react-paginate';
 import { AxiosError } from 'axios';
-import { Eye, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Eye, Loader2, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react';
 
 import roomService from '../../services/room.service';
 import { campusService } from '../../services/campus.service';
@@ -9,6 +9,7 @@ import { Room, CreateRoomDto, UpdateRoomDto } from '../../types/room.types';
 import CreateRoomModal from '../../components/modals/CreateRoomModal';
 import EditRoomModal from '../../components/modals/EditRoomModal';
 import ViewRoomModal from '../../components/modals/ViewRoomModal';
+import ImportRoomModal from '../../components/modals/ImportRoomModal';
 import { useToast } from '../../hooks/use-toast';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -48,6 +49,7 @@ const RoomManagementPage: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -282,10 +284,16 @@ const RoomManagementPage: React.FC = () => {
             Track, create, and manage rooms in the system
           </p>
         </div>
-        <Button onClick={() => setIsCreateModalOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Room
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setIsImportModalOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            Import
+          </Button>
+          <Button onClick={() => setIsCreateModalOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Room
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -513,6 +521,20 @@ const RoomManagementPage: React.FC = () => {
           }}
           room={selectedRoom}
           onStatusChange={handleStatusChange}
+        />
+      )}
+
+      {isImportModalOpen && (
+        <ImportRoomModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          onImported={async () => {
+            await fetchData();
+            toast({
+              title: 'Success',
+              description: 'Room import completed',
+            });
+          }}
         />
       )}
 
