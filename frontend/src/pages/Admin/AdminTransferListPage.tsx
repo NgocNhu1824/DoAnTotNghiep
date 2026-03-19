@@ -26,6 +26,41 @@ const getStatusBadgeClass = (status: string): string => {
   return 'bg-gray-100 text-gray-800 border-gray-200';
 };
 
+const normalizeDisplayText = (value: unknown): string => {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number') return String(value);
+  return '';
+};
+
+const isLikelyObjectId = (value: string): boolean => /^[a-f\d]{24}$/i.test(value);
+
+const getScheduleRoomCode = (schedule: any): string => {
+  if (!schedule || typeof schedule !== 'object') return '-';
+
+  const nestedRoom = schedule.room && typeof schedule.room === 'object' ? schedule.room : null;
+  const objectRoomId = schedule.roomId && typeof schedule.roomId === 'object' ? schedule.roomId : null;
+
+  const roomCode =
+    normalizeDisplayText(nestedRoom?.roomCode) ||
+    normalizeDisplayText(objectRoomId?.roomCode);
+
+  if (roomCode) return roomCode;
+
+  const rawRoomId = normalizeDisplayText(schedule.roomId);
+  if (rawRoomId && !isLikelyObjectId(rawRoomId)) {
+    return rawRoomId;
+  }
+
+  return '-';
+};
+
+const getTransferRoomCode = (transfer: TransferRecord | null): string => {
+  if (!transfer) return '-';
+  return getScheduleRoomCode(transfer.sourceSchedule) !== '-'
+    ? getScheduleRoomCode(transfer.sourceSchedule)
+    : getScheduleRoomCode(transfer.targetSchedule);
+};
+
 const AdminTransferListPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [transfers, setTransfers] = useState<TransferRecord[]>([]);
@@ -393,7 +428,7 @@ const AdminTransferListPage: React.FC = () => {
                <div className="flex justify-between"><span className="font-medium text-gray-600">Subject Name:</span> <span>{selected.sourceSchedule?.subjectName || '-'}</span></div>
                <div className="flex justify-between"><span className="font-medium text-gray-600">Date:</span> <span>{selected.sourceSchedule?.dateStart ? new Date(selected.sourceSchedule.dateStart).toLocaleDateString() : '-'}</span></div>
                <div className="flex justify-between"><span className="font-medium text-gray-600">Time:</span> <span>{selected.sourceSchedule ? `${selected.sourceSchedule.startTime} - ${selected.sourceSchedule.endTime}` : '-'}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Room:</span> <span>{selected.sourceSchedule?.room?.roomName || selected.sourceSchedule?.room?.roomCode || '-'}</span></div>
+               <div className="flex justify-between"><span className="font-medium text-gray-600">Room:</span> <span>{getTransferRoomCode(selected)}</span></div>
                <div className="flex justify-between"><span className="font-medium text-gray-600">Locker:</span> <span>{getTransferLockerDisplay(selected) || '-'}</span></div>
                <div className="flex justify-between"><span className="font-medium text-gray-600">From Lecturer:</span> <span>{selected.fromUser?.fullName || selected.sourceSchedule?.lecturer?.fullName || getUserDisplay(selected.fromUserId)}</span></div>
                <div className="font-semibold text-blue-900 mt-4 mb-1">Target Handover</div>
