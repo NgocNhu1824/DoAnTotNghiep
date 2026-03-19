@@ -12,6 +12,7 @@ import { Campus, CampusSchema } from '@/database/schemas/campus.schema';
 import { Role, RoleSchema } from '@/database/schemas/role.schema';
 import { Permission, PermissionSchema } from '@/database/schemas/permission.schema';
 import { RolePermission, RolePermissionSchema } from '@/database/schemas/role-permission.schema';
+import { FaceTemplate, FaceTemplateSchema } from '@/database/schemas/face-template.schema';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { RolePermission, RolePermissionSchema } from '@/database/schemas/role-pe
       { name: Role.name, schema: RoleSchema },
       { name: Permission.name, schema: PermissionSchema },
       { name: RolePermission.name, schema: RolePermissionSchema },
+      { name: FaceTemplate.name, schema: FaceTemplateSchema },
     ]),
   ],
   controllers: [AuthController],

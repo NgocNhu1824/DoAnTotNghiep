@@ -17,6 +17,11 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { User } from '@/database/schemas/user.schema';
 import { SetPasswordDto } from './dto/set-password.dto';
+import { RegisterFaceIdDto } from './dto/register-face-id.dto';
+import { VerifyFaceIdDto } from './dto/verify-face-id.dto';
+import { StartFaceScanSessionDto } from './dto/start-face-scan-session.dto';
+import { SubmitFaceScanFrameDto } from './dto/submit-face-scan-frame.dto';
+import { CompleteFaceScanSessionDto } from './dto/complete-face-scan-session.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -141,6 +146,75 @@ export class AuthController {
     @Body() dto: SetPasswordDto,
   ) {
     return this.authService.setPassword(user._id.toString(), dto);
+  }
+
+  /**
+   * POST /api/auth/register-face-id
+   * Register or update Face ID template for the current user.
+   */
+  @Post('register-face-id')
+  @UseGuards(JwtAuthGuard)
+  async registerFaceId(
+    @CurrentUser() user: User,
+    @Body() dto: RegisterFaceIdDto,
+  ) {
+    return this.authService.registerFaceId(user._id.toString(), dto.faceImageBase64);
+  }
+
+  /**
+   * POST /api/auth/verify-face-id
+   * Verify face against the current user's registered embedding template.
+   */
+  @Post('verify-face-id')
+  @UseGuards(JwtAuthGuard)
+  async verifyFaceId(
+    @CurrentUser() user: User,
+    @Body() dto: VerifyFaceIdDto,
+  ) {
+    return this.authService.verifyFaceId(user._id.toString(), dto.faceImageBase64);
+  }
+
+  /**
+   * POST /api/auth/face-scan/register/session-start
+   * Start a registration-only face scan session (V1.1).
+   */
+  @Post('face-scan/register/session-start')
+  @UseGuards(JwtAuthGuard)
+  async startFaceScanSession(
+    @CurrentUser() user: User,
+    @Body() _dto: StartFaceScanSessionDto,
+  ) {
+    return this.authService.startFaceScanSession(user._id.toString());
+  }
+
+  /**
+   * POST /api/auth/face-scan/register/frame
+   * Submit one frame during active registration scan.
+   */
+  @Post('face-scan/register/frame')
+  @UseGuards(JwtAuthGuard)
+  async submitFaceScanFrame(
+    @CurrentUser() user: User,
+    @Body() dto: SubmitFaceScanFrameDto,
+  ) {
+    return this.authService.submitFaceScanFrame(
+      user._id.toString(),
+      dto.sessionId,
+      dto.frameImageBase64,
+    );
+  }
+
+  /**
+   * POST /api/auth/face-scan/register/complete
+   * Complete registration scan session and store template.
+   */
+  @Post('face-scan/register/complete')
+  @UseGuards(JwtAuthGuard)
+  async completeFaceScanSession(
+    @CurrentUser() user: User,
+    @Body() dto: CompleteFaceScanSessionDto,
+  ) {
+    return this.authService.completeFaceScanSession(user._id.toString(), dto.sessionId);
   }
 
   /**
