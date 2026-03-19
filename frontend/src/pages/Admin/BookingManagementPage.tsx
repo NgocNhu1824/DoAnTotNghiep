@@ -86,7 +86,7 @@ const getTimeSlotMeta = (startTime: string, endTime: string): { type: string; sl
   return { type: 'custom', slot: '--' };
 };
 
-const LEGACY_AUTO_CANCEL_REASON = 'lecturer đã hủy booking';
+const LEGACY_AUTO_CANCEL_REASON = 'lecturer cancelled booking';
 const DETAIL_TEXT_LIMIT = 500;
 
 const getLimitedDetailText = (value: string, fallback = 'No details provided'): string => {
@@ -393,7 +393,7 @@ const BookingManagementPage: React.FC = () => {
   };
 
   const handleDelete = async (bookingId: string) => {
-    if (!window.confirm('Bạn có chắc chắn muốn xóa booking này?')) {
+    if (!window.confirm('Are you sure you want to delete this booking?')) {
       return;
     }
 

@@ -2,7 +2,7 @@ export const getErrorMessage = (error: any): string => {
   if (typeof error === 'string') return error;
   if (error?.message) return error.message;
   if (error?.error) return error.error;
-  return 'Đã có lỗi xảy ra';
+  return 'An error occurred';
 };
 
 export const isValidEmail = (email: string): boolean => {

@@ -28,7 +28,7 @@ const RoleManagementPage: React.FC = () => {
       const data = await roleService.getAllRoles();
       setRoles(data);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Không thể tải danh sách roles');
+      setError(err.response?.data?.message || 'Unable to load role list');
     } finally {
       setLoading(false);
     }
@@ -45,14 +45,14 @@ const RoleManagementPage: React.FC = () => {
   };
 
   const handleDeleteRole = (id: string) => {
-    setConfirmTitle('Xác nhận xóa role');
-    setConfirmDescription('Bạn có chắc chắn muốn xóa role này? Hành động này không thể hoàn tác.');
+    setConfirmTitle('Confirm role deletion');
+    setConfirmDescription('Are you sure you want to delete this role? This action cannot be undone.');
     setConfirmAction(() => async () => {
       try {
         await roleService.deleteRole(id);
         setRoles(roles.filter((r) => (r.id || r._id) !== id));
       } catch (err: any) {
-        alert(err.response?.data?.message || 'Không thể xóa role');
+        alert(err.response?.data?.message || 'Unable to delete role');
       } finally {
         setConfirmOpen(false);
       }
@@ -89,9 +89,9 @@ const RoleManagementPage: React.FC = () => {
       {/* Header */}
       <div className="mb-6 flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Quản lý Roles</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Role Management</h1>
           <p className="text-gray-600 mt-1">
-            Tạo và quản lý roles với permissions cho hệ thống
+            Create and manage roles with system permissions
           </p>
         </div>
         <PermissionGuard permissions={[PERMISSIONS.ROLES_CREATE]}>
@@ -102,7 +102,7 @@ const RoleManagementPage: React.FC = () => {
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            <span>Tạo Role Mới</span>
+            <span>Create New Role</span>
           </button>
         </PermissionGuard>
       </div>
@@ -132,7 +132,7 @@ const RoleManagementPage: React.FC = () => {
                       {role.isActive ? 'Active' : 'Inactive'}
                     </span>
                     <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
-                      {role.permissionCount || role.permissions.length} quyền
+                      {role.permissionCount || role.permissions.length} permissions
                     </span>
                   </div>
                   {role.description && (
@@ -144,7 +144,7 @@ const RoleManagementPage: React.FC = () => {
                   <button
                     onClick={() => toggleRoleExpansion(roleId)}
                     className="p-2 text-gray-600 hover:bg-gray-100 rounded transition"
-                    title="Xem chi tiết permissions"
+                    title="View permission details"
                   >
                     <svg
                       className={`w-5 h-5 transition-transform ${expandedRoles.has(roleId) ? 'rotate-180' : ''}`}
@@ -159,7 +159,7 @@ const RoleManagementPage: React.FC = () => {
                     <button
                       onClick={() => handleEditRole(role)}
                       className="p-2 text-blue-600 hover:bg-blue-50 rounded transition"
-                      title="Chỉnh sửa"
+                      title="Edit"
                     >
                       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -170,7 +170,7 @@ const RoleManagementPage: React.FC = () => {
                     <button
                       onClick={() => handleDeleteRole(roleId)}
                       className="p-2 text-red-600 hover:bg-red-50 rounded transition"
-                      title="Xóa"
+                      title="Delete"
                     >
                       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -186,9 +186,9 @@ const RoleManagementPage: React.FC = () => {
             {expandedRoles.has(roleId) && (
               <div className="px-6 pb-6">
                 <div className="border-t border-gray-200 pt-4">
-                  <h4 className="text-sm font-medium text-gray-900 mb-3">Danh sách quyền:</h4>
+                  <h4 className="text-sm font-medium text-gray-900 mb-3">Permission list:</h4>
                   {role.permissions.length === 0 ? (
-                    <p className="text-sm text-gray-500">Chưa có quyền nào được gán</p>
+                    <p className="text-sm text-gray-500">No permissions assigned yet</p>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                       {role.permissions.map((permission) => (
@@ -226,8 +226,8 @@ const RoleManagementPage: React.FC = () => {
                 d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
               />
             </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">Chưa có role nào</h3>
-            <p className="mt-1 text-sm text-gray-500">Bắt đầu bằng cách tạo role đầu tiên.</p>
+            <h3 className="mt-2 text-sm font-medium text-gray-900">No roles yet</h3>
+            <p className="mt-1 text-sm text-gray-500">Start by creating the first role.</p>
             <div className="mt-6">
               <button
                 onClick={handleCreateRole}
@@ -236,7 +236,7 @@ const RoleManagementPage: React.FC = () => {
                 <svg className="-ml-1 mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                Tạo Role Mới
+                Create New Role
               </button>
             </div>
           </div>
@@ -258,8 +258,8 @@ const RoleManagementPage: React.FC = () => {
         open={confirmOpen}
         title={confirmTitle}
         description={confirmDescription}
-        confirmText="Xác nhận"
-        cancelText="Hủy"
+        confirmText="Confirm"
+        cancelText="Cancel"
         destructive
         onCancel={() => {
           setConfirmOpen(false);

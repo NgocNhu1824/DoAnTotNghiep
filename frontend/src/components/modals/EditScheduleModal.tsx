@@ -106,14 +106,14 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
           ? ''
           : user.roleId.roleName || '';
         
-        return roleCode.toUpperCase() === 'LECTURER' || 
-               roleName.toLowerCase().includes('giảng viên');
+         return roleCode.toUpperCase() === 'LECTURER' ||
+           roleName.toLowerCase().includes('lecturer');
       });
       
       setLecturers(activeLecturers);
     } catch (error: any) {
       console.error('Error fetching data:', error);
-      toast.error('Không thể tải dữ liệu');
+      toast.error('Unable to load data');
     }
   };
 
@@ -133,13 +133,13 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
   const validate = (): boolean => {
     const errs: { [key: string]: string } = {};
 
-    if (!form.roomId) errs.roomId = 'Vui lòng chọn phòng học';
-    if (!form.lecturerId) errs.lecturerId = 'Vui lòng chọn giảng viên';
-    if (!form.dateStart) errs.dateStart = 'Vui lòng chọn ngày';
-    if (!form.startTime) errs.startTime = 'Vui lòng nhập giờ bắt đầu';
-    if (!form.endTime) errs.endTime = 'Vui lòng nhập giờ kết thúc';
-    if (!form.classCode?.trim()) errs.classCode = 'Vui lòng nhập mã lớp';
-    if (!form.subjectName?.trim()) errs.subjectName = 'Vui lòng nhập tên môn học';
+    if (!form.roomId) errs.roomId = 'Please select a classroom';
+    if (!form.lecturerId) errs.lecturerId = 'Please select a lecturer';
+    if (!form.dateStart) errs.dateStart = 'Please select a date';
+    if (!form.startTime) errs.startTime = 'Please enter start time';
+    if (!form.endTime) errs.endTime = 'Please enter end time';
+    if (!form.classCode?.trim()) errs.classCode = 'Please enter class code';
+    if (!form.subjectName?.trim()) errs.subjectName = 'Please enter subject name';
 
     // start < end
     if (form.startTime && form.endTime) {
@@ -148,7 +148,7 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
       const startMinutes = sh * 60 + sm;
       const endMinutes = eh * 60 + em;
       if (startMinutes >= endMinutes) {
-        errs.endTime = 'Giờ kết thúc phải sau giờ bắt đầu';
+        errs.endTime = 'End time must be after start time';
       }
     }
 
@@ -163,7 +163,7 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
       setLoading(true);
       const scheduleId = schedule._id || schedule.id;
       if (!scheduleId) {
-        toast.error('Không tìm thấy ID lịch học');
+        toast.error('Schedule ID not found');
         return;
       }
 
@@ -192,12 +192,12 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
       }
 
       await scheduleService.update(scheduleId, updatePayload);
-      toast.success('Cập nhật lịch học thành công');
+      toast.success('Schedule updated successfully');
       onUpdate();
       onClose();
     } catch (error: any) {
       console.error('Error updating schedule:', error);
-      toast.error(error?.message || 'Cập nhật lịch học thất bại');
+      toast.error(error?.message || 'Failed to update schedule');
     } finally {
       setLoading(false);
     }
@@ -217,19 +217,19 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Chỉnh sửa Lịch học</DialogTitle>
+          <DialogTitle>Edit Schedule</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Room Selection */}
           <div>
-            <Label htmlFor="roomId">Phòng học *</Label>
+            <Label htmlFor="roomId">Classroom *</Label>
             <Select
               value={form.roomId}
               onValueChange={(value) => setForm((prev) => ({ ...prev, roomId: value }))}
             >
               <SelectTrigger id="roomId">
-                <SelectValue placeholder="Chọn phòng học" />
+                <SelectValue placeholder="Select classroom" />
               </SelectTrigger>
               <SelectContent>
                 {rooms.map((room) => (
@@ -244,13 +244,13 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
 
           {/* Lecturer Selection */}
           <div>
-            <Label htmlFor="lecturerId">Giảng viên *</Label>
+            <Label htmlFor="lecturerId">Lecturer *</Label>
             <Select
               value={form.lecturerId}
               onValueChange={(value) => setForm((prev) => ({ ...prev, lecturerId: value }))}
             >
               <SelectTrigger id="lecturerId">
-                <SelectValue placeholder="Chọn giảng viên" />
+                <SelectValue placeholder="Select lecturer" />
               </SelectTrigger>
               <SelectContent>
                 {lecturers.map((lecturer) => (
@@ -265,7 +265,7 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
 
           {/* Date */}
           <div>
-            <Label htmlFor="dateStart">Ngày bắt đầu *</Label>
+            <Label htmlFor="dateStart">Start date *</Label>
             <Input
               id="dateStart"
               type="date"
@@ -285,7 +285,7 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
 
           {/* Slot Type */}
           <div>
-            <Label htmlFor="slotType">Loại tiết *</Label>
+            <Label htmlFor="slotType">Slot type *</Label>
             <Select
               value={form.slotType}
               onValueChange={(value) => {
@@ -300,8 +300,8 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="OLDSLOT">Tiết cũ</SelectItem>
-                <SelectItem value="NEWSLOT">Tiết mới</SelectItem>
+                <SelectItem value="OLDSLOT">Old slot</SelectItem>
+                <SelectItem value="NEWSLOT">New slot</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -309,13 +309,13 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
           {/* Slot Number */}
           {form.slotType && (
             <div>
-              <Label htmlFor="slotNumber">Số tiết *</Label>
+              <Label htmlFor="slotNumber">Slot number *</Label>
               <Select
                 value={timeSlots.find((s) => s.slotNumber === form.slotNumber && s.slotType === form.slotType)?._id || ''}
                 onValueChange={handleSlotChange}
               >
                 <SelectTrigger id="slotNumber">
-                  <SelectValue placeholder="Chọn tiết học" />
+                  <SelectValue placeholder="Select time slot" />
                 </SelectTrigger>
                 <SelectContent>
                   {filteredSlots.map((slot) => (
@@ -327,7 +327,7 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
               </Select>
               {selectedSlot && (
                 <p className="text-sm text-gray-500 mt-1">
-                  Tiết {selectedSlot.slotNumber}: {selectedSlot.startTime} - {selectedSlot.endTime}
+                  Slot {selectedSlot.slotNumber}: {selectedSlot.startTime} - {selectedSlot.endTime}
                 </p>
               )}
             </div>
@@ -336,7 +336,7 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
           {/* Time Range */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="startTime">Giờ bắt đầu *</Label>
+              <Label htmlFor="startTime">Start time *</Label>
               <Input
                 id="startTime"
                 type="time"
@@ -346,7 +346,7 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
               {errors.startTime && <p className="text-sm text-red-500 mt-1">{errors.startTime}</p>}
             </div>
             <div>
-              <Label htmlFor="endTime">Giờ kết thúc *</Label>
+              <Label htmlFor="endTime">End time *</Label>
               <Input
                 id="endTime"
                 type="time"
@@ -359,53 +359,53 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
 
           {/* Class Code */}
           <div>
-            <Label htmlFor="classCode">Mã lớp *</Label>
+            <Label htmlFor="classCode">Class code *</Label>
             <Input
               id="classCode"
               value={form.classCode}
               onChange={(e) => setForm((prev) => ({ ...prev, classCode: e.target.value }))}
-              placeholder="VD: SE1801"
+              placeholder="E.g.: SE1801"
             />
             {errors.classCode && <p className="text-sm text-red-500 mt-1">{errors.classCode}</p>}
           </div>
 
           {/* Subject Code */}
           <div>
-            <Label htmlFor="subjectCode">Mã môn học</Label>
+            <Label htmlFor="subjectCode">Subject code</Label>
             <Input
               id="subjectCode"
               value={form.subjectCode}
               onChange={(e) => setForm((prev) => ({ ...prev, subjectCode: e.target.value }))}
-              placeholder="VD: PRN231"
+              placeholder="E.g.: PRN231"
             />
           </div>
 
           {/* Subject Name */}
           <div>
-            <Label htmlFor="subjectName">Tên môn học *</Label>
+            <Label htmlFor="subjectName">Subject name *</Label>
             <Input
               id="subjectName"
               value={form.subjectName}
               onChange={(e) => setForm((prev) => ({ ...prev, subjectName: e.target.value }))}
-              placeholder="VD: Lập trình .NET"
+              placeholder="E.g.: .NET Programming"
             />
             {errors.subjectName && <p className="text-sm text-red-500 mt-1">{errors.subjectName}</p>}
           </div>
 
           {/* Semester */}
           <div>
-            <Label htmlFor="semester">Học kỳ</Label>
+            <Label htmlFor="semester">Semester</Label>
             <Input
               id="semester"
               value={form.semester}
               onChange={(e) => setForm((prev) => ({ ...prev, semester: e.target.value }))}
-              placeholder="VD: Spring2025"
+              placeholder="E.g.: Spring2025"
             />
           </div>
 
           {/* Status */}
           <div>
-            <Label htmlFor="status">Trạng thái</Label>
+            <Label htmlFor="status">Status</Label>
             <Select
               value={form.status}
               onValueChange={(value) => setForm((prev) => ({ ...prev, status: value as any }))}
@@ -414,10 +414,10 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="scheduled">Đã lên lịch</SelectItem>
-                <SelectItem value="ongoing">Đang diễn ra</SelectItem>
-                <SelectItem value="completed">Đã hoàn thành</SelectItem>
-                <SelectItem value="cancelled">Đã hủy</SelectItem>
+                <SelectItem value="scheduled">Scheduled</SelectItem>
+                <SelectItem value="ongoing">Ongoing</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -425,10 +425,10 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={loading}>
-            Hủy
+            Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={loading}>
-            {loading ? 'Đang cập nhật...' : 'Cập nhật'}
+            {loading ? 'Updating...' : 'Update'}
           </Button>
         </DialogFooter>
       </DialogContent>

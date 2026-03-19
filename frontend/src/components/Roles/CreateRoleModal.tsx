@@ -66,7 +66,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
       setAllPermissions(permissions);
     } catch (err) {
       console.error('Failed to load permissions:', err);
-      setError('Không thể tải danh sách quyền');
+      setError('Failed to load permissions');
     }
   };
 
@@ -150,32 +150,32 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
     setError('');
 
     if (!formData.roleName.trim()) {
-      setError('Tên role không được để trống');
+      setError('Role name cannot be empty');
       return;
     }
 
     if (!formData.roleCode.trim()) {
-      setError('Mã role không được để trống');
+      setError('Role code cannot be empty');
       return;
     }
 
     if (!/^[A-Z_]+$/.test(formData.roleCode.trim().toUpperCase())) {
-      setError('Mã role chỉ được chứa chữ in hoa và dấu gạch dưới (VD: TRAINING_OFFICER)');
+      setError('Role code must contain only uppercase letters and underscores (e.g., TRAINING_OFFICER)');
       return;
     }
 
     if (formData.roleLevel === undefined || formData.roleLevel === null) {
-      setError('Cấp độ role không được để trống');
+      setError('Role level cannot be empty');
       return;
     }
 
     if (formData.scope === 'CAMPUS' && !formData.campusId) {
-      setError('Vui lòng chọn campus cho role có scope CAMPUS');
+      setError('Please select a campus for CAMPUS-scoped roles');
       return;
     }
 
     if (selectedPermissions.length === 0) {
-      setError('Vui lòng chọn ít nhất một quyền');
+      setError('Please select at least one permission');
       return;
     }
 
@@ -193,7 +193,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
       if (editRole) {
         const roleId = editRole.id || editRole._id;
         if (!roleId) {
-          throw new Error('Role ID không hợp lệ');
+          throw new Error('Invalid role ID');
         }
         await roleService.updateRole(roleId, data);
       } else {
@@ -203,7 +203,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
       onSuccess();
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Có lỗi xảy ra');
+      setError(err.response?.data?.message || 'An error occurred');
     } finally {
       setLoading(false);
     }
@@ -217,7 +217,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h2 className="text-xl font-semibold text-gray-900">
-            {editRole ? 'Chỉnh sửa Role' : 'Tạo Role Mới'}
+            {editRole ? 'Edit Role' : 'Create New Role'}
           </h2>
           <button
             onClick={onClose}
@@ -240,12 +240,12 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
 
             {/* Role Information */}
             <div className="mb-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Thông tin Role</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Role Information</h3>
               
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Tên Role <span className="text-red-500">*</span>
+                    Role Name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -253,14 +253,14 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                     value={formData.roleName}
                     onChange={handleInputChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Ví dụ: Manager, Supervisor"
+                    placeholder="Example: Manager, Supervisor"
                     required
                   />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Mã Role <span className="text-red-500">*</span>
+                    Role Code <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -268,7 +268,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                     value={formData.roleCode}
                     onChange={handleInputChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="VD: TRAINING_OFFICER"
+                    placeholder="E.g.: TRAINING_OFFICER"
                     required
                   />
                 </div>
@@ -276,7 +276,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Cấp độ <span className="text-red-500">*</span>
+                      Level <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="number"
@@ -319,7 +319,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       required
                     >
-                      <option value="">Chọn campus</option>
+                      <option value="">Select campus</option>
                       {campuses.map((campus) => (
                         <option key={campus._id} value={campus._id}>
                           {campus.campusName}
@@ -331,7 +331,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Mô tả
+                    Description
                   </label>
                   <textarea
                     name="description"
@@ -339,7 +339,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                     onChange={handleInputChange}
                     rows={3}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Mô tả vai trò và trách nhiệm..."
+                    placeholder="Describe this role and responsibilities..."
                   />
                 </div>
 
@@ -352,7 +352,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                     className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                   />
                   <label htmlFor="isActive" className="ml-2 text-sm text-gray-700">
-                    Kích hoạt role
+                    Activate role
                   </label>
                 </div>
 
@@ -365,7 +365,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                     className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                   />
                   <label htmlFor="canManageRoles" className="ml-2 text-sm text-gray-700">
-                    Cho phép quản lý roles
+                    Allow role management
                   </label>
                 </div>
 
@@ -378,9 +378,9 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                     className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                   />
                   <label htmlFor="canAccessWeb" className="ml-2 text-sm font-medium text-blue-900">
-                    🌐 Cho phép truy cập Web
+                    🌐 Web access enabled
                     <span className="block text-xs text-blue-700 mt-0.5">
-                      Nếu không chọn, role này chỉ sử dụng được trên Mobile App
+                      If not selected, this role can only be used on the mobile app
                     </span>
                   </label>
                 </div>
@@ -391,7 +391,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
             <div>
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium text-gray-900">
-                  Chọn Quyền ({selectedPermissions.length}/{allPermissions.length})
+                  Select Permissions ({selectedPermissions.length}/{allPermissions.length})
                 </h3>
                 <div className="space-x-2">
                   <button
@@ -399,7 +399,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                     onClick={handleSelectAll}
                     className="text-sm text-blue-600 hover:text-blue-800"
                   >
-                    Chọn tất cả
+                    Select all
                   </button>
                   <span className="text-gray-300">|</span>
                   <button
@@ -407,7 +407,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                     onClick={handleDeselectAll}
                     className="text-sm text-gray-600 hover:text-gray-800"
                   >
-                    Bỏ chọn tất cả
+                    Deselect all
                   </button>
                 </div>
               </div>
@@ -416,7 +416,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
               <div className="mb-4">
                 <input
                   type="text"
-                  placeholder="Tìm kiếm quyền..."
+                  placeholder="Search permissions..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -462,14 +462,14 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition"
             >
-              Hủy
+              Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 transition"
             >
-              {loading ? 'Đang xử lý...' : editRole ? 'Cập nhật' : 'Tạo Role'}
+              {loading ? 'Processing...' : editRole ? 'Update' : 'Create role'}
             </button>
           </div>
         </form>

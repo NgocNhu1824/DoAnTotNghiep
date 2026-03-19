@@ -61,14 +61,14 @@ export class RolesService {
 
     if (scope === 'CAMPUS') {
       if (!campusId) {
-        throw new BadRequestException('Campus ID là bắt buộc khi scope = CAMPUS');
+        throw new BadRequestException('Campus ID is required when scope = CAMPUS');
       }
       if (!Types.ObjectId.isValid(campusId)) {
-        throw new BadRequestException('Campus ID không hợp lệ');
+        throw new BadRequestException('Invalid campus ID');
       }
       const campusExists = await this.campusModel.exists({ _id: campusId, isActive: true });
       if (!campusExists) {
-        throw new BadRequestException('Campus không tồn tại hoặc đã bị vô hiệu');
+        throw new BadRequestException('Campus does not exist or has been deactivated');
       }
     }
 
@@ -264,14 +264,14 @@ export class RolesService {
     if (scope === 'CAMPUS') {
       const nextCampusId = campusId || (role as any).campusId?.toString();
       if (!nextCampusId) {
-        throw new BadRequestException('Campus ID là bắt buộc khi scope = CAMPUS');
+        throw new BadRequestException('Campus ID is required when scope = CAMPUS');
       }
       if (!Types.ObjectId.isValid(nextCampusId)) {
-        throw new BadRequestException('Campus ID không hợp lệ');
+        throw new BadRequestException('Invalid campus ID');
       }
       const campusExists = await this.campusModel.exists({ _id: nextCampusId, isActive: true });
       if (!campusExists) {
-        throw new BadRequestException('Campus không tồn tại hoặc đã bị vô hiệu');
+        throw new BadRequestException('Campus does not exist or has been deactivated');
       }
     }
 

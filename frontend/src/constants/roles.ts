@@ -33,7 +33,7 @@ export const ROLE_IDS = {
 } as const;
 
 /**
- * Helper function để check role (deprecated - use permissions instead)
+ * Helper function to check role (deprecated - use permissions instead)
  */
 export const isSuperAdmin = (roleCode: string): boolean => {
   return roleCode === ROLE_CODES.SUPER_ADMIN;
@@ -56,7 +56,7 @@ export const isStudent = (roleCode: string): boolean => {
 };
 
 /**
- * Check if role có admin privileges (deprecated - use permissions)
+ * Check if role has admin privileges (deprecated - use permissions)
  */
 export const hasAdminPrivileges = (roleCode: string): boolean => {
   return isSuperAdmin(roleCode) || isCampusAdmin(roleCode) || isTrainingOfficer(roleCode);

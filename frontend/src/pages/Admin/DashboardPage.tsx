@@ -7,16 +7,16 @@ const DashboardPage: React.FC = () => {
   const { user, roleDetails } = useAuth();
 
   const stats = [
-    { name: 'Tổng số phòng', value: '24', icon: '🏛️', color: 'bg-blue-500' },
-    { name: 'Đang sử dụng', value: '12', icon: '✅', color: 'bg-green-500' },
-    { name: 'Còn trống', value: '10', icon: '🔓', color: 'bg-yellow-500' },
-    { name: 'Bảo trì', value: '2', icon: '🔧', color: 'bg-red-500' },
+    { name: 'Total rooms', value: '24', icon: '🏛️', color: 'bg-blue-500' },
+    { name: 'In use', value: '12', icon: '✅', color: 'bg-green-500' },
+    { name: 'Available', value: '10', icon: '🔓', color: 'bg-yellow-500' },
+    { name: 'Maintenance', value: '2', icon: '🔧', color: 'bg-red-500' },
   ];
 
   const recentActivities = [
-    { id: 1, action: 'Mượn phòng', room: 'A101', user: 'Nguyễn Văn A', time: '10:30 AM', status: 'success' },
-    { id: 2, action: 'Trả phòng', room: 'B203', user: 'Trần Thị B', time: '11:15 AM', status: 'success' },
-    { id: 3, action: 'Quá hạn', room: 'C301', user: 'Lê Văn C', time: '12:00 PM', status: 'warning' },
+    { id: 1, action: 'Room borrowed', room: 'A101', user: 'John Doe', time: '10:30 AM', status: 'success' },
+    { id: 2, action: 'Room returned', room: 'B203', user: 'Jane Smith', time: '11:15 AM', status: 'success' },
+    { id: 3, action: 'Overdue', room: 'C301', user: 'Alex Lee', time: '12:00 PM', status: 'warning' },
   ];
 
   return (
@@ -24,10 +24,10 @@ const DashboardPage: React.FC = () => {
       {/* Welcome Section */}
       <div className="bg-gradient-to-r from-primary-600 to-primary-700 rounded-lg shadow-lg p-6">
         <h1 className="text-3xl font-bold mb-2">
-          Xin chào, {user?.fullName || 'User'}!
+          Hello, {user?.fullName || 'User'}!
         </h1>
         <p className="text-primary-100">
-          Chào mừng bạn đến với Hệ thống quản lý phòng học thông minh
+          Welcome to the Smart Classroom Management System
         </p>
         <div className="mt-4 flex items-center gap-4">
           <div className="flex items-center gap-2">
@@ -35,7 +35,7 @@ const DashboardPage: React.FC = () => {
             <span className="font-semibold">{user?.campusId?.campusName || 'N/A'}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm">Vai trò:</span>
+            <span className="text-sm">Role:</span>
             <span className="font-semibold capitalize">{roleDetails?.roleName || 'N/A'}</span>
           </div>
         </div>
@@ -64,8 +64,8 @@ const DashboardPage: React.FC = () => {
       <Card>
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Hoạt động gần đây</h2>
-            <Button size="sm" variant="secondary">Xem tất cả</Button>
+            <h2 className="text-xl font-semibold text-gray-900">Recent activity</h2>
+            <Button size="sm" variant="secondary">View all</Button>
           </div>
           
           <div className="overflow-x-auto">
@@ -73,19 +73,19 @@ const DashboardPage: React.FC = () => {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Hành động
+                    Action
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Phòng
+                    Room
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Người dùng
+                    User
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Thời gian
+                    Time
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Trạng thái
+                    Status
                   </th>
                 </tr>
               </thead>
@@ -110,8 +110,8 @@ const DashboardPage: React.FC = () => {
                         activity.status === 'warning' ? 'bg-yellow-100 text-yellow-800' :
                         'bg-red-100 text-red-800'
                       }`}>
-                        {activity.status === 'success' ? 'Thành công' :
-                         activity.status === 'warning' ? 'Cảnh báo' : 'Lỗi'}
+                        {activity.status === 'success' ? 'Success' :
+                         activity.status === 'warning' ? 'Warning' : 'Error'}
                       </span>
                     </td>
                   </tr>
@@ -131,8 +131,8 @@ const DashboardPage: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Đặt phòng mới</h3>
-            <p className="text-sm text-gray-600">Tạo yêu cầu mượn phòng học</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">New booking</h3>
+            <p className="text-sm text-gray-600">Create a classroom booking request</p>
           </div>
         </Card>
 
@@ -143,8 +143,8 @@ const DashboardPage: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Xem lịch học</h3>
-            <p className="text-sm text-gray-600">Kiểm tra lịch sử dụng phòng</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">View schedule</h3>
+            <p className="text-sm text-gray-600">Check classroom usage schedule</p>
           </div>
         </Card>
 
@@ -155,8 +155,8 @@ const DashboardPage: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Thống kê</h3>
-            <p className="text-sm text-gray-600">Xem báo cáo và phân tích</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Analytics</h3>
+            <p className="text-sm text-gray-600">View reports and insights</p>
           </div>
         </Card>
       </div>

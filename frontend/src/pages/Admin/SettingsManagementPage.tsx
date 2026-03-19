@@ -152,8 +152,8 @@ const SettingsManagementPage: React.FC = () => {
         setSettings(data || []);
       } catch (error: any) {
         toast({
-          title: 'Lỗi',
-          description: error?.message || 'Không thể tải danh sách settings',
+          title: 'Error',
+          description: error?.message || 'Failed to load settings list',
           variant: 'destructive',
         });
       } finally {
@@ -241,20 +241,20 @@ const SettingsManagementPage: React.FC = () => {
         const updatePayload: UpdateSettingDto = payload;
         const updated = await settingsService.update(editingSetting.id, updatePayload);
         setSettings((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-        toast({ title: 'Thành công', description: 'Đã cập nhật setting' });
+        toast({ title: 'Success', description: 'Setting updated successfully' });
       } else {
         const createPayload: CreateSettingDto = payload as CreateSettingDto;
         const created = await settingsService.create(createPayload);
         setSettings((prev) => [created, ...prev]);
-        toast({ title: 'Thành công', description: 'Đã tạo setting mới' });
+        toast({ title: 'Success', description: 'New setting created successfully' });
       }
 
       setIsFormOpen(false);
       resetForm();
     } catch (error: any) {
       toast({
-        title: 'Lỗi',
-        description: error?.message || 'Không thể lưu setting',
+        title: 'Error',
+        description: error?.message || 'Failed to save setting',
         variant: 'destructive',
       });
     } finally {
@@ -274,13 +274,13 @@ const SettingsManagementPage: React.FC = () => {
       setDeleting(true);
       await settingsService.remove(targetDeleteId);
       setSettings((prev) => prev.filter((item) => item.id !== targetDeleteId));
-      toast({ title: 'Thành công', description: 'Đã xóa setting' });
+      toast({ title: 'Success', description: 'Setting deleted successfully' });
       setConfirmOpen(false);
       setTargetDeleteId(null);
     } catch (error: any) {
       toast({
-        title: 'Lỗi',
-        description: error?.message || 'Không thể xóa setting',
+        title: 'Error',
+        description: error?.message || 'Failed to delete setting',
         variant: 'destructive',
       });
     } finally {
@@ -291,8 +291,8 @@ const SettingsManagementPage: React.FC = () => {
   const fetchEffective = async () => {
     if (!effectiveKey.trim()) {
       toast({
-        title: 'Thiếu thông tin',
-        description: 'Vui lòng nhập key setting',
+        title: 'Missing information',
+        description: 'Please enter a setting key',
         variant: 'destructive',
       });
       return;
@@ -306,8 +306,8 @@ const SettingsManagementPage: React.FC = () => {
     } catch (error: any) {
       setEffectiveSetting(null);
       toast({
-        title: 'Không tìm thấy',
-        description: error?.message || 'Không thể lấy setting hiệu lực',
+        title: 'Not found',
+        description: error?.message || 'Failed to get effective setting',
         variant: 'destructive',
       });
     } finally {
@@ -339,7 +339,7 @@ const SettingsManagementPage: React.FC = () => {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Settings Management</h1>
-          <p className="mt-1 text-muted-foreground">Quản lý cấu hình hệ thống theo phạm vi global/campus</p>
+          <p className="mt-1 text-muted-foreground">Manage system configuration by global/campus scope</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => loadSettings(true)} disabled={refreshing}>
@@ -355,13 +355,13 @@ const SettingsManagementPage: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Bộ lọc</CardTitle>
-          <CardDescription>Lọc theo key, category và phạm vi setting</CardDescription>
+          <CardTitle>Filters</CardTitle>
+          <CardDescription>Filter by key, category, and setting scope</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="space-y-2">
-              <Label>Tìm theo key/description</Label>
+              <Label>Search by key/description</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -377,10 +377,10 @@ const SettingsManagementPage: React.FC = () => {
               <Label>Category</Label>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Tất cả" />
+                  <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tất cả</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
                   {categories.map((category) => (
                     <SelectItem key={category} value={category}>
                       {category}
@@ -394,10 +394,10 @@ const SettingsManagementPage: React.FC = () => {
               <Label>Scope</Label>
               <Select value={scopeFilter} onValueChange={(value) => setScopeFilter(value as 'all' | SettingScope)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Tất cả" />
+                  <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tất cả</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
                   <SelectItem value="global">Global</SelectItem>
                   <SelectItem value="campus">Campus</SelectItem>
                 </SelectContent>
@@ -406,7 +406,7 @@ const SettingsManagementPage: React.FC = () => {
 
             <div className="flex items-end gap-3">
               <Switch id="include-inactive" checked={includeInactive} onCheckedChange={setIncludeInactive} />
-              <Label htmlFor="include-inactive">Hiển thị cả setting inactive</Label>
+              <Label htmlFor="include-inactive">Show inactive settings</Label>
             </div>
           </div>
         </CardContent>
@@ -414,8 +414,8 @@ const SettingsManagementPage: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Kiểm tra setting hiệu lực</CardTitle>
-          <CardDescription>Kiểm tra giá trị sau khi resolve theo thứ tự campus - global - default</CardDescription>
+          <CardTitle>Check effective setting</CardTitle>
+          <CardDescription>Check resolved value by campus - global - default priority</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -457,7 +457,7 @@ const SettingsManagementPage: React.FC = () => {
 
             <div className="flex items-end">
               <Button onClick={fetchEffective} disabled={effectiveLoading} className="w-full">
-                {effectiveLoading ? 'Đang kiểm tra...' : 'Lấy giá trị hiệu lực'}
+                {effectiveLoading ? 'Checking...' : 'Get effective value'}
               </Button>
             </div>
           </div>
@@ -480,8 +480,8 @@ const SettingsManagementPage: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Danh sách settings ({visibleSettings.length})</CardTitle>
-          <CardDescription>Thông tin cấu hình hệ thống hiện tại</CardDescription>
+          <CardTitle>Settings list ({visibleSettings.length})</CardTitle>
+          <CardDescription>Current system configuration</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
@@ -494,14 +494,14 @@ const SettingsManagementPage: React.FC = () => {
                   <TableHead>Scope</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Hành động</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {visibleSettings.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
-                      Không có setting phù hợp bộ lọc
+                      No settings match the current filters
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -556,9 +556,9 @@ const SettingsManagementPage: React.FC = () => {
       <Dialog open={isFormOpen} onOpenChange={(value) => (!saving ? setIsFormOpen(value) : undefined)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingSetting ? 'Chỉnh sửa setting' : 'Tạo setting mới'}</DialogTitle>
+            <DialogTitle>{editingSetting ? 'Edit setting' : 'Create new setting'}</DialogTitle>
             <DialogDescription>
-              Cập nhật các tham số cấu hình cho hệ thống. Key nên đặt theo namespace (vd: notification.xxx)
+              Update system configuration parameters. Keys should use a namespace (e.g. notification.xxx)
             </DialogDescription>
           </DialogHeader>
 
@@ -633,10 +633,10 @@ const SettingsManagementPage: React.FC = () => {
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Chọn campus" />
+                      <SelectValue placeholder="Select campus" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Chọn campus</SelectItem>
+                      <SelectItem value="none">Select campus</SelectItem>
                       {campuses.map((campus) => (
                         <SelectItem key={campus._id} value={campus._id}>
                           {campus.campusCode} - {campus.campusName}
@@ -679,7 +679,7 @@ const SettingsManagementPage: React.FC = () => {
                   type={formData.valueType === 'number' ? 'number' : 'text'}
                   value={formData.valueText}
                   onChange={(event) => setFormData((prev) => ({ ...prev, valueText: event.target.value }))}
-                  placeholder={formData.valueType === 'number' ? '30' : 'Giá trị setting'}
+                  placeholder={formData.valueType === 'number' ? '30' : 'Setting value'}
                 />
               )}
             </div>
@@ -690,7 +690,7 @@ const SettingsManagementPage: React.FC = () => {
                 rows={3}
                 value={formData.description}
                 onChange={(event) => setFormData((prev) => ({ ...prev, description: event.target.value }))}
-                placeholder="Mô tả mục đích của setting"
+                placeholder="Describe the purpose of this setting"
               />
             </div>
 
@@ -706,10 +706,10 @@ const SettingsManagementPage: React.FC = () => {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsFormOpen(false)} disabled={saving}>
-              Hủy
+              Cancel
             </Button>
             <Button onClick={handleSave} disabled={saving}>
-              {saving ? 'Đang lưu...' : editingSetting ? 'Cập nhật' : 'Tạo mới'}
+              {saving ? 'Saving...' : editingSetting ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -717,9 +717,9 @@ const SettingsManagementPage: React.FC = () => {
 
       <ConfirmDialog
         open={confirmOpen}
-        title="Xóa setting"
-        description="Bạn có chắc muốn xóa setting này?"
-        confirmText={deleting ? 'Đang xóa...' : 'Xóa'}
+        title="Delete setting"
+        description="Are you sure you want to delete this setting?"
+        confirmText={deleting ? 'Deleting...' : 'Delete'}
         destructive
         onConfirm={confirmDelete}
         onCancel={() => {
@@ -758,7 +758,7 @@ function buildPayload(
 ): CreateSettingDto | UpdateSettingDto {
   const key = formData.key.trim();
   if (!key) {
-    throw new Error('Setting key không được để trống');
+    throw new Error('Setting key cannot be empty');
   }
 
   const category = formData.category.trim() || 'general';
@@ -768,7 +768,7 @@ function buildPayload(
     case 'number': {
       const num = Number(formData.valueText);
       if (!Number.isFinite(num)) {
-        throw new Error('Value number không hợp lệ');
+        throw new Error('Invalid number value');
       }
       value = num;
       break;
@@ -781,7 +781,7 @@ function buildPayload(
       try {
         value = JSON.parse(formData.valueText || '{}');
       } catch {
-        throw new Error('Value JSON không hợp lệ');
+        throw new Error('Invalid JSON value');
       }
       break;
     }
@@ -806,7 +806,7 @@ function buildPayload(
 
   if (formData.scope === 'campus') {
     if (!targetCampusId) {
-      throw new Error('Vui lòng chọn campus cho setting phạm vi campus');
+      throw new Error('Please select a campus for campus-scoped settings');
     }
     payload.campusId = targetCampusId;
   }

@@ -1,6 +1,6 @@
 /**
  * SHADCN/UI USAGE EXAMPLES
- * Reference: Các ví dụ sử dụng shadcn/ui components trong dự án
+ * Reference: Usage examples of shadcn/ui components in the project
  */
 
 import React, { useState } from 'react';
@@ -67,8 +67,8 @@ export default function ShadcnUIExamples() {
 
   const showToast = () => {
     toast({
-      title: "Thành công!",
-      description: "Dữ liệu đã được lưu thành công.",
+      title: "Success!",
+      description: "Data has been saved successfully.",
     });
   };
 
@@ -86,7 +86,7 @@ export default function ShadcnUIExamples() {
       <div>
         <h1 className="text-3xl font-bold">Shadcn/UI Components Examples</h1>
         <p className="text-muted-foreground mt-2">
-          Ví dụ sử dụng các components shadcn/ui trong dự án
+          Example usage of shadcn/ui components in the project
         </p>
       </div>
 
@@ -96,7 +96,7 @@ export default function ShadcnUIExamples() {
       <Card>
         <CardHeader>
           <CardTitle>Buttons</CardTitle>
-          <CardDescription>Các variant button có sẵn</CardDescription>
+          <CardDescription>Available button variants</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-4">
           <Button>Default</Button>
@@ -121,18 +121,18 @@ export default function ShadcnUIExamples() {
       <Card>
         <CardHeader>
           <CardTitle>Form Example</CardTitle>
-          <CardDescription>Form với Input, Select, và Button</CardDescription>
+          <CardDescription>Form with Input, Select, and Button</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Tên người dùng</Label>
-            <Input id="name" placeholder="Nhập tên..." />
+            <Label htmlFor="name">User name</Label>
+            <Input id="name" placeholder="Enter name..." />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="role">Vai trò</Label>
+            <Label htmlFor="role">Role</Label>
             <Select>
               <SelectTrigger id="role">
-                <SelectValue placeholder="Chọn vai trò" />
+                <SelectValue placeholder="Select role" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="admin">Admin</SelectItem>
@@ -148,10 +148,10 @@ export default function ShadcnUIExamples() {
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Đang lưu...
+                Saving...
               </>
             ) : (
-              'Lưu thông tin'
+              'Save information'
             )}
           </Button>
         </CardFooter>
@@ -161,17 +161,17 @@ export default function ShadcnUIExamples() {
       <Card>
         <CardHeader>
           <CardTitle>Table Example</CardTitle>
-          <CardDescription>Bảng danh sách người dùng</CardDescription>
+          <CardDescription>User list table</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Tên</TableHead>
+                <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Vai trò</TableHead>
-                <TableHead>Trạng thái</TableHead>
-                <TableHead className="text-right">Hành động</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -181,7 +181,7 @@ export default function ShadcnUIExamples() {
                     <Avatar className="h-8 w-8">
                       <AvatarFallback>NV</AvatarFallback>
                     </Avatar>
-                    Nguyễn Văn A
+                    John Doe
                   </div>
                 </TableCell>
                 <TableCell>nguyenvana@fpt.edu.vn</TableCell>
@@ -202,12 +202,12 @@ export default function ShadcnUIExamples() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Hành động</DropdownMenuLabel>
+                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem>Xem chi tiết</DropdownMenuItem>
-                      <DropdownMenuItem>Chỉnh sửa</DropdownMenuItem>
+                      <DropdownMenuItem>View details</DropdownMenuItem>
+                      <DropdownMenuItem>Edit</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive">
-                        Xóa
+                        Delete
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -219,7 +219,7 @@ export default function ShadcnUIExamples() {
                     <Avatar className="h-8 w-8">
                       <AvatarFallback>TTB</AvatarFallback>
                     </Avatar>
-                    Trần Thị B
+                    Jane Smith
                   </div>
                 </TableCell>
                 <TableCell>tranthib@fpt.edu.vn</TableCell>
@@ -240,12 +240,12 @@ export default function ShadcnUIExamples() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Hành động</DropdownMenuLabel>
+                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem>Xem chi tiết</DropdownMenuItem>
-                      <DropdownMenuItem>Chỉnh sửa</DropdownMenuItem>
+                      <DropdownMenuItem>View details</DropdownMenuItem>
+                      <DropdownMenuItem>Edit</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive">
-                        Xóa
+                        Delete
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -260,27 +260,27 @@ export default function ShadcnUIExamples() {
       <Card>
         <CardHeader>
           <CardTitle>Dialog Example</CardTitle>
-          <CardDescription>Modal dialog để thêm mới user</CardDescription>
+          <CardDescription>Modal dialog for adding a new user</CardDescription>
         </CardHeader>
         <CardContent>
           <Dialog>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
-                Thêm người dùng mới
+                Add new user
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Thêm người dùng mới</DialogTitle>
+                <DialogTitle>Add new user</DialogTitle>
                 <DialogDescription>
-                  Nhập thông tin người dùng mới vào form bên dưới
+                  Enter the new user information in the form below
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="dialog-name">Họ và tên</Label>
-                  <Input id="dialog-name" placeholder="Nguyễn Văn A" />
+                  <Label htmlFor="dialog-name">Full name</Label>
+                  <Input id="dialog-name" placeholder="John Doe" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="dialog-email">Email</Label>
@@ -291,10 +291,10 @@ export default function ShadcnUIExamples() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="dialog-role">Vai trò</Label>
+                  <Label htmlFor="dialog-role">Role</Label>
                   <Select>
                     <SelectTrigger id="dialog-role">
-                      <SelectValue placeholder="Chọn vai trò" />
+                      <SelectValue placeholder="Select role" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="lecturer">Lecturer</SelectItem>
@@ -304,8 +304,8 @@ export default function ShadcnUIExamples() {
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline">Hủy</Button>
-                <Button onClick={showToast}>Lưu</Button>
+                <Button variant="outline">Cancel</Button>
+                <Button onClick={showToast}>Save</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -316,16 +316,16 @@ export default function ShadcnUIExamples() {
       <div className="grid gap-4 md:grid-cols-2">
         <Alert>
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Thông báo</AlertTitle>
+          <AlertTitle>Notification</AlertTitle>
           <AlertDescription>
-            Đây là thông báo thông thường với icon AlertCircle
+            This is a regular notification with the AlertCircle icon
           </AlertDescription>
         </Alert>
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Lỗi</AlertTitle>
+          <AlertTitle>Error</AlertTitle>
           <AlertDescription>
-            Có lỗi xảy ra khi xử lý yêu cầu của bạn
+            An error occurred while processing your request
           </AlertDescription>
         </Alert>
       </div>
@@ -334,7 +334,7 @@ export default function ShadcnUIExamples() {
       <Card>
         <CardHeader>
           <CardTitle>Badges</CardTitle>
-          <CardDescription>Hiển thị trạng thái với badges</CardDescription>
+          <CardDescription>Display status with badges</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Badge>Default</Badge>

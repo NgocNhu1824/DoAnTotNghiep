@@ -17,7 +17,7 @@ export class ImportValidatorHelper {
           rowIndex,
           field: 'roomCode',
           code: 'REQUIRED_FIELD',
-          message: 'Thiếu mã phòng học',
+          message: 'Missing room code',
         });
       }
 
@@ -26,7 +26,7 @@ export class ImportValidatorHelper {
           rowIndex,
           field: 'lecturerEmail',
           code: 'REQUIRED_FIELD',
-          message: 'Thiếu email giảng viên',
+          message: 'Missing lecturer email',
         });
       }
 
@@ -35,7 +35,7 @@ export class ImportValidatorHelper {
           rowIndex,
           field: 'dateStart',
           code: 'REQUIRED_FIELD',
-          message: 'Thiếu ngày học',
+          message: 'Missing class date',
         });
       }
 
@@ -44,7 +44,7 @@ export class ImportValidatorHelper {
           rowIndex,
           field: 'slotType',
           code: 'REQUIRED_FIELD',
-          message: 'Thiếu loại tiết',
+          message: 'Missing slot type',
         });
       }
 
@@ -53,7 +53,7 @@ export class ImportValidatorHelper {
           rowIndex,
           field: 'slotNumber',
           code: 'REQUIRED_FIELD',
-          message: 'Thiếu số tiết',
+          message: 'Missing slot number',
         });
       }
 
@@ -62,7 +62,7 @@ export class ImportValidatorHelper {
           rowIndex,
           field: 'startTime',
           code: 'REQUIRED_FIELD',
-          message: 'Thiếu giờ bắt đầu',
+          message: 'Missing start time',
         });
       }
 
@@ -71,7 +71,7 @@ export class ImportValidatorHelper {
           rowIndex,
           field: 'endTime',
           code: 'REQUIRED_FIELD',
-          message: 'Thiếu giờ kết thúc',
+          message: 'Missing end time',
         });
       }
 
@@ -82,7 +82,7 @@ export class ImportValidatorHelper {
             rowIndex,
             field: 'dateStart',
             code: 'INVALID_FORMAT',
-            message: 'Định dạng ngày không đúng. Dùng YYYY-MM-DD (ví dụ: 2025-01-23)',
+            message: 'Invalid date format. Use YYYY-MM-DD (example: 2025-01-23)',
           });
         } else {
           // Validate month and day ranges
@@ -92,14 +92,14 @@ export class ImportValidatorHelper {
               rowIndex,
               field: 'dateStart',
               code: 'INVALID_MONTH',
-              message: 'Tháng không hợp lệ. Tháng phải từ 01-12',
+              message: 'Invalid month. Month must be between 01 and 12',
             });
           } else if (day < 1 || day > 31) {
             errors.push({
               rowIndex,
               field: 'dateStart',
               code: 'INVALID_DAY',
-              message: 'Ngày không hợp lệ. Ngày phải từ 01-31',
+              message: 'Invalid day. Day must be between 01 and 31',
             });
           } else {
             // Check for valid day in specific month
@@ -109,7 +109,7 @@ export class ImportValidatorHelper {
                 rowIndex,
                 field: 'dateStart',
                 code: 'INVALID_DAY_FOR_MONTH',
-                message: `Ngày không hợp lệ cho tháng ${month}. Tháng này chỉ có ${daysInMonth} ngày`,
+                message: `Invalid day for month ${month}. This month has only ${daysInMonth} days`,
               });
             } else {
               const parsed = Date.parse(row.datestart);
@@ -118,7 +118,7 @@ export class ImportValidatorHelper {
                   rowIndex,
                   field: 'dateStart',
                   code: 'INVALID_DATE',
-                  message: 'Ngày không hợp lệ',
+                  message: 'Invalid date',
                 });
               }
             }
@@ -133,7 +133,7 @@ export class ImportValidatorHelper {
           rowIndex,
           field: 'startTime',
           code: 'INVALID_FORMAT',
-          message: 'Định dạng giờ không đúng. Dùng HH:mm (ví dụ: 07:00)',
+          message: 'Invalid time format. Use HH:mm (example: 07:00)',
         });
       }
 
@@ -142,7 +142,7 @@ export class ImportValidatorHelper {
           rowIndex,
           field: 'endTime',
           code: 'INVALID_FORMAT',
-          message: 'Định dạng giờ không đúng. Dùng HH:mm (ví dụ: 08:30)',
+          message: 'Invalid time format. Use HH:mm (example: 08:30)',
         });
       }
 
@@ -153,7 +153,7 @@ export class ImportValidatorHelper {
             rowIndex,
             field: 'slotType',
             code: 'INVALID_ENUM',
-            message: 'Loại tiết phải là "OLDSLOT" hoặc "NEWSLOT"',
+            message: 'Slot type must be "OLDSLOT" or "NEWSLOT"',
           });
         }
       }
@@ -165,7 +165,7 @@ export class ImportValidatorHelper {
             rowIndex,
             field: 'slotNumber',
             code: 'INVALID_VALUE',
-            message: 'Số tiết phải từ 1 đến 10',
+            message: 'Slot number must be between 1 and 10',
           });
         }
       }
@@ -177,7 +177,7 @@ export class ImportValidatorHelper {
             rowIndex,
             field: 'lecturerEmail',
             code: 'INVALID_FORMAT',
-            message: 'Định dạng email không đúng',
+            message: 'Invalid email format',
           });
         }
       }
@@ -189,7 +189,7 @@ export class ImportValidatorHelper {
             rowIndex,
             field: 'dayOfWeek',
             code: 'INVALID_VALUE',
-            message: 'Ngày trong tuần phải từ 2 (Thứ 2) đến 7 (Thứ 7)',
+            message: 'Day of week must be from 2 (Monday) to 7 (Saturday)',
           });
         }
       }
@@ -201,7 +201,7 @@ export class ImportValidatorHelper {
             rowIndex,
             field: 'isOnline',
             code: 'INVALID_VALUE',
-            message: 'isOnline phải là true/false (hoặc 1/0, yes/no)',
+            message: 'isOnline must be true/false (or 1/0, yes/no)',
           });
         }
       }

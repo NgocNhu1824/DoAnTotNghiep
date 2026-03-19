@@ -89,7 +89,7 @@ const LockerManagementPage: React.FC = () => {
     } catch (err) {
       const axiosError = err as AxiosError;
       console.error('Fetch error:', axiosError);
-      alert('Không thể tải dữ liệu.');
+      alert('Unable to load data.');
     } finally {
       setLoading(false);
     }
@@ -145,7 +145,7 @@ const LockerManagementPage: React.FC = () => {
     try {
       await lockerService.create(data);
 
-      toast.success('Tạo tủ thành công!', {
+      toast.success('Locker created successfully!', {
         position: 'top-right',
         autoClose: 3000,
         hideProgressBar: true,
@@ -158,7 +158,7 @@ const LockerManagementPage: React.FC = () => {
       await fetchData();
     } catch (error) {
       console.error('Create error:', error);
-      toast.error('Tạo tủ thất bại.', {
+      toast.error('Failed to create locker.', {
         position: 'top-right',
         autoClose: 3000,
         hideProgressBar: true,
@@ -169,7 +169,7 @@ const LockerManagementPage: React.FC = () => {
 
   const handleEdit = async (data: LockerPayload) => {
     if (!selectedLocker || !selectedLocker.id) {
-      toast.error('Vui lòng chọn tủ hợp lệ.', {
+      toast.error('Please select a valid locker.', {
         position: 'top-right',
         autoClose: 3000,
         hideProgressBar: true,
@@ -192,7 +192,7 @@ const LockerManagementPage: React.FC = () => {
       );
       setIsEditOpen(false);
       setSelectedLocker(null);
-      toast.success('Cập nhật thành công!', {
+      toast.success('Updated successfully!', {
         position: 'top-right',
         autoClose: 3000,
         hideProgressBar: true,
@@ -203,7 +203,7 @@ const LockerManagementPage: React.FC = () => {
       });
     } catch (error) {
       console.error('Update error:', error);
-      toast.error('Cập nhật thất bại.', {
+      toast.error('Update failed.', {
         position: 'top-right',
         autoClose: 3000,
         hideProgressBar: true,
@@ -216,11 +216,11 @@ const LockerManagementPage: React.FC = () => {
   };
 
   const handleDelete = async (id: string, lockerNumber: number) => {
-    if (!window.confirm(`Bạn có thật sự muốn xóa tủ số ${lockerNumber}?`)) return;
+    if (!window.confirm(`Are you sure you want to delete locker #${lockerNumber}?`)) return;
 
     try {
       await lockerService.remove(id);
-      toast.success(`Xóa tủ số ${lockerNumber} thành công!`, {
+      toast.success(`Locker #${lockerNumber} deleted successfully!`, {
         position: 'top-right',
         autoClose: 3000,
         hideProgressBar: true,
@@ -232,7 +232,7 @@ const LockerManagementPage: React.FC = () => {
       fetchData();
     } catch (error) {
       console.error('Delete error:', error);
-      toast.error(`Xóa tủ số ${lockerNumber} thất bại.`, {
+      toast.error(`Failed to delete locker #${lockerNumber}.`, {
         position: 'top-right',
         autoClose: 3000,
         hideProgressBar: true,
@@ -274,12 +274,12 @@ const LockerManagementPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-semibold">Quản lý Tủ Khóa</h1>
-        <Button onClick={() => setIsCreateOpen(true)}>+ Thêm tủ</Button>
+        <h1 className="text-2xl font-semibold">Locker Management</h1>
+        <Button onClick={() => setIsCreateOpen(true)}>+ Add locker</Button>
       </div>
 
       <div className="text-lg font-medium text-gray-700">
-        Tổng số lượng tủ: {filteredLockers.length}
+        Total lockers: {filteredLockers.length}
       </div>
 
       <Card>
@@ -288,7 +288,7 @@ const LockerManagementPage: React.FC = () => {
           <div className="flex-1">
             <input
               type="text"
-              placeholder="Tìm kiếm số tủ hoặc vị trí"
+              placeholder="Search by locker number or position"
               className="w-full px-4 py-2 border rounded-lg"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -301,7 +301,7 @@ const LockerManagementPage: React.FC = () => {
               value={campusFilter}
               onChange={(e) => setCampusFilter(e.target.value)}
             >
-              <option value="all">Tất cả cơ sở</option>
+              <option value="all">All campuses</option>
               {campuses.map((campus) => (
                 <option key={campus._id} value={campus._id}>
                   {campus.campusName}
@@ -314,7 +314,7 @@ const LockerManagementPage: React.FC = () => {
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
-              <option value="all">Tất cả trạng thái</option>
+              <option value="all">All statuses</option>
               <option value="available">Available</option>
               <option value="occupied">Occupied</option>
               <option value="maintenance">Maintenance</option>
@@ -325,9 +325,9 @@ const LockerManagementPage: React.FC = () => {
               value={activeStatusFilter}
               onChange={(e) => setActiveStatusFilter(e.target.value)}
             >
-              <option value="all">Tất cả trạng thái hoạt động</option>
-              <option value="active">Hoạt Động</option>
-              <option value="inactive">Không Hoạt Động</option>
+              <option value="all">All activation statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
             </select>
           </div>
         </div>
@@ -338,21 +338,21 @@ const LockerManagementPage: React.FC = () => {
             <thead className="bg-gray-100">
               <tr>
                 <th className="px-4 py-2 border border-gray-300 w-12">STT</th>
-                <th className="px-4 py-2 border border-gray-300 w-24">Số Tủ</th>
-                <th className="px-4 py-2 border border-gray-300 w-64 text-left">Vị trí</th>
-                <th className="px-4 py-2 border border-gray-300 w-64 text-left">Cơ sở</th>
-                <th className="px-4 py-2 border border-gray-300 w-32 text-center">Trạng thái</th>
+                <th className="px-4 py-2 border border-gray-300 w-24">Locker #</th>
+                <th className="px-4 py-2 border border-gray-300 w-64 text-left">Position</th>
+                <th className="px-4 py-2 border border-gray-300 w-64 text-left">Campus</th>
+                <th className="px-4 py-2 border border-gray-300 w-32 text-center">Status</th>
                 <th className="px-4 py-2 border border-gray-300 w-24 text-center">Pin</th>
-                <th className="px-4 py-2 border border-gray-300 w-40 text-center">Trạng Thái Hoạt Động</th>
-                <th className="px-4 py-2 border border-gray-300 w-40 text-center">Số Khóa Điện Tử</th>
-                <th className="px-4 py-2 border border-gray-300 w-40 text-center">Hành động</th>
+                <th className="px-4 py-2 border border-gray-300 w-40 text-center">Activation Status</th>
+                <th className="px-4 py-2 border border-gray-300 w-40 text-center">Solenoid Count</th>
+                <th className="px-4 py-2 border border-gray-300 w-40 text-center">Actions</th>
               </tr>
             </thead>
             <tbody>
               {paginatedLockers.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-2 text-gray-500 text-center">
-                    Không có dữ liệu
+                    No data available
                   </td>
                 </tr>
               ) : (
@@ -378,7 +378,7 @@ const LockerManagementPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-2 border border-gray-300 text-center">
                       <span className={`px-2 py-1 rounded-lg text-white ${locker.isActive ? 'bg-green-500' : 'bg-red-500'}`}>
-                        {locker.isActive ? 'Hoạt Động' : 'Không Hoạt Động'}
+                        {locker.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                     <td className="px-4 py-2 border border-gray-300 text-center">
@@ -393,7 +393,7 @@ const LockerManagementPage: React.FC = () => {
                             setIsViewOpen(true);
                           }}
                         >
-                          Xem
+                          View
                         </Button>
                         <Button
                           size="sm"
@@ -403,10 +403,10 @@ const LockerManagementPage: React.FC = () => {
                             setIsEditOpen(true);
                           }}
                         >
-                          Sửa
+                          Edit
                         </Button>
                         <Button size="sm" variant="destructive" onClick={() => handleDelete(locker.id, locker.lockerNumber)}>
-                          Xóa
+                          Delete
                         </Button>
                       </div>
                     </td>
@@ -423,8 +423,8 @@ const LockerManagementPage: React.FC = () => {
             forcePage={Math.min(currentPage, pageCount - 1)}
             pageCount={pageCount}
             onPageChange={(e: { selected: number }) => setCurrentPage(e.selected)}
-            previousLabel="Trước"
-            nextLabel="Tiếp"
+            previousLabel="Previous"
+            nextLabel="Next"
             containerClassName="flex space-x-2"
             activeClassName="bg-blue-500 text-white px-3 py-1 rounded"
             pageClassName="px-3 py-1 bg-gray-200 rounded"
@@ -442,7 +442,7 @@ const LockerManagementPage: React.FC = () => {
           setLockers((prev) =>
             prev.map((l) => (l.id === updated.id ? updated : l))
           );
-          toast.success('Cập nhật tủ thành công!', {
+          toast.success('Locker updated successfully!', {
             position: 'top-right',
             autoClose: 3000,
             hideProgressBar: true,

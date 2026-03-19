@@ -84,7 +84,7 @@ export class TransfersController {
     return { success: true, data: result };
   }
 
-  // Lấy danh sách transfer
+  // Get transfer list
   @Get()
   @RequirePermissions('transfers.read')
   async list(@CurrentUser() user: any, @Query() query: any) {
@@ -92,7 +92,7 @@ export class TransfersController {
     return { success: true, data: result };
   }
 
-  // Lấy chi tiết transfer
+  // Get transfer details
   @Get(':id')
   @RequirePermissions('transfers.read')
   async detail(@Param('id') id: string, @CurrentUser() user: any) {

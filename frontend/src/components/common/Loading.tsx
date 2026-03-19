@@ -9,7 +9,7 @@ interface LoadingProps {
 
 const Loading: React.FC<LoadingProps> = ({ 
   size = 'md', 
-  text = 'Đang tải...',
+  text = 'Loading...',
   className = ''
 }) => {
   const sizeClasses = {

@@ -20,7 +20,7 @@ import {
   ShieldCheck,
   Loader2,
 } from "lucide-react";
-import { cn } from "@/lib/utils"; // Giả định bạn dùng shadcn/ui
+import { cn } from "@/lib/utils";
 
 interface SetPasswordModalProps {
   open: boolean;
@@ -39,18 +39,18 @@ const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
 
   const validationRules = [
-    { label: "8+ ký tự", met: newPassword.length >= 8 },
-    { label: "Chữ hoa", met: /[A-Z]/.test(newPassword) },
-    { label: "Chữ thường", met: /[a-z]/.test(newPassword) },
-    { label: "Số", met: /\d/.test(newPassword) },
-    { label: "Ký tự đặc biệt", met: /[^A-Za-z\d]/.test(newPassword) },
+    { label: "8+ characters", met: newPassword.length >= 8 },
+    { label: "Uppercase", met: /[A-Z]/.test(newPassword) },
+    { label: "Lowercase", met: /[a-z]/.test(newPassword) },
+    { label: "Number", met: /\d/.test(newPassword) },
+    { label: "Special character", met: /[^A-Za-z\d]/.test(newPassword) },
   ];
 
   const isMatch = newPassword.length > 0 && newPassword === confirmPassword;
   const isPasswordStrong = validationRules.every((rule) => rule.met);
   const canSubmit = isPasswordStrong && isMatch && !isSubmitting;
 
-  // Tính toán % độ mạnh mật khẩu
+  // Calculate password strength percentage.
   const strengthScore = useMemo(() => {
     return (
       (validationRules.filter((r) => r.met).length / validationRules.length) *
@@ -63,12 +63,12 @@ const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
     try {
       setIsSubmitting(true);
       await onSubmit(newPassword, confirmPassword);
-      toast.success("Thiết lập mật khẩu thành công");
+      toast.success("Password set successfully");
       setNewPassword("");
       setConfirmPassword("");
       onOpenChange(false);
     } catch (error: any) {
-      toast.error(error?.message || "Có lỗi xảy ra");
+      toast.error(error?.message || "An error occurred");
     } finally {
       setIsSubmitting(false);
     }
@@ -83,19 +83,19 @@ const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
             <Lock className="w-6 h-6 text-primary" />
           </div>
           <DialogTitle className="text-2xl font-bold">
-            Thiết lập mật khẩu
+            Set password
           </DialogTitle>
           <DialogDescription className="mt-2 text-slate-500">
-            Để bảo mật tài khoản, vui lòng tạo mật khẩu mới cho lần đăng nhập
-            sau.
+            For account security, please create a new password for your next
+            login.
           </DialogDescription>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
           <div className="space-y-4">
-            {/* 1. Nhập mật khẩu mới */}
+            {/* 1. Enter new password */}
             <div className="space-y-2">
-              <Label htmlFor="new-password">Mật khẩu mới</Label>
+              <Label htmlFor="new-password">New password</Label>
               <div className="relative">
                 <Input
                   id="new-password"
@@ -114,7 +114,7 @@ const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
                 </button>
               </div>
 
-              {/* Strength Bar nằm sát dưới input password để phản hồi ngay lập tức */}
+              {/* Keep strength bar close to password input for instant feedback. */}
               <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
                 <div
                   className={cn(
@@ -130,9 +130,9 @@ const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
               </div>
             </div>
 
-            {/* 2. Xác nhận mật khẩu - Liền mạch ngay sau ô nhập */}
+            {/* 2. Confirm password, directly after password input. */}
             <div className="space-y-2">
-              <Label htmlFor="confirm-password">Xác nhận mật khẩu</Label>
+              <Label htmlFor="confirm-password">Confirm password</Label>
               <div className="relative">
                 <Input
                   id="confirm-password"
@@ -156,10 +156,10 @@ const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
             </div>
           </div>
 
-          {/* 3. Rules - Đóng vai trò là "Checklist" trước khi Submit */}
+          {/* 3. Rules as a checklist before submit. */}
           <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
             <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Điều kiện bảo mật
+              Security requirements
             </p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
               {validationRules.map((rule, i) => (
@@ -186,7 +186,7 @@ const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
                   </span>
                 </div>
               ))}
-              {/* Thêm check khớp mật khẩu vào danh sách rules luôn cho gọn */}
+              {/* Add password match to the rules checklist. */}
               <div className="flex items-center gap-2">
                 <div
                   className={cn(
@@ -204,7 +204,7 @@ const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
                     isMatch ? "text-slate-900 font-medium" : "text-slate-400",
                   )}
                 >
-                  Khớp mật khẩu
+                  Passwords match
                 </span>
               </div>
             </div>
@@ -220,7 +220,7 @@ const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
                 <Loader2 className="animate-spin" />
               ) : (
                 <span className="flex items-center gap-2">
-                  <ShieldCheck size={18} /> Hoàn tất thiết lập
+                  <ShieldCheck size={18} /> Complete setup
                 </span>
               )}
             </Button>

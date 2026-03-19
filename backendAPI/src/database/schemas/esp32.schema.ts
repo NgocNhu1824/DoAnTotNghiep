@@ -12,7 +12,7 @@ export class ESP32 {
     unique: true,
     index: true,
   })
-  deviceId: string; // ID duy nhất của ESP32
+  deviceId: string; // Unique identifier of ESP32 device
 
   @Prop({
     default: 'OFFLINE',

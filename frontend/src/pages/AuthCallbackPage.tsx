@@ -91,7 +91,7 @@ const AuthCallbackPage: React.FC = () => {
         console.log('Permissions loaded:', permissions.length);
         hasProcessed.current = true;
         
-        // Redirect based on role - Sử dụng helper function
+        // Redirect based on role using helper function
         const defaultRoute = getDefaultDashboard(
           userRoleName,
           roleDetails?.scope,
@@ -112,7 +112,7 @@ const AuthCallbackPage: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="text-center">
         <Loading />
-        <p className="mt-4 text-gray-600">Đang xử lý đăng nhập...</p>
+        <p className="mt-4 text-gray-600">Processing sign-in...</p>
       </div>
     </div>
   );

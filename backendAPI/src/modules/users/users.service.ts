@@ -34,7 +34,7 @@ export class UsersService {
       .exec();
 
     if (existingUser) {
-      throw new ConflictException('Email đã tồn tại trong hệ thống');
+      throw new ConflictException('Email already exists in the system');
     }
 
     // Auto-inject campusId if not provided (Phase 1: Use default campus)
@@ -47,17 +47,17 @@ export class UsersService {
 
     // Validate roleId
     if (!Types.ObjectId.isValid(roleId)) {
-      throw new BadRequestException('Role ID không hợp lệ');
+      throw new BadRequestException('Invalid role ID');
     }
 
     const roleExists = await this.roleModel.exists({ _id: roleId });
     if (!roleExists) {
-      throw new BadRequestException('Role không tồn tại');
+      throw new BadRequestException('Role does not exist');
     }
 
     // Validate campusId
     if (!Types.ObjectId.isValid(finalCampusId)) {
-      throw new BadRequestException('Campus ID không hợp lệ');
+      throw new BadRequestException('Invalid campus ID');
     }
 
     // Create user with empty googleId (will be filled when they login)
@@ -89,7 +89,7 @@ export class UsersService {
 
     if (filterDto?.campusId) {
       if (!Types.ObjectId.isValid(filterDto.campusId)) {
-        throw new BadRequestException('Campus ID không hợp lệ');
+        throw new BadRequestException('Invalid campus ID');
       }
       query.campusId = new Types.ObjectId(filterDto.campusId);
     }
@@ -121,7 +121,7 @@ export class UsersService {
    */
   async findOne(id: string): Promise<User> {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('User ID không hợp lệ');
+      throw new BadRequestException('Invalid user ID');
     }
 
     const user = await this.userModel
@@ -132,7 +132,7 @@ export class UsersService {
       .exec();
 
     if (!user) {
-      throw new NotFoundException(`Không tìm thấy user với ID: ${id}`);
+      throw new NotFoundException(`User not found with ID: ${id}`);
     }
 
     return user;
@@ -143,7 +143,7 @@ export class UsersService {
    */
   async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('User ID không hợp lệ');
+      throw new BadRequestException('Invalid user ID');
     }
 
     // Check if email is being updated and if it already exists
@@ -156,18 +156,18 @@ export class UsersService {
         .exec();
 
       if (existingUser) {
-        throw new ConflictException('Email đã được sử dụng bởi user khác');
+        throw new ConflictException('Email is already used by another user');
       }
     }
 
     // Validate roleId if provided
     if (updateUserDto.roleId) {
       if (!Types.ObjectId.isValid(updateUserDto.roleId)) {
-        throw new BadRequestException('Role ID không hợp lệ');
+        throw new BadRequestException('Invalid role ID');
       }
       const roleExists = await this.roleModel.exists({ _id: updateUserDto.roleId });
       if (!roleExists) {
-        throw new BadRequestException('Role không tồn tại');
+        throw new BadRequestException('Role does not exist');
       }
       (updateUserDto as any).roleId = new Types.ObjectId(updateUserDto.roleId);
     }
@@ -175,7 +175,7 @@ export class UsersService {
     // Validate campusId if provided
     if (updateUserDto.campusId) {
       if (!Types.ObjectId.isValid(updateUserDto.campusId)) {
-        throw new BadRequestException('Campus ID không hợp lệ');
+        throw new BadRequestException('Invalid campus ID');
       }
       (updateUserDto as any).campusId = new Types.ObjectId(
         updateUserDto.campusId,
@@ -188,7 +188,7 @@ export class UsersService {
       .populate('campusId', 'campusCode campusName address')      .populate('roleId', 'roleName roleCode roleLevel')      .exec();
 
     if (!updatedUser) {
-      throw new NotFoundException(`Không tìm thấy user với ID: ${id}`);
+      throw new NotFoundException(`User not found with ID: ${id}`);
     }
 
     return updatedUser;
@@ -199,7 +199,7 @@ export class UsersService {
    */
   async remove(id: string): Promise<void> {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('User ID không hợp lệ');
+      throw new BadRequestException('Invalid user ID');
     }
 
     const result = await this.userModel
@@ -207,7 +207,7 @@ export class UsersService {
       .exec();
 
     if (!result) {
-      throw new NotFoundException(`Không tìm thấy user với ID: ${id}`);
+      throw new NotFoundException(`User not found with ID: ${id}`);
     }
   }
 
@@ -216,7 +216,7 @@ export class UsersService {
    */
   async activate(id: string): Promise<User> {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('User ID không hợp lệ');
+      throw new BadRequestException('Invalid user ID');
     }
 
     const user = await this.userModel
@@ -227,7 +227,7 @@ export class UsersService {
       .exec();
 
     if (!user) {
-      throw new NotFoundException(`Không tìm thấy user với ID: ${id}`);
+      throw new NotFoundException(`User not found with ID: ${id}`);
     }
 
     return user;
@@ -238,7 +238,7 @@ export class UsersService {
    */
   async ban(id: string): Promise<User> {
     if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('User ID không hợp lệ');
+      throw new BadRequestException('Invalid user ID');
     }
 
     const user = await this.userModel
@@ -249,7 +249,7 @@ export class UsersService {
       .exec();
 
     if (!user) {
-      throw new NotFoundException(`Không tìm thấy user với ID: ${id}`);
+      throw new NotFoundException(`User not found with ID: ${id}`);
     }
 
     return user;

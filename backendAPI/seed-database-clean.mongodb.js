@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // MONGODB SEED SCRIPT - CLEAN VERSION
 // FPT University Classroom Management System
 // ============================================================
@@ -72,7 +72,7 @@ const rolesResult = db.roles.insertMany([
     scope: "GLOBAL",
     canManageRoles: true,
     canAccessWeb: true,  // ✅ Super Admin can access web
-    description: "Quản trị viên tối cao - Quản lý toàn hệ thống, có thể truy cập mọi campus",
+    description: "Highest-level administrator - Manages the entire system and can access all campuses",
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date()
@@ -86,7 +86,7 @@ const rolesResult = db.roles.insertMany([
     scope: "CAMPUS",
     canManageRoles: false,
     canAccessWeb: true,  // ✅ Training Officer can access web
-    description: "Nhân viên đào tạo - Quản lý lịch học, phòng học, duyệt booking",
+    description: "Training officer - Manages schedules, classrooms, and booking approvals",
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date()
@@ -100,7 +100,7 @@ const rolesResult = db.roles.insertMany([
     scope: "SELF",
     canManageRoles: false,
     canAccessWeb: false,  // ❌ Lecturer: mobile only (can be changed by Training Officer)
-    description: "Giảng viên - Dạy học, booking phòng, báo cáo sự cố, transfer phòng",
+    description: "Lecturer - Teaches classes, books rooms, reports incidents, and transfers rooms",
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date()
@@ -114,7 +114,7 @@ const rolesResult = db.roles.insertMany([
     scope: "SELF",
     canManageRoles: false,
     canAccessWeb: false,  // ❌ Student: mobile only
-    description: "Sinh viên - Xem lịch học, booking phòng tự học",
+    description: "Student - Views schedules and books rooms for self-study",
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date()
@@ -128,7 +128,7 @@ const rolesResult = db.roles.insertMany([
     scope: "CAMPUS",
     canManageRoles: false,
     canAccessWeb: false,  // ❌ Security: mobile only (can be changed by Training Officer)
-    description: "Bảo vệ - Giám sát an ninh, báo cáo sự cố, xem access logs",
+    description: "Security staff - Monitors security, reports incidents, and views access logs",
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date()
@@ -144,80 +144,80 @@ print('\n🔐 Creating Permissions...');
 
 const permissionsResult = db.permissions.insertMany([
   // Users permissions
-  { _id: ObjectId("680000000000000000000001"), permissionName: "users.create", permissionCode: "CREATE_USER", resource: "users", action: "create", description: "Tạo người dùng mới", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000002"), permissionName: "users.read", permissionCode: "READ_USER", resource: "users", action: "read", description: "Xem thông tin người dùng", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000003"), permissionName: "users.update", permissionCode: "UPDATE_USER", resource: "users", action: "update", description: "Cập nhật người dùng", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000004"), permissionName: "users.delete", permissionCode: "DELETE_USER", resource: "users", action: "delete", description: "Xóa người dùng", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000005"), permissionName: "users.manage", permissionCode: "MANAGE_USERS", resource: "users", action: "manage", description: "Quản lý toàn bộ users", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000001"), permissionName: "users.create", permissionCode: "CREATE_USER", resource: "users", action: "create", description: "Create a new user", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000002"), permissionName: "users.read", permissionCode: "READ_USER", resource: "users", action: "read", description: "View user information", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000003"), permissionName: "users.update", permissionCode: "UPDATE_USER", resource: "users", action: "update", description: "Update user", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000004"), permissionName: "users.delete", permissionCode: "DELETE_USER", resource: "users", action: "delete", description: "Delete user", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000005"), permissionName: "users.manage", permissionCode: "MANAGE_USERS", resource: "users", action: "manage", description: "Manage all users", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // Roles permissions
-  { _id: ObjectId("680000000000000000000006"), permissionName: "roles.create", permissionCode: "CREATE_ROLE", resource: "roles", action: "create", description: "Tạo vai trò mới", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000007"), permissionName: "roles.read", permissionCode: "READ_ROLE", resource: "roles", action: "read", description: "Xem thông tin vai trò", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000008"), permissionName: "roles.update", permissionCode: "UPDATE_ROLE", resource: "roles", action: "update", description: "Cập nhật vai trò", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000009"), permissionName: "roles.delete", permissionCode: "DELETE_ROLE", resource: "roles", action: "delete", description: "Xóa vai trò", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000010"), permissionName: "roles.manage", permissionCode: "MANAGE_ROLES", resource: "roles", action: "manage", description: "Quản lý toàn bộ vai trò", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000006"), permissionName: "roles.create", permissionCode: "CREATE_ROLE", resource: "roles", action: "create", description: "Create a new role", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000007"), permissionName: "roles.read", permissionCode: "READ_ROLE", resource: "roles", action: "read", description: "View role information", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000008"), permissionName: "roles.update", permissionCode: "UPDATE_ROLE", resource: "roles", action: "update", description: "Update role", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000009"), permissionName: "roles.delete", permissionCode: "DELETE_ROLE", resource: "roles", action: "delete", description: "Delete role", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000010"), permissionName: "roles.manage", permissionCode: "MANAGE_ROLES", resource: "roles", action: "manage", description: "Manage all roles", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // Rooms permissions
-  { _id: ObjectId("680000000000000000000011"), permissionName: "rooms.create", permissionCode: "CREATE_ROOM", resource: "rooms", action: "create", description: "Tạo phòng học mới", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000012"), permissionName: "rooms.read", permissionCode: "READ_ROOM", resource: "rooms", action: "read", description: "Xem thông tin phòng học", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000013"), permissionName: "rooms.update", permissionCode: "UPDATE_ROOM", resource: "rooms", action: "update", description: "Cập nhật phòng học", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000014"), permissionName: "rooms.delete", permissionCode: "DELETE_ROOM", resource: "rooms", action: "delete", description: "Xóa phòng học", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000015"), permissionName: "rooms.manage", permissionCode: "MANAGE_ROOMS", resource: "rooms", action: "manage", description: "Quản lý toàn bộ phòng học", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000011"), permissionName: "rooms.create", permissionCode: "CREATE_ROOM", resource: "rooms", action: "create", description: "Create a new classroom", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000012"), permissionName: "rooms.read", permissionCode: "READ_ROOM", resource: "rooms", action: "read", description: "View classroom information", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000013"), permissionName: "rooms.update", permissionCode: "UPDATE_ROOM", resource: "rooms", action: "update", description: "Update classroom", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000014"), permissionName: "rooms.delete", permissionCode: "DELETE_ROOM", resource: "rooms", action: "delete", description: "Delete classroom", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000015"), permissionName: "rooms.manage", permissionCode: "MANAGE_ROOMS", resource: "rooms", action: "manage", description: "Manage all classrooms", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // Schedules permissions
-  { _id: ObjectId("680000000000000000000016"), permissionName: "schedules.create", permissionCode: "CREATE_SCHEDULE", resource: "schedules", action: "create", description: "Tạo lịch học mới", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000017"), permissionName: "schedules.read", permissionCode: "READ_SCHEDULE", resource: "schedules", action: "read", description: "Xem lịch học", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000018"), permissionName: "schedules.update", permissionCode: "UPDATE_SCHEDULE", resource: "schedules", action: "update", description: "Cập nhật lịch học", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000019"), permissionName: "schedules.delete", permissionCode: "DELETE_SCHEDULE", resource: "schedules", action: "delete", description: "Xóa lịch học", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000020"), permissionName: "schedules.manage", permissionCode: "MANAGE_SCHEDULES", resource: "schedules", action: "manage", description: "Quản lý toàn bộ lịch học", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000016"), permissionName: "schedules.create", permissionCode: "CREATE_SCHEDULE", resource: "schedules", action: "create", description: "Create a new schedule", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000017"), permissionName: "schedules.read", permissionCode: "READ_SCHEDULE", resource: "schedules", action: "read", description: "View schedules", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000018"), permissionName: "schedules.update", permissionCode: "UPDATE_SCHEDULE", resource: "schedules", action: "update", description: "Update schedule", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000019"), permissionName: "schedules.delete", permissionCode: "DELETE_SCHEDULE", resource: "schedules", action: "delete", description: "Delete schedule", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000020"), permissionName: "schedules.manage", permissionCode: "MANAGE_SCHEDULES", resource: "schedules", action: "manage", description: "Manage all schedules", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // Bookings permissions
-  { _id: ObjectId("680000000000000000000021"), permissionName: "bookings.create", permissionCode: "CREATE_BOOKING", resource: "bookings", action: "create", description: "Tạo booking phòng", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000022"), permissionName: "bookings.read", permissionCode: "READ_BOOKING", resource: "bookings", action: "read", description: "Xem booking", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000023"), permissionName: "bookings.update", permissionCode: "UPDATE_BOOKING", resource: "bookings", action: "update", description: "Cập nhật booking", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000024"), permissionName: "bookings.delete", permissionCode: "DELETE_BOOKING", resource: "bookings", action: "delete", description: "Xóa booking", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000025"), permissionName: "bookings.approve", permissionCode: "APPROVE_BOOKING", resource: "bookings", action: "approve", description: "Duyệt booking", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000026"), permissionName: "bookings.manage", permissionCode: "MANAGE_BOOKINGS", resource: "bookings", action: "manage", description: "Quản lý toàn bộ bookings", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000021"), permissionName: "bookings.create", permissionCode: "CREATE_BOOKING", resource: "bookings", action: "create", description: "Create a room booking", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000022"), permissionName: "bookings.read", permissionCode: "READ_BOOKING", resource: "bookings", action: "read", description: "View bookings", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000023"), permissionName: "bookings.update", permissionCode: "UPDATE_BOOKING", resource: "bookings", action: "update", description: "Update booking", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000024"), permissionName: "bookings.delete", permissionCode: "DELETE_BOOKING", resource: "bookings", action: "delete", description: "Delete booking", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000025"), permissionName: "bookings.approve", permissionCode: "APPROVE_BOOKING", resource: "bookings", action: "approve", description: "Approve booking", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000026"), permissionName: "bookings.manage", permissionCode: "MANAGE_BOOKINGS", resource: "bookings", action: "manage", description: "Manage all bookings", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // Lockers permissions
-  { _id: ObjectId("680000000000000000000027"), permissionName: "lockers.read", permissionCode: "READ_LOCKER", resource: "lockers", action: "read", description: "Xem thông tin tủ khóa", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000028"), permissionName: "lockers.update", permissionCode: "UPDATE_LOCKER", resource: "lockers", action: "update", description: "Cập nhật tủ khóa", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000029"), permissionName: "lockers.unlock", permissionCode: "UNLOCK_LOCKER", resource: "lockers", action: "unlock", description: "Mở khóa tủ", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000030"), permissionName: "lockers.manage", permissionCode: "MANAGE_LOCKERS", resource: "lockers", action: "manage", description: "Quản lý toàn bộ tủ khóa", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000027"), permissionName: "lockers.read", permissionCode: "READ_LOCKER", resource: "lockers", action: "read", description: "View locker information", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000028"), permissionName: "lockers.update", permissionCode: "UPDATE_LOCKER", resource: "lockers", action: "update", description: "Update locker", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000029"), permissionName: "lockers.unlock", permissionCode: "UNLOCK_LOCKER", resource: "lockers", action: "unlock", description: "Unlock locker", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000030"), permissionName: "lockers.manage", permissionCode: "MANAGE_LOCKERS", resource: "lockers", action: "manage", description: "Manage all lockers", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // Campus permission
-  { _id: ObjectId("680000000000000000000031"), permissionName: "campus.manage", permissionCode: "MANAGE_CAMPUS", resource: "campus", action: "manage", description: "Quản lý campus", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000031"), permissionName: "campus.manage", permissionCode: "MANAGE_CAMPUS", resource: "campus", action: "manage", description: "Manage campus", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // Settings permissions
-  { _id: ObjectId("680000000000000000000032"), permissionName: "settings.read", permissionCode: "READ_SETTINGS", resource: "settings", action: "read", description: "Xem cài đặt", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000033"), permissionName: "settings.update", permissionCode: "UPDATE_SETTINGS", resource: "settings", action: "update", description: "Cập nhật cài đặt", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000034"), permissionName: "settings.manage", permissionCode: "MANAGE_SETTINGS", resource: "settings", action: "manage", description: "Quản lý toàn bộ cài đặt", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000032"), permissionName: "settings.read", permissionCode: "READ_SETTINGS", resource: "settings", action: "read", description: "View settings", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000033"), permissionName: "settings.update", permissionCode: "UPDATE_SETTINGS", resource: "settings", action: "update", description: "Update settings", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000034"), permissionName: "settings.manage", permissionCode: "MANAGE_SETTINGS", resource: "settings", action: "manage", description: "Manage all settings", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // Transfers permissions (for key handover between lecturers)
-  { _id: ObjectId("680000000000000000000035"), permissionName: "transfers.create", permissionCode: "CREATE_TRANSFER", resource: "transfers", action: "create", description: "Tạo yêu cầu chuyển giao phòng", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000036"), permissionName: "transfers.read", permissionCode: "READ_TRANSFER", resource: "transfers", action: "read", description: "Xem thông tin chuyển giao", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000037"), permissionName: "transfers.approve", permissionCode: "APPROVE_TRANSFER", resource: "transfers", action: "approve", description: "Chấp nhận chuyển giao", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000038"), permissionName: "transfers.reject", permissionCode: "REJECT_TRANSFER", resource: "transfers", action: "reject", description: "Từ chối chuyển giao", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000039"), permissionName: "transfers.cancel", permissionCode: "CANCEL_TRANSFER", resource: "transfers", action: "cancel", description: "Hủy chuyển giao", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000035"), permissionName: "transfers.create", permissionCode: "CREATE_TRANSFER", resource: "transfers", action: "create", description: "Create a room transfer request", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000036"), permissionName: "transfers.read", permissionCode: "READ_TRANSFER", resource: "transfers", action: "read", description: "View transfer information", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000037"), permissionName: "transfers.approve", permissionCode: "APPROVE_TRANSFER", resource: "transfers", action: "approve", description: "Approve transfer", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000038"), permissionName: "transfers.reject", permissionCode: "REJECT_TRANSFER", resource: "transfers", action: "reject", description: "Reject transfer", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000039"), permissionName: "transfers.cancel", permissionCode: "CANCEL_TRANSFER", resource: "transfers", action: "cancel", description: "Cancel transfer", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // Notifications permissions
-  { _id: ObjectId("680000000000000000000040"), permissionName: "notifications.create", permissionCode: "CREATE_NOTIFICATION", resource: "notifications", action: "create", description: "Tạo thông báo", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000041"), permissionName: "notifications.read", permissionCode: "READ_NOTIFICATION", resource: "notifications", action: "read", description: "Xem thông báo", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000042"), permissionName: "notifications.update", permissionCode: "UPDATE_NOTIFICATION", resource: "notifications", action: "update", description: "Cập nhật thông báo", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000043"), permissionName: "notifications.delete", permissionCode: "DELETE_NOTIFICATION", resource: "notifications", action: "delete", description: "Xóa thông báo", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000040"), permissionName: "notifications.create", permissionCode: "CREATE_NOTIFICATION", resource: "notifications", action: "create", description: "Create notification", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000041"), permissionName: "notifications.read", permissionCode: "READ_NOTIFICATION", resource: "notifications", action: "read", description: "View notifications", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000042"), permissionName: "notifications.update", permissionCode: "UPDATE_NOTIFICATION", resource: "notifications", action: "update", description: "Update notification", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000043"), permissionName: "notifications.delete", permissionCode: "DELETE_NOTIFICATION", resource: "notifications", action: "delete", description: "Delete notification", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // Incidents permissions (for damage reports)
-  { _id: ObjectId("680000000000000000000044"), permissionName: "incidents.create", permissionCode: "CREATE_INCIDENT", resource: "incidents", action: "create", description: "Báo cáo sự cố/hư hỏng", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000045"), permissionName: "incidents.read", permissionCode: "READ_INCIDENT", resource: "incidents", action: "read", description: "Xem báo cáo sự cố", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000046"), permissionName: "incidents.update", permissionCode: "UPDATE_INCIDENT", resource: "incidents", action: "update", description: "Cập nhật sự cố", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000047"), permissionName: "incidents.resolve", permissionCode: "RESOLVE_INCIDENT", resource: "incidents", action: "resolve", description: "Giải quyết sự cố", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000044"), permissionName: "incidents.create", permissionCode: "CREATE_INCIDENT", resource: "incidents", action: "create", description: "Report incidents/damage", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000045"), permissionName: "incidents.read", permissionCode: "READ_INCIDENT", resource: "incidents", action: "read", description: "View incident reports", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000046"), permissionName: "incidents.update", permissionCode: "UPDATE_INCIDENT", resource: "incidents", action: "update", description: "Update incident", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000047"), permissionName: "incidents.resolve", permissionCode: "RESOLVE_INCIDENT", resource: "incidents", action: "resolve", description: "Resolve incident", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // Access Logs permissions (IoT security logs)
-  { _id: ObjectId("680000000000000000000048"), permissionName: "access_logs.read", permissionCode: "READ_ACCESS_LOG", resource: "access_logs", action: "read", description: "Xem log ra vào phòng", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("680000000000000000000049"), permissionName: "access_logs.manage", permissionCode: "MANAGE_ACCESS_LOGS", resource: "access_logs", action: "manage", description: "Quản lý access logs", isActive: true, createdAt: new Date(), updatedAt: new Date() }
+  { _id: ObjectId("680000000000000000000048"), permissionName: "access_logs.read", permissionCode: "READ_ACCESS_LOG", resource: "access_logs", action: "read", description: "View room access logs", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("680000000000000000000049"), permissionName: "access_logs.manage", permissionCode: "MANAGE_ACCESS_LOGS", resource: "access_logs", action: "manage", description: "Manage access logs", isActive: true, createdAt: new Date(), updatedAt: new Date() }
   ,
   // System Logs permissions
-  { _id: ObjectId("680000000000000000000050"), permissionName: "logs.read", permissionCode: "READ_SYSTEM_LOG", resource: "logs", action: "read", description: "Xem audit log hệ thống", isActive: true, createdAt: new Date(), updatedAt: new Date() }
+  { _id: ObjectId("680000000000000000000050"), permissionName: "logs.read", permissionCode: "READ_SYSTEM_LOG", resource: "logs", action: "read", description: "View system audit logs", isActive: true, createdAt: new Date(), updatedAt: new Date() }
 ]);
 
 print(`✅ Inserted ${Object.keys(permissionsResult.insertedIds).length} permissions`);
@@ -342,7 +342,7 @@ const usersResult = db.users.insertMany([
     _id: ObjectId("693ad44526d23ee0a8bf0909"),
     googleId: "107549720956923965766",
     email: "duanntce171842@fpt.edu.vn",
-    fullName: "Nguyễn Thanh Duẩn",
+    fullName: "Nguyen Thanh Duan",
     avatar: "https://lh3.googleusercontent.com/a/default",
     roleId: ObjectId("670000000000000000000001"),  // Super Admin
     employeeId: "CE171842",
@@ -374,7 +374,7 @@ const usersResult = db.users.insertMany([
     _id: ObjectId("693ad44526d23ee0a8bf091c"),
     googleId: null,
     email: "training.officer@fpt.edu.vn",
-    fullName: "Lê Thị Hoa",
+    fullName: "Le Thi Hoa",
     avatar: "",
     roleId: ObjectId("670000000000000000000003"),
     employeeId: "TO001",
@@ -390,7 +390,7 @@ const usersResult = db.users.insertMany([
     _id: ObjectId("693ad44526d23ee0a8bf090a"),
     googleId: "lecturer_001",
     email: "thanhduan0780@fpt.edu.vn",
-    fullName: "Trần Văn Giảng",
+    fullName: "Tran Van Giang",
     avatar: "",
     roleId: ObjectId("670000000000000000000004"),  // Lecturer role
     employeeId: "GV001",
@@ -438,7 +438,7 @@ const usersResult = db.users.insertMany([
     _id: ObjectId("693ad44526d23ee0a8bf091d"),
     googleId: null,
     email: "student1@fpt.edu.vn",
-    fullName: "Phạm Văn An",
+    fullName: "Pham Van An",
     avatar: "",
     roleId: ObjectId("670000000000000000000005"),
     studentId: "SE171234",
@@ -454,7 +454,7 @@ const usersResult = db.users.insertMany([
     _id: ObjectId("693ad44526d23ee0a8bf091e"),
     googleId: null,
     email: "security1@fpt.edu.vn",
-    fullName: "Nguyễn Văn Bảo",
+    fullName: "Nguyen Van Bao",
     avatar: "",
     roleId: ObjectId("670000000000000000000006"),
     employeeId: "SEC001",
@@ -476,21 +476,21 @@ print('\n⏰ Creating Time Slots...');
 
 const timeSlotsResult = db.time_slots.insertMany([
   // OLDSLOT (8 slots)
-  { _id: ObjectId("693ad44526d23ee0a8bf08f6"), slotType: "OLDSLOT", slotNumber: 1, slotName: "SLOT 1", startTime: "07:00", endTime: "08:30", description: "Tiết 1-2", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("693ad44526d23ee0a8bf08f7"), slotType: "OLDSLOT", slotNumber: 2, slotName: "SLOT 2", startTime: "08:45", endTime: "10:15", description: "Tiết 3-4", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("693ad44526d23ee0a8bf08f8"), slotType: "OLDSLOT", slotNumber: 3, slotName: "SLOT 3", startTime: "10:30", endTime: "12:00", description: "Tiết 5-6", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("693ad44526d23ee0a8bf08f9"), slotType: "OLDSLOT", slotNumber: 4, slotName: "SLOT 4", startTime: "12:45", endTime: "14:15", description: "Tiết 7-8", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("693ad44526d23ee0a8bf08fa"), slotType: "OLDSLOT", slotNumber: 5, slotName: "SLOT 5", startTime: "14:30", endTime: "16:00", description: "Tiết 9-10", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("693ad44526d23ee0a8bf08fb"), slotType: "OLDSLOT", slotNumber: 6, slotName: "SLOT 6", startTime: "16:15", endTime: "17:45", description: "Tiết 11-12", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("693ad44526d23ee0a8bf08fc"), slotType: "OLDSLOT", slotNumber: 7, slotName: "SLOT 7", startTime: "18:00", endTime: "19:30", description: "Tiết 13-14", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("693ad44526d23ee0a8bf08fd"), slotType: "OLDSLOT", slotNumber: 8, slotName: "SLOT 8", startTime: "19:45", endTime: "21:15", description: "Tiết 15-16", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf08f6"), slotType: "OLDSLOT", slotNumber: 1, slotName: "SLOT 1", startTime: "07:00", endTime: "08:30", description: "Periods 1-2", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf08f7"), slotType: "OLDSLOT", slotNumber: 2, slotName: "SLOT 2", startTime: "08:45", endTime: "10:15", description: "Periods 3-4", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf08f8"), slotType: "OLDSLOT", slotNumber: 3, slotName: "SLOT 3", startTime: "10:30", endTime: "12:00", description: "Periods 5-6", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf08f9"), slotType: "OLDSLOT", slotNumber: 4, slotName: "SLOT 4", startTime: "12:45", endTime: "14:15", description: "Periods 7-8", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf08fa"), slotType: "OLDSLOT", slotNumber: 5, slotName: "SLOT 5", startTime: "14:30", endTime: "16:00", description: "Periods 9-10", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf08fb"), slotType: "OLDSLOT", slotNumber: 6, slotName: "SLOT 6", startTime: "16:15", endTime: "17:45", description: "Periods 11-12", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf08fc"), slotType: "OLDSLOT", slotNumber: 7, slotName: "SLOT 7", startTime: "18:00", endTime: "19:30", description: "Periods 13-14", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf08fd"), slotType: "OLDSLOT", slotNumber: 8, slotName: "SLOT 8", startTime: "19:45", endTime: "21:15", description: "Periods 15-16", isActive: true, createdAt: new Date(), updatedAt: new Date() },
   
   // NEWSLOT (5 slots)
-  { _id: ObjectId("693ad44526d23ee0a8bf08fe"), slotType: "NEWSLOT", slotNumber: 1, slotName: "SLOT 1", startTime: "07:00", endTime: "09:15", description: "Tiết 1-3", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("693ad44526d23ee0a8bf08ff"), slotType: "NEWSLOT", slotNumber: 2, slotName: "SLOT 2", startTime: "09:30", endTime: "11:45", description: "Tiết 4-6", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("693ad44526d23ee0a8bf0900"), slotType: "NEWSLOT", slotNumber: 3, slotName: "SLOT 3", startTime: "13:00", endTime: "15:15", description: "Tiết 7-9", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("693ad44526d23ee0a8bf0901"), slotType: "NEWSLOT", slotNumber: 4, slotName: "SLOT 4", startTime: "15:30", endTime: "17:45", description: "Tiết 10-12", isActive: true, createdAt: new Date(), updatedAt: new Date() },
-  { _id: ObjectId("693ad44526d23ee0a8bf0902"), slotType: "NEWSLOT", slotNumber: 5, slotName: "SLOT 5", startTime: "18:00", endTime: "20:15", description: "Tiết 13-15", isActive: true, createdAt: new Date(), updatedAt: new Date() }
+  { _id: ObjectId("693ad44526d23ee0a8bf08fe"), slotType: "NEWSLOT", slotNumber: 1, slotName: "SLOT 1", startTime: "07:00", endTime: "09:15", description: "Periods 1-3", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf08ff"), slotType: "NEWSLOT", slotNumber: 2, slotName: "SLOT 2", startTime: "09:30", endTime: "11:45", description: "Periods 4-6", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf0900"), slotType: "NEWSLOT", slotNumber: 3, slotName: "SLOT 3", startTime: "13:00", endTime: "15:15", description: "Periods 7-9", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf0901"), slotType: "NEWSLOT", slotNumber: 4, slotName: "SLOT 4", startTime: "15:30", endTime: "17:45", description: "Periods 10-12", isActive: true, createdAt: new Date(), updatedAt: new Date() },
+  { _id: ObjectId("693ad44526d23ee0a8bf0902"), slotType: "NEWSLOT", slotNumber: 5, slotName: "SLOT 5", startTime: "18:00", endTime: "20:15", description: "Periods 13-15", isActive: true, createdAt: new Date(), updatedAt: new Date() }
 ]);
 
 print(`✅ Inserted ${Object.keys(timeSlotsResult.insertedIds).length} time slots (8 OLDSLOT + 5 NEWSLOT)`);
@@ -504,7 +504,7 @@ const roomsResult = db.rooms.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf090b"),
     roomCode: "G301",
-    roomName: "Phòng học G301",
+    roomName: "Classroom G301",
     building: "G",
     floor: 3,
     capacity: 45,
@@ -512,7 +512,7 @@ const roomsResult = db.rooms.insertMany([
     lockerNumber: 2,
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     status: "available",
-    description: "Phòng học lý thuyết lớn",
+    description: "Large theory classroom",
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date()
@@ -520,7 +520,7 @@ const roomsResult = db.rooms.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf090c"),
     roomCode: "G302",
-    roomName: "Phòng học G302",
+    roomName: "Classroom G302",
     building: "G",
     floor: 3,
     capacity: 40,
@@ -528,7 +528,7 @@ const roomsResult = db.rooms.insertMany([
     lockerNumber: 2,
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     status: "available",
-    description: "Phòng học lý thuyết",
+    description: "Theory classroom",
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date()
@@ -546,7 +546,7 @@ const devicesResult = db.devices.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf091f"),
     deviceCode: "G301_KEY",
-    deviceName: "Chìa khóa phòng G301",
+    deviceName: "Room key G301",
     deviceStatus: "ok",
     quantity: 1,
     roomId: ObjectId("693ad44526d23ee0a8bf090b"),
@@ -557,7 +557,7 @@ const devicesResult = db.devices.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf0920"),
     deviceCode: "G301_REMOTE_AC",
-    deviceName: "Remote máy lạnh G301",
+    deviceName: "Air-conditioner remote G301",
     deviceStatus: "ok",
     quantity: 1,
     roomId: ObjectId("693ad44526d23ee0a8bf090b"),
@@ -568,7 +568,7 @@ const devicesResult = db.devices.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf0921"),
     deviceCode: "G301_PROJECTOR",
-    deviceName: "Máy chiếu G301",
+    deviceName: "Projector G301",
     deviceStatus: "ok",
     quantity: 1,
     roomId: ObjectId("693ad44526d23ee0a8bf090b"),
@@ -579,7 +579,7 @@ const devicesResult = db.devices.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf0922"),
     deviceCode: "G301_WHITEBOARD",
-    deviceName: "Bảng trắng G301",
+    deviceName: "Whiteboard G301",
     deviceStatus: "ok",
     quantity: 1,
     roomId: ObjectId("693ad44526d23ee0a8bf090b"),
@@ -590,7 +590,7 @@ const devicesResult = db.devices.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf0923"),
     deviceCode: "G302_KEY",
-    deviceName: "Chìa khóa phòng G302",
+    deviceName: "Room key G302",
     deviceStatus: "ok",
     quantity: 1,
     roomId: ObjectId("693ad44526d23ee0a8bf090c"),
@@ -601,7 +601,7 @@ const devicesResult = db.devices.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf0924"),
     deviceCode: "G302_REMOTE_AC",
-    deviceName: "Remote máy lạnh G302",
+    deviceName: "Air-conditioner remote G302",
     deviceStatus: "ok",
     quantity: 1,
     roomId: ObjectId("693ad44526d23ee0a8bf090c"),
@@ -612,7 +612,7 @@ const devicesResult = db.devices.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf0925"),
     deviceCode: "G302_PROJECTOR",
-    deviceName: "Máy chiếu G302",
+    deviceName: "Projector G302",
     deviceStatus: "ok",
     quantity: 1,
     roomId: ObjectId("693ad44526d23ee0a8bf090c"),
@@ -623,7 +623,7 @@ const devicesResult = db.devices.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf0926"),
     deviceCode: "G302_WHITEBOARD",
-    deviceName: "Bảng trắng G302",
+    deviceName: "Whiteboard G302",
     deviceStatus: "ok",
     quantity: 1,
     roomId: ObjectId("693ad44526d23ee0a8bf090c"),
@@ -645,7 +645,7 @@ const lockersResult = db.lockers.insertMany([
     _id: ObjectId("693ad44526d23ee0a8bf090d"),
     lockerNumber: 1,
     roomId: ObjectId("693ad44526d23ee0a8bf090b"),
-    position: "Tòa G - Tầng 3 - Phòng G301",
+    position: "Building G - Floor 3 - Room G301",
     deviceId: "ESP32_G301_01",
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     status: "available",
@@ -659,7 +659,7 @@ const lockersResult = db.lockers.insertMany([
     _id: ObjectId("693ad44526d23ee0a8bf090e"),
     lockerNumber: 2,
     roomId: ObjectId("693ad44526d23ee0a8bf090c"),
-    position: "Tòa G - Tầng 3 - Phòng G302",
+    position: "Building G - Floor 3 - Room G302",
     deviceId: "ESP32_G302_01",
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     status: "available",
@@ -684,7 +684,7 @@ const settingsResult = db.settings.insertMany([
     key: "system_name",
     value: "Classroom Management System",
     campusId: null,
-    description: "Tên hệ thống (Global)",
+    description: "System name (Global)",
     category: "general",
     updatedAt: new Date()
   },
@@ -692,7 +692,7 @@ const settingsResult = db.settings.insertMany([
     key: "enable_face_recognition",
     value: true,
     campusId: null,
-    description: "Bật nhận diện khuôn mặt (Global)",
+    description: "Enable face recognition (Global)",
     category: "security",
     updatedAt: new Date()
   },
@@ -700,7 +700,7 @@ const settingsResult = db.settings.insertMany([
     key: "enable_fingerprint",
     value: true,
     campusId: null,
-    description: "Bật nhận diện vân tay (Global)",
+    description: "Enable fingerprint recognition (Global)",
     category: "security",
     updatedAt: new Date()
   },
@@ -710,7 +710,7 @@ const settingsResult = db.settings.insertMany([
     key: "max_overdue_minutes",
     value: 15,
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
-    description: "Số phút tối đa được trễ - Can Tho campus",
+    description: "Maximum overdue minutes - Can Tho campus",
     category: "general",
     updatedAt: new Date()
   },
@@ -718,7 +718,7 @@ const settingsResult = db.settings.insertMany([
     key: "notification_before_class",
     value: 30,
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
-    description: "Thông báo trước giờ học (phút) - Can Tho campus",
+    description: "Notification before class (minutes) - Can Tho campus",
     category: "notification",
     updatedAt: new Date()
   },
@@ -726,7 +726,7 @@ const settingsResult = db.settings.insertMany([
     key: "auto_unlock_before_class",
     value: 5,
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
-    description: "Tự động mở khóa trước giờ học (phút) - Can Tho campus",
+    description: "Auto unlock before class (minutes) - Can Tho campus",
     category: "general",
     updatedAt: new Date()
   }
@@ -740,17 +740,17 @@ print(`✅ Inserted ${Object.keys(settingsResult.insertedIds).length} settings`)
 print('\n📅 Creating Schedules...');
 
 const schedulesResult = db.schedules.insertMany([
-  // Schedule 1: PRN231 - Room G301 - NEWSLOT 1 - Thứ 2
+  // Schedule 1: PRN231 - Room G301 - NEWSLOT 1 - Monday
   {
     _id: ObjectId("693ad44526d23ee0a8bf090f"),
     roomId: ObjectId("693ad44526d23ee0a8bf090b"),  // G301
-    lecturerId: ObjectId("693ad44526d23ee0a8bf090a"),  // Trần Văn Giảng
+    lecturerId: ObjectId("693ad44526d23ee0a8bf090a"),  // Tran Van Giang
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     subjectCode: "PRN231",
     subjectName: "Building Cross-platform Back-End Application With .NET",
     classCode: "SE1801",
     dateStart: new Date("2025-01-13"),
-    dayOfWeek: 2,  // Thứ 2
+    dayOfWeek: 2,  // Monday
     slotType: "NEWSLOT",
     slotNumber: 1,
     timeSlotId: ObjectId("693ad44526d23ee0a8bf08fe"),
@@ -763,17 +763,17 @@ const schedulesResult = db.schedules.insertMany([
     createdAt: new Date(),
     updatedAt: new Date()
   },
-  // Schedule 2: SWP391 - Room G301 - NEWSLOT 2 - Thứ 2
+  // Schedule 2: SWP391 - Room G301 - NEWSLOT 2 - Monday
   {
     _id: ObjectId("693ad44526d23ee0a8bf0910"),
     roomId: ObjectId("693ad44526d23ee0a8bf090b"),  // G301
-    lecturerId: ObjectId("693ad44526d23ee0a8bf091a"),  // Nguyễn Thị Hương
+    lecturerId: ObjectId("693ad44526d23ee0a8bf091a"),  // Nguyen Thi Huong
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     subjectCode: "SWP391",
     subjectName: "Software development project",
     classCode: "SE1802",
     dateStart: new Date("2025-01-13"),
-    dayOfWeek: 2,  // Thứ 2
+    dayOfWeek: 2,  // Monday
     slotType: "NEWSLOT",
     slotNumber: 2,
     timeSlotId: ObjectId("693ad44526d23ee0a8bf08ff"),
@@ -786,17 +786,17 @@ const schedulesResult = db.schedules.insertMany([
     createdAt: new Date(),
     updatedAt: new Date()
   },
-  // Schedule 3: PRN231 - Room G302 - OLDSLOT 1 - Thứ 3
+  // Schedule 3: PRN231 - Room G302 - OLDSLOT 1 - Tuesday
   {
     _id: ObjectId("693ad44526d23ee0a8bf0911"),
     roomId: ObjectId("693ad44526d23ee0a8bf090c"),  // G302
-    lecturerId: ObjectId("693ad44526d23ee0a8bf090a"),  // Trần Văn Giảng
+    lecturerId: ObjectId("693ad44526d23ee0a8bf090a"),  // Tran Van Giang
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     subjectCode: "PRN231",
     subjectName: "Building Cross-platform Back-End Application With .NET",
     classCode: "SE1803",
     dateStart: new Date("2025-01-14"),
-    dayOfWeek: 3,  // Thứ 3
+    dayOfWeek: 3,  // Tuesday
     slotType: "OLDSLOT",
     slotNumber: 1,
     timeSlotId: ObjectId("693ad44526d23ee0a8bf08f6"),
@@ -809,17 +809,17 @@ const schedulesResult = db.schedules.insertMany([
     createdAt: new Date(),
     updatedAt: new Date()
   },
-  // Schedule 4: SWD392 - Room G302 - OLDSLOT 3 - Thứ 4
+  // Schedule 4: SWD392 - Room G302 - OLDSLOT 3 - Wednesday
   {
     _id: ObjectId("693ad44526d23ee0a8bf0912"),
     roomId: ObjectId("693ad44526d23ee0a8bf090c"),  // G302
-    lecturerId: ObjectId("693ad44526d23ee0a8bf091a"),  // Nguyễn Thị Hương
+    lecturerId: ObjectId("693ad44526d23ee0a8bf091a"),  // Nguyen Thi Huong
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     subjectCode: "SWD392",
     subjectName: "SW Architecture and Design",
     classCode: "SE1804",
     dateStart: new Date("2025-01-15"),
-    dayOfWeek: 4,  // Thứ 4
+    dayOfWeek: 4,  // Wednesday
     slotType: "OLDSLOT",
     slotNumber: 3,
     timeSlotId: ObjectId("693ad44526d23ee0a8bf08f8"),
@@ -846,10 +846,10 @@ const bookingsResult = db.bookings.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf0913"),
     roomId: ObjectId("693ad44526d23ee0a8bf090b"),  // G301
-    requesterId: ObjectId("693ad44526d23ee0a8bf090a"),  // Trần Văn Giảng
+    requesterId: ObjectId("693ad44526d23ee0a8bf090a"),  // Tran Van Giang
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     bookingType: "teaching",  // teaching, meeting, self_study
-    purpose: "Dạy PRN231",
+    purpose: "Teach PRN231",
     dateStart: new Date("2025-01-20"),
     dateEnd: new Date("2025-01-20"),
     slotType: "NEWSLOT",
@@ -860,7 +860,7 @@ const bookingsResult = db.bookings.insertMany([
     status: "approved",  // pending, approved, rejected, cancelled, completed
     approvedBy: ObjectId("693ad44526d23ee0a8bf091c"),  // Training Officer
     approvedAt: new Date("2025-01-10"),
-    notes: "Đã duyệt",
+    notes: "Approved",
     createdAt: new Date("2025-01-09"),
     updatedAt: new Date("2025-01-10")
   },
@@ -871,7 +871,7 @@ const bookingsResult = db.bookings.insertMany([
     requesterId: ObjectId("693ad44526d23ee0a8bf091d"),  // Student
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     bookingType: "self_study",
-    purpose: "Tự học nhóm môn SWP391",
+    purpose: "Self-study group for SWP391",
     dateStart: new Date("2025-01-21"),
     dateEnd: new Date("2025-01-21"),
     slotType: "OLDSLOT",
@@ -899,17 +899,17 @@ const transfersResult = db.transfers.insertMany([
     _id: ObjectId("693ad44526d23ee0a8bf0915"),
     roomId: ObjectId("693ad44526d23ee0a8bf090b"),  // G301
     lockerId: ObjectId("693ad44526d23ee0a8bf090d"),
-    fromUserId: ObjectId("693ad44526d23ee0a8bf090a"),  // Trần Văn Giảng
-    toUserId: ObjectId("693ad44526d23ee0a8bf091a"),  // Nguyễn Quang Sang
+    fromUserId: ObjectId("693ad44526d23ee0a8bf090a"),  // Tran Van Giang
+    toUserId: ObjectId("693ad44526d23ee0a8bf091a"),  // Nguyen Quang Sang
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     fromScheduleId: ObjectId("693ad44526d23ee0a8bf090f"),  // PRN231 SLOT 1
     toScheduleId: ObjectId("693ad44526d23ee0a8bf0910"),  // SWP391 SLOT 2
     transferDate: new Date("2025-01-13"),
-    reason: "Dạy liên tiếp, không trả chìa về locker",
+    reason: "Back-to-back classes, key not returned to locker",
     status: "approved",  // pending, approved, rejected, cancelled, completed
     approvedAt: new Date("2025-01-13T09:16:00.000Z"),
     completedAt: new Date("2025-01-13T09:20:00.000Z"),
-    notes: "Chuyển giao thành công",
+    notes: "Transfer completed successfully",
     createdAt: new Date("2025-01-13T09:00:00.000Z"),
     updatedAt: new Date("2025-01-13T09:20:00.000Z")
   }
@@ -927,11 +927,11 @@ const incidentsResult = db.incidents.insertMany([
   {
     _id: ObjectId("693ad44526d23ee0a8bf0916"),
     roomId: ObjectId("693ad44526d23ee0a8bf090b"),  // G301
-    reporterId: ObjectId("693ad44526d23ee0a8bf090a"),  // Trần Văn Giảng
+    reporterId: ObjectId("693ad44526d23ee0a8bf090a"),  // Tran Van Giang
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     incidentType: "equipment_damage",  // equipment_damage, cleanliness, safety, other
-    title: "Máy chiếu không hoạt động",
-    description: "Máy chiếu trong phòng G301 không bật được, cần kiểm tra",
+    title: "Projector is not working",
+    description: "The projector in room G301 cannot be turned on and needs inspection",
     severity: "medium",  // low, medium, high, critical
     status: "in_progress",  // reported, in_progress, resolved, closed
     priority: "high",
@@ -951,8 +951,8 @@ const incidentsResult = db.incidents.insertMany([
     reporterId: ObjectId("693ad44526d23ee0a8bf091e"),  // Security
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     incidentType: "cleanliness",
-    title: "Phòng chưa được vệ sinh",
-    description: "Phòng G302 còn rác sau buổi học buổi sáng",
+    title: "Room has not been cleaned",
+    description: "Room G302 still has trash after the morning class",
     severity: "low",
     status: "resolved",
     priority: "medium",
@@ -960,7 +960,7 @@ const incidentsResult = db.incidents.insertMany([
     reportedAt: new Date("2025-01-12T12:00:00.000Z"),
     resolvedAt: new Date("2025-01-12T14:00:00.000Z"),
     resolvedBy: ObjectId("693ad44526d23ee0a8bf091e"),
-    resolution: "Đã vệ sinh lại phòng học",
+    resolution: "Classroom has been cleaned",
     images: [],
     createdAt: new Date("2025-01-12T12:00:00.000Z"),
     updatedAt: new Date("2025-01-12T14:00:00.000Z")
@@ -982,8 +982,8 @@ const notificationsResult = db.notifications.insertMany([
     senderId: null,  // System generated
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     type: "incident_reported",  // incident_reported, booking_approved, booking_rejected, transfer_request, schedule_change, maintenance_alert
-    title: "Báo cáo sự cố mới: Máy chiếu hỏng",
-    message: "Giảng viên Trần Văn Giảng báo cáo máy chiếu phòng G301 không hoạt động",
+    title: "New incident report: Projector malfunction",
+    message: "Lecturer Tran Van Giang reported that the projector in room G301 is not working",
     data: {
       incidentId: ObjectId("693ad44526d23ee0a8bf0916"),
       roomId: ObjectId("693ad44526d23ee0a8bf090b"),
@@ -1002,8 +1002,8 @@ const notificationsResult = db.notifications.insertMany([
     senderId: ObjectId("693ad44526d23ee0a8bf091c"),  // Training Officer
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     type: "booking_pending",
-    title: "Yêu cầu đặt phòng đang chờ duyệt",
-    message: "Yêu cầu đặt phòng G302 của bạn đang được xử lý",
+    title: "Room booking request is pending approval",
+    message: "Your room booking request for G302 is being processed",
     data: {
       bookingId: ObjectId("693ad44526d23ee0a8bf0914"),
       roomCode: "G302",
@@ -1031,7 +1031,7 @@ const accessLogsResult = db.access_logs.insertMany([
     _id: ObjectId("693ad44526d23ee0a8bf0920"),
     roomId: ObjectId("693ad44526d23ee0a8bf090b"),  // G301
     lockerId: ObjectId("693ad44526d23ee0a8bf090d"),
-    userId: ObjectId("693ad44526d23ee0a8bf090a"),  // Trần Văn Giảng
+    userId: ObjectId("693ad44526d23ee0a8bf090a"),  // Tran Van Giang
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     scheduleId: ObjectId("693ad44526d23ee0a8bf090f"),
     action: "unlock",  // unlock, lock, access_denied, manual_override
@@ -1040,7 +1040,7 @@ const accessLogsResult = db.access_logs.insertMany([
     accessTime: new Date("2025-01-13T07:00:00.000Z"),
     deviceId: "ESP32_G301_01",
     ipAddress: "192.168.1.100",
-    location: "Tòa G - Tầng 3 - Phòng G301",
+    location: "Building G - Floor 3 - Room G301",
     reason: "Scheduled class PRN231",
     createdAt: new Date("2025-01-13T07:00:00.000Z")
   },
@@ -1058,7 +1058,7 @@ const accessLogsResult = db.access_logs.insertMany([
     accessTime: new Date("2025-01-13T09:15:00.000Z"),
     deviceId: "ESP32_G301_01",
     ipAddress: "192.168.1.100",
-    location: "Tòa G - Tầng 3 - Phòng G301",
+    location: "Building G - Floor 3 - Room G301",
     reason: "End of class PRN231",
     createdAt: new Date("2025-01-13T09:15:00.000Z")
   },
@@ -1076,7 +1076,7 @@ const accessLogsResult = db.access_logs.insertMany([
     accessTime: new Date("2025-01-12T22:00:00.000Z"),
     deviceId: "ESP32_G302_01",
     ipAddress: "192.168.1.101",
-    location: "Tòa G - Tầng 3 - Phòng G302",
+    location: "Building G - Floor 3 - Room G302",
     reason: "Security patrol",
     createdAt: new Date("2025-01-12T22:00:00.000Z")
   }
@@ -1266,3 +1266,4 @@ print(`   - ${db.settings.countDocuments({ campusId: { $ne: null } })} campus-sp
 print('\n════════════════════════════════════════════════════════');
 print('🎉 Database is ready to use!');
 print('════════════════════════════════════════════════════════\n');
+

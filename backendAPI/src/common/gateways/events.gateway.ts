@@ -34,7 +34,7 @@ export class EventsGateway
 
   handleConnection(client: Socket) {
     this.logger.log(`✅ Client connected: ${client.id}`);
-    // Gửi thông báo cho client
+    // Send connection notification to the client
     client.emit('connection', {
       message: 'Connected to Classroom Management System',
       clientId: client.id,

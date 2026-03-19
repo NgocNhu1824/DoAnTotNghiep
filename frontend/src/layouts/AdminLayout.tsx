@@ -224,7 +224,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         {isSidebarOpen && (
           <div className="p-4 border-t border-[#334155]">
             <div className="bg-[#334155] rounded-lg p-3">
-              <p className="text-xs text-gray-400">Vai trò hiện tại</p>
+              <p className="text-xs text-gray-400">Current role</p>
               <p className="text-sm font-semibold capitalize">
                 {roleDetails?.roleName || 'User'}
               </p>
@@ -277,20 +277,20 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>Tài khoản của tôi</DropdownMenuLabel>
+                  <DropdownMenuLabel>My account</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => navigate('/profile')}>
                     <User className="mr-2 h-4 w-4" />
-                    <span>Hồ sơ</span>
+                    <span>Profile</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/settings')}>
                     <Settings className="mr-2 h-4 w-4" />
-                    <span>Cài đặt</span>
+                    <span>Settings</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem className="text-red-600" onClick={logout}>
                     <LogOut className="mr-2 h-4 w-4" />
-                    <span>Đăng xuất</span>
+                    <span>Sign out</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

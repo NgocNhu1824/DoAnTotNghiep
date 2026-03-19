@@ -42,7 +42,7 @@ export class LockerController {
     return this.lockerService.findAllWithIoT(query);
   }
 
-  // ===== ESP32 (PHẢI TRƯỚC :id) =====
+  // ===== ESP32 (MUST COME BEFORE :id) =====
   @Post('esp32/heartbeat')
   reportHeartbeat(
     @Body() body: { deviceEsp32: string; solenoids: any[] },
@@ -64,7 +64,7 @@ export class LockerController {
       body.action,
     );
   }
-  // ===== ID ROUTES (LUÔN CUỐI) =====
+  // ===== ID ROUTES (ALWAYS LAST) =====
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.lockerService.findOne(id);

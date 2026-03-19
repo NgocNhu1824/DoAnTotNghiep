@@ -38,27 +38,27 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, cam
 
     // Validate lockerNumber
     if (!form.lockerNumber || form.lockerNumber < 1) {
-      errs.lockerNumber = 'Số tủ phải lớn hơn 0';
+      errs.lockerNumber = 'Locker number must be greater than 0';
     }
 
     // Validate position
     if (!form.position.trim()) {
-      errs.position = 'Vị trí không được để trống';
+      errs.position = 'Position cannot be empty';
     }
 
     // Validate batteryLevel
     if (form.batteryLevel === undefined || form.batteryLevel < 0 || form.batteryLevel > 100) {
-      errs.batteryLevel = 'Pin phải từ 0 đến 100';
+      errs.batteryLevel = 'Battery level must be between 0 and 100';
     }
 
     // Validate campusId
     if (!form.campusId) {
-      errs.campusId = 'Vui lòng chọn cơ sở';
+      errs.campusId = 'Please select a campus';
     }
 
     // Validate deviceId
     if (!form.deviceId || !form.deviceId.trim()) {
-      errs.deviceId = 'Mã thiết bị không được để trống';
+      errs.deviceId = 'Device ID cannot be empty';
     }
 
     setErrors(errs);
@@ -83,17 +83,17 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, cam
     // Check for duplicates
     const existingLockers: LockerEntity[] = await lockerService.getAll();
     const foundDuplicates = existingLockers.filter(
-      (locker) =>
-        locker.id !== locker?.id && // Loại trừ chính bản ghi đang chỉnh sửa
+      (item) =>
+        item.id !== locker?.id && // Exclude the current locker being edited.
         (
-          locker.lockerNumber === form.lockerNumber ||
-          locker.position.toLowerCase() === form.position.toLowerCase() ||
-          locker.deviceId === form.deviceId // Thêm kiểm tra trùng mã thiết bị
+          item.lockerNumber === form.lockerNumber ||
+          item.position.toLowerCase() === form.position.toLowerCase() ||
+          item.deviceId === form.deviceId // Also check duplicate device ID.
         )
     );
 
     if (foundDuplicates.length > 0) {
-      alert('Dữ liệu bị trùng lặp. Vui lòng kiểm tra lại.');
+      alert('Duplicate data detected. Please review your input.');
       return;
     }
 
@@ -105,7 +105,7 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, cam
     <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
       <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-2xl">
         <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">
-          Chỉnh Sửa Tủ Khóa
+          Edit Locker
         </h2>
 
         <form
@@ -117,7 +117,7 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, cam
         >
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Số Tủ
+              Locker Number
             </label>
             <input
               type="number"
@@ -130,7 +130,7 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, cam
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Vị Trí
+              Position
             </label>
             <input
               type="text"
@@ -143,7 +143,7 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, cam
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Mức Pin
+              Battery Level
             </label>
             <input
               type="number"
@@ -156,7 +156,7 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, cam
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Trạng Thái
+              Status
             </label>
             <select
               value={form.status}
@@ -171,14 +171,14 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, cam
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Cơ Sở
+              Campus
             </label>
             <select
               value={form.campusId || ''}
               onChange={(e) => setForm({ ...form, campusId: e.target.value || null })}
               className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">Chưa gán cơ sở</option>
+              <option value="">Unassigned campus</option>
               {campuses.map((campus) => (
                 <option key={campus._id} value={campus._id}>
                   {campus.campusName}
@@ -190,7 +190,7 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, cam
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Mã Thiết Bị
+              Device ID
             </label>
             <input
               type="text"
@@ -203,15 +203,15 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, cam
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Trạng Thái Hoạt Động
+              Activation Status
             </label>
             <select
               value={form.isActive ? 'true' : 'false'}
               onChange={(e) => setForm({ ...form, isActive: e.target.value === 'true' })}
               className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
             >
-              <option value="true">Hoạt động</option>
-              <option value="false">Không hoạt động</option>
+              <option value="true">Active</option>
+              <option value="false">Inactive</option>
             </select>
           </div>
         </form>
@@ -222,14 +222,14 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, cam
             variant="secondary"
             className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded shadow-md"
           >
-            Đóng
+            Close
           </Button>
 
           <Button
             onClick={handleSubmit}
             className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded shadow-md"
           >
-            Lưu
+            Save
           </Button>
         </div>
       </div>

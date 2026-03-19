@@ -21,7 +21,7 @@ export class UpdateRoleDto {
   @IsOptional()
   scope?: string;
 
-  @IsMongoId({ message: 'Campus ID không hợp lệ' })
+  @IsMongoId({ message: 'Invalid campus ID' })
   @IsOptional()
   campusId?: string;
 

@@ -1,6 +1,6 @@
 /**
- * UserRole được lấy động từ database
- * Không nên hardcode, dùng roleDetails.roleName thay vì role string
+ * UserRole is dynamically sourced from the database
+ * Do not hardcode role strings; use roleDetails.roleName instead
  */
 export type UserRole = string;
 

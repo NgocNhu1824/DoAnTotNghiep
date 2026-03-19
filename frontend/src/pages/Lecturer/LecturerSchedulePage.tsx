@@ -53,7 +53,7 @@ function getWeeksOfYear(year: number): WeekRange[] {
     const end = new Date(d);
     end.setDate(start.getDate() + 6);
     weeks.push({
-      label: `${start.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} to ${end.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}`,
+      label: `${start.toLocaleDateString('en-US', { day: '2-digit', month: '2-digit' })} to ${end.toLocaleDateString('en-US', { day: '2-digit', month: '2-digit' })}`,
       start,
       end,
     });

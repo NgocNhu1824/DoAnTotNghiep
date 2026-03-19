@@ -19,8 +19,8 @@ const AuditLogPage: React.FC = () => {
       setContent(data || '');
     } catch (error: any) {
       toast({
-        title: 'Lỗi',
-        description: error?.message || 'Không thể tải audit log',
+        title: 'Error',
+        description: error?.message || 'Unable to load audit log',
         variant: 'destructive',
       });
     } finally {
@@ -67,8 +67,8 @@ const AuditLogPage: React.FC = () => {
       window.URL.revokeObjectURL(url);
     } catch (error: any) {
       toast({
-        title: 'Lỗi',
-        description: error?.message || 'Không thể tải file audit log',
+        title: 'Error',
+        description: error?.message || 'Unable to download audit log file',
         variant: 'destructive',
       });
     } finally {
@@ -82,21 +82,21 @@ const AuditLogPage: React.FC = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Audit Log</h1>
           <p className="text-muted-foreground mt-2">
-            Theo dõi thao tác thêm, sửa, xóa trong hệ thống
+            Track create, update, and delete actions in the system
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={handleDownload} disabled={downloading}>
             {downloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-            Tải file
+            Download file
           </Button>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Nội dung log</CardTitle>
-          <CardDescription>Hiển thị dữ liệu từ file audit.log</CardDescription>
+          <CardTitle>Log content</CardTitle>
+          <CardDescription>Display data from the audit.log file</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -105,7 +105,7 @@ const AuditLogPage: React.FC = () => {
             </div>
           ) : (
             <pre className="whitespace-pre-wrap text-sm bg-muted rounded-md p-4 max-h-[60vh] overflow-auto">
-              {content || 'Chưa có log nào.'}
+              {content || 'No logs yet.'}
             </pre>
           )}
         </CardContent>

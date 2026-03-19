@@ -78,7 +78,7 @@ const AdminTransferListPage: React.FC = () => {
   const [extraLockers, setExtraLockers] = useState<Record<string, LockerEntity>>({});
   const fetchingLockerIds = useRef<Set<string>>(new Set());
 
-  // Helper: Map userId to fullName (nếu không có thì trả về userId)
+  // Helper: Map userId to fullName (fallback to userId when missing)
   const getUserDisplay = (userId: string) => {
     if (!userId) return '';
     const user = users.find(u => u._id === userId);
@@ -104,7 +104,7 @@ const AdminTransferListPage: React.FC = () => {
       if (locker.status) display += ` | ${locker.status}`;
       return display;
     }
-    // Nếu locker chưa có, fetch locker chi tiết bằng getAllWithIoT (giống lecturer)
+    // If locker is not loaded yet, fetch locker details via getAllWithIoT.
     if (!fetchingLockerIds.current.has(lockerId)) {
       fetchingLockerIds.current.add(lockerId);
       lockerService.getAllWithIoT().then((result) => {
@@ -120,7 +120,7 @@ const AdminTransferListPage: React.FC = () => {
         fetchingLockerIds.current.delete(lockerId);
       });
     }
-    return '...'; // fallback: đang tải
+    return '...'; // fallback: loading
   };
 
   const getTransferLockerDisplay = (transfer: TransferRecord) => {
