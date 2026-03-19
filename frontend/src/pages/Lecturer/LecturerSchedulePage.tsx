@@ -646,7 +646,7 @@ const LecturerSchedulePage: React.FC = () => {
           if (transferPayload?.sourceSchedule) {
             setSelectedTransferSourceSchedule({
               _id: transferPayload.sourceSchedule.id || transferPayload.fromScheduleId,
-              roomId: transferPayload.sourceSchedule.roomId,
+              roomId: transferPayload.sourceSchedule.room || transferPayload.sourceSchedule.roomId,
               dateStart: transferPayload.sourceSchedule.dateStart,
               startTime: transferPayload.sourceSchedule.startTime,
               endTime: transferPayload.sourceSchedule.endTime,
@@ -762,7 +762,7 @@ const LecturerSchedulePage: React.FC = () => {
         if (transferPayload?.sourceSchedule) {
           setSelectedTransferSourceSchedule({
             _id: transferPayload.sourceSchedule.id || transferPayload?.fromScheduleId,
-            roomId: transferPayload.sourceSchedule.roomId,
+            roomId: transferPayload.sourceSchedule.room || transferPayload.sourceSchedule.roomId,
             dateStart: transferPayload.sourceSchedule.dateStart,
             startTime: transferPayload.sourceSchedule.startTime,
             endTime: transferPayload.sourceSchedule.endTime,
@@ -876,7 +876,7 @@ const LecturerSchedulePage: React.FC = () => {
 
     if (typeof roomId === 'string' && roomId.trim() !== '') {
       return {
-        code: roomId,
+        code: '-',
         name: '-',
         building: '-',
       };
