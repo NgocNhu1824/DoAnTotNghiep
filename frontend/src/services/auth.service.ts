@@ -42,6 +42,18 @@ class AuthService {
     return apiService.post('/auth/set-password', payload);
   }
 
+  async forgotPassword(email: string): Promise<{ success: boolean; message: string }> {
+    return apiService.post('/auth/forgot-password', { email });
+  }
+
+  async resetPassword(payload: {
+    token: string;
+    newPassword: string;
+    confirmPassword: string;
+  }): Promise<{ success: boolean; message: string }> {
+    return apiService.post('/auth/reset-password', payload);
+  }
+
   async checkAuth(): Promise<boolean> {
     try {
       const result = await apiService.get<{ isAuthenticated: boolean }>('/auth/check');
