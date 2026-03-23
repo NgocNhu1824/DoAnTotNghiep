@@ -9,7 +9,15 @@ import {
   Query,
   UseGuards,
   Req,
+  BadRequestException,
+  UseInterceptors,
+  UploadedFile,
+  HttpCode,
+  HttpStatus,
+  Res,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -24,6 +32,52 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator';
 @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  @Post('import')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('users.create')
+  @UseInterceptors(FileInterceptor('file'))
+  async importUsers(
+    @UploadedFile() file: any,
+    @Body('mode') mode?: 'dryRun' | 'strict',
+  ) {
+    if (!file) {
+      throw new BadRequestException('Please choose a file to import');
+    }
+
+    const fileName = file.originalname?.toLowerCase() || '';
+    const validExtensions = ['.csv', '.xlsx', '.xls'];
+    const isValid = validExtensions.some((ext) => fileName.endsWith(ext));
+
+    if (!isValid) {
+      throw new BadRequestException('Only CSV or Excel files are accepted (.csv, .xlsx, .xls)');
+    }
+
+    const importMode = mode === 'dryRun' ? 'dryRun' : 'strict';
+    const result = await this.usersService.importUsers(file, importMode);
+
+    return {
+      success: true,
+      message:
+        importMode === 'dryRun'
+          ? 'Review completed. No data has been imported yet.'
+          : `Imported ${result.inserted}/${result.total} users successfully`,
+      data: result,
+    };
+  }
+
+  @Get('import/template')
+  @RequirePermissions('users.read')
+  async downloadImportTemplate(@Res() res: Response) {
+    const buffer = await this.usersService.generateImportTemplate();
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="user-import-template.xlsx"');
+    res.send(buffer);
+  }
 
   /**
    * Create new user

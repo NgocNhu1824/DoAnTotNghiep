@@ -18,7 +18,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/avatar'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { useToast } from '../../hooks/use-toast';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
-import { Loader2, Plus, Search, UserPlus } from 'lucide-react';
+import ImportUserModal from '../../components/modals/ImportUserModal';
+import { Loader2, Search, Upload, UserPlus } from 'lucide-react';
 
 
 const UserManagementPage: React.FC = () => {
@@ -26,6 +27,7 @@ const UserManagementPage: React.FC = () => {
   const [filteredUsers, setFilteredUsers] = useState<UserListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [campusFilter, setCampusFilter] = useState<string>('all');
@@ -204,10 +206,16 @@ const UserManagementPage: React.FC = () => {
           </p>
         </div>
         <PermissionGuard permissions={[PERMISSIONS.USERS_CREATE]}>
-          <Button onClick={() => setShowCreateModal(true)}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Add User
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setShowImportModal(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import
+            </Button>
+            <Button onClick={() => setShowCreateModal(true)}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Add User
+            </Button>
+          </div>
         </PermissionGuard>
       </div>
 
@@ -399,6 +407,21 @@ const UserManagementPage: React.FC = () => {
             setShowEditModal(false);
             setEditingUser(null);
             fetchUsers();
+          }}
+        />
+      )}
+
+      {showImportModal && (
+        <ImportUserModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          roles={roles}
+          onImported={async () => {
+            await fetchUsers();
+            toast({
+              title: 'Success',
+              description: 'User import completed',
+            });
           }}
         />
       )}

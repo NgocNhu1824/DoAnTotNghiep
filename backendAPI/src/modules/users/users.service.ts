@@ -3,15 +3,24 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User } from '@/database/schemas/user.schema';
 import { Role } from '@/database/schemas/role.schema';
+import { Campus } from '@/database/schemas/campus.schema';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { FilterUserDto } from './dto/filter-user.dto';
 import { AppConfig } from '@/config/app.config';
+import { UserImportParserHelper } from './helpers/user-import-parser.helper';
+
+const XLSX = require('xlsx');
+
+const CAMPUS_IMPORT_ALIASES: Record<string, string> = {
+  fuct: 'fpt university can tho',
+};
 
 @Injectable()
 export class UsersService {
@@ -20,7 +29,472 @@ export class UsersService {
     private userModel: Model<User>,
     @InjectModel(Role.name)
     private roleModel: Model<Role>,
+    @InjectModel(Campus.name)
+    private campusModel: Model<Campus>,
   ) {}
+
+  private normalizeImportValue(value: any): string {
+    return String(value ?? '').trim().toLowerCase();
+  }
+
+  private parseBooleanValue(value: any, defaultValue = true): boolean {
+    if (typeof value === 'boolean') return value;
+
+    const normalized = String(value ?? '')
+      .trim()
+      .toLowerCase();
+
+    if (!normalized) return defaultValue;
+    if (['1', 'true', 'yes', 'y'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'n'].includes(normalized)) return false;
+
+    return defaultValue;
+  }
+
+  async generateImportTemplate(): Promise<Buffer> {
+    const sampleData = [
+      {
+        email: 'lecturer1@fpt.edu.vn',
+        fullName: 'Nguyen Van A',
+        roleCode: 'LECTURER',
+        campusCode: 'FUCT',
+        employeeId: 'EMP001',
+        studentId: '',
+        department: 'Information Technology',
+        phone: '0901234567',
+        isActive: 'true',
+      },
+      {
+        email: 'student1@fpt.edu.vn',
+        fullName: 'Tran Thi B',
+        roleCode: 'STUDENT',
+        campusCode: 'FPT University Can Tho',
+        employeeId: '',
+        studentId: 'SE182001',
+        department: 'Software Engineering',
+        phone: '0912345678',
+        isActive: 'true',
+      },
+    ];
+
+    const templateRows = [
+      ['Each row represents one user account. Fill left to right, then continue on next row.'],
+      ['Columns marked with * are required. campusCode supports FUCT = FPT University Can Tho.'],
+      [],
+      [
+        'email*',
+        'fullName*',
+        'roleCode*',
+        'campusCode*',
+        'employeeId',
+        'studentId',
+        'department',
+        'phone',
+        'isActive',
+      ],
+      ...sampleData.map((row) => [
+        row.email,
+        row.fullName,
+        row.roleCode,
+        row.campusCode,
+        row.employeeId,
+        row.studentId,
+        row.department,
+        row.phone,
+        row.isActive,
+      ]),
+    ];
+
+    const templateWorksheet = XLSX.utils.aoa_to_sheet(templateRows);
+    templateWorksheet['!cols'] = [
+      { wch: 28 },
+      { wch: 24 },
+      { wch: 16 },
+      { wch: 28 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 28 },
+      { wch: 14 },
+      { wch: 10 },
+    ];
+
+    const instructionRows = [
+      ['Field', 'Required', 'Description', 'Accepted Values / Example'],
+      ['email', 'Yes', 'Unique login email', 'lecturer1@fpt.edu.vn'],
+      ['fullName', 'Yes', 'Full name', 'Nguyen Van A'],
+      ['roleCode', 'Yes', 'Role code from system role list', 'LECTURER / STUDENT / TRAINING_OFFICER ...'],
+      [
+        'campusCode',
+        'Yes',
+        'Campus code or campus name',
+        'FUCT (mapped to FPT University Can Tho) or FPT University Can Tho',
+      ],
+      ['employeeId', 'No', 'Employee identifier', 'EMP001'],
+      ['studentId', 'No', 'Student identifier', 'SE182001'],
+      ['department', 'No', 'Department text', 'Information Technology'],
+      ['phone', 'No', 'Phone number (10 digits)', '0901234567'],
+      ['isActive', 'No', 'Activation state', 'true / false'],
+    ];
+
+    const instructionWorksheet = XLSX.utils.aoa_to_sheet(instructionRows);
+    instructionWorksheet['!cols'] = [{ wch: 16 }, { wch: 10 }, { wch: 32 }, { wch: 62 }];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, templateWorksheet, 'UserTemplate');
+    XLSX.utils.book_append_sheet(workbook, instructionWorksheet, 'Instructions');
+
+    return XLSX.write(workbook, {
+      type: 'buffer',
+      bookType: 'xlsx',
+    });
+  }
+
+  async importUsers(file: any, mode: 'dryRun' | 'strict' = 'strict'): Promise<any> {
+    const rawRows = await UserImportParserHelper.parse(file);
+
+    const requiredFields = ['email', 'fullname', 'rolecode', 'campuscode'];
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phoneRegex = /^[0-9]{10}$/;
+
+    const emails = [
+      ...new Set(
+        rawRows
+          .map((row) => String(row.email || '').trim())
+          .filter(Boolean)
+          .map((email) => email.toLowerCase()),
+      ),
+    ];
+
+    const employeeIds = [
+      ...new Set(
+        rawRows
+          .map((row) => String(row.employeeid || '').trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    const studentIds = [
+      ...new Set(
+        rawRows
+          .map((row) => String(row.studentid || '').trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    const [existingUsers, roles, campuses] = await Promise.all([
+      emails.length > 0 || employeeIds.length > 0 || studentIds.length > 0
+        ? this.userModel
+            .find({
+              $or: [
+                ...(emails.length > 0
+                  ? [
+                      {
+                        email: {
+                          $in: emails.map((email) => new RegExp(`^${email}$`, 'i')),
+                        },
+                      },
+                    ]
+                  : []),
+                ...(employeeIds.length > 0 ? [{ employeeId: { $in: employeeIds } }] : []),
+                ...(studentIds.length > 0 ? [{ studentId: { $in: studentIds } }] : []),
+              ],
+            })
+            .lean()
+            .exec()
+        : [],
+      this.roleModel.find({ isActive: true }).lean().exec(),
+      this.campusModel.find().lean().exec(),
+    ]);
+
+    const existingEmailSet = new Set(
+      existingUsers.map((user: any) => this.normalizeImportValue(user.email)),
+    );
+    const existingEmployeeIdSet = new Set(
+      existingUsers
+        .map((user: any) => String(user.employeeId || '').trim())
+        .filter(Boolean),
+    );
+    const existingStudentIdSet = new Set(
+      existingUsers
+        .map((user: any) => String(user.studentId || '').trim())
+        .filter(Boolean),
+    );
+
+    const roleCodeMap = new Map<string, any>();
+    const roleNameMap = new Map<string, any>();
+    roles.forEach((role: any) => {
+      const codeKey = this.normalizeImportValue(role.roleCode);
+      const nameKey = this.normalizeImportValue(role.roleName);
+      if (codeKey) roleCodeMap.set(codeKey, role);
+      if (nameKey) roleNameMap.set(nameKey, role);
+    });
+
+    const campusCodeMap = new Map<string, any>();
+    const campusNameMap = new Map<string, any>();
+    campuses.forEach((campus: any) => {
+      const codeKey = this.normalizeImportValue(campus.campusCode);
+      const nameKey = this.normalizeImportValue(campus.campusName);
+      if (codeKey) campusCodeMap.set(codeKey, campus);
+      if (nameKey) campusNameMap.set(nameKey, campus);
+    });
+
+    const errors: Array<{
+      rowIndex: number;
+      field: string;
+      code: string;
+      message: string;
+    }> = [];
+
+    const fileEmailSet = new Set<string>();
+    const fileEmployeeIdSet = new Set<string>();
+    const fileStudentIdSet = new Set<string>();
+    const validRows: any[] = [];
+
+    rawRows.forEach((row, index) => {
+      const rowIndex = typeof row.__rowNumber === 'number' ? row.__rowNumber : index + 2;
+
+      requiredFields.forEach((field) => {
+        if (!String(row[field] ?? '').trim()) {
+          errors.push({
+            rowIndex,
+            field,
+            code: 'REQUIRED',
+            message: `Field ${field} is required`,
+          });
+        }
+      });
+
+      const email = String(row.email || '').trim();
+      const fullName = String(row.fullname || '').trim();
+      const roleInput = this.normalizeImportValue(row.rolecode);
+      const campusInput = this.normalizeImportValue(row.campuscode);
+      const campusAlias = CAMPUS_IMPORT_ALIASES[campusInput];
+
+      const employeeId = String(row.employeeid || '').trim() || undefined;
+      const studentId = String(row.studentid || '').trim() || undefined;
+      const department = String(row.department || '').trim() || undefined;
+      const phone = String(row.phone || '').trim() || undefined;
+      const isActive = this.parseBooleanValue(row.isactive, true);
+
+      if (email) {
+        const emailKey = email.toLowerCase();
+
+        if (!emailRegex.test(email)) {
+          errors.push({
+            rowIndex,
+            field: 'email',
+            code: 'INVALID_FORMAT',
+            message: 'Email format is invalid',
+          });
+        }
+
+        if (fileEmailSet.has(emailKey)) {
+          errors.push({
+            rowIndex,
+            field: 'email',
+            code: 'DUPLICATE_IN_FILE',
+            message: `Duplicate email "${email}" in import file`,
+          });
+        } else {
+          fileEmailSet.add(emailKey);
+        }
+
+        if (existingEmailSet.has(emailKey)) {
+          errors.push({
+            rowIndex,
+            field: 'email',
+            code: 'ALREADY_EXISTS',
+            message: `Email "${email}" already exists`,
+          });
+        }
+      }
+
+      if (employeeId) {
+        if (fileEmployeeIdSet.has(employeeId)) {
+          errors.push({
+            rowIndex,
+            field: 'employeeId',
+            code: 'DUPLICATE_IN_FILE',
+            message: `Duplicate employeeId "${employeeId}" in import file`,
+          });
+        } else {
+          fileEmployeeIdSet.add(employeeId);
+        }
+
+        if (existingEmployeeIdSet.has(employeeId)) {
+          errors.push({
+            rowIndex,
+            field: 'employeeId',
+            code: 'ALREADY_EXISTS',
+            message: `employeeId "${employeeId}" already exists`,
+          });
+        }
+      }
+
+      if (studentId) {
+        if (fileStudentIdSet.has(studentId)) {
+          errors.push({
+            rowIndex,
+            field: 'studentId',
+            code: 'DUPLICATE_IN_FILE',
+            message: `Duplicate studentId "${studentId}" in import file`,
+          });
+        } else {
+          fileStudentIdSet.add(studentId);
+        }
+
+        if (existingStudentIdSet.has(studentId)) {
+          errors.push({
+            rowIndex,
+            field: 'studentId',
+            code: 'ALREADY_EXISTS',
+            message: `studentId "${studentId}" already exists`,
+          });
+        }
+      }
+
+      if (phone && !phoneRegex.test(phone)) {
+        errors.push({
+          rowIndex,
+          field: 'phone',
+          code: 'INVALID_FORMAT',
+          message: 'Phone number must contain exactly 10 digits',
+        });
+      }
+
+      const role = roleCodeMap.get(roleInput) || roleNameMap.get(roleInput);
+      if (roleInput && !role) {
+        errors.push({
+          rowIndex,
+          field: 'roleCode',
+          code: 'NOT_FOUND',
+          message: `Role "${row.rolecode}" not found. Use a valid roleCode (e.g., STUDENT, LECTURER).`,
+        });
+      }
+
+      const campus =
+        campusCodeMap.get(campusInput) ||
+        campusNameMap.get(campusInput) ||
+        (campusAlias ? campusNameMap.get(campusAlias) : null);
+
+      if (campusInput && !campus) {
+        errors.push({
+          rowIndex,
+          field: 'campusCode',
+          code: 'NOT_FOUND',
+          message:
+            `Campus "${row.campuscode}" not found. ` +
+            'Use campus code/name, or FUCT for FPT University Can Tho.',
+        });
+      }
+
+      const rowHasError = errors.some((error) => error.rowIndex === rowIndex);
+      if (!rowHasError && role && campus) {
+        validRows.push({
+          email,
+          fullName,
+          roleId: new Types.ObjectId(role._id),
+          campusId: new Types.ObjectId(campus._id),
+          employeeId,
+          studentId,
+          department,
+          phone,
+          googleId: null,
+          isActive,
+        });
+      }
+    });
+
+    const invalidRowSet = new Set(errors.map((error) => error.rowIndex));
+
+    if (mode === 'dryRun') {
+      return {
+        mode: 'dryRun',
+        inserted: 0,
+        total: rawRows.length,
+        failed: invalidRowSet.size,
+        errors,
+        preview: rawRows.map((row, index) => {
+          const rowIndex = typeof row.__rowNumber === 'number' ? row.__rowNumber : index + 2;
+          return {
+            rowIndex,
+            email: String(row.email || '').trim(),
+            fullName: String(row.fullname || '').trim(),
+            roleCode: String(row.rolecode || '').trim(),
+            campusCode: String(row.campuscode || '').trim(),
+            valid: !invalidRowSet.has(rowIndex),
+          };
+        }),
+        summary: {
+          total: rawRows.length,
+          valid: rawRows.length - invalidRowSet.size,
+          invalid: invalidRowSet.size,
+          inserted: 0,
+          failed: invalidRowSet.size,
+        },
+      };
+    }
+
+    if (errors.length > 0) {
+      const failedCount = invalidRowSet.size;
+      throw new BadRequestException({
+        message: 'Import data contains invalid rows',
+        errors,
+        total: rawRows.length,
+        inserted: 0,
+        failed: failedCount,
+        summary: {
+          total: rawRows.length,
+          inserted: 0,
+          failed: failedCount,
+        },
+      });
+    }
+
+    if (validRows.length === 0) {
+      throw new BadRequestException({
+        message: 'No valid rows to import',
+        errors: [],
+        total: rawRows.length,
+        inserted: 0,
+        failed: rawRows.length,
+        summary: {
+          total: rawRows.length,
+          inserted: 0,
+          failed: rawRows.length,
+        },
+      });
+    }
+
+    try {
+      const insertedRows = await this.userModel.insertMany(validRows, { ordered: false });
+
+      return {
+        mode: 'strict',
+        inserted: insertedRows.length,
+        total: rawRows.length,
+        failed: 0,
+        errors: [],
+        summary: {
+          total: rawRows.length,
+          inserted: insertedRows.length,
+          failed: 0,
+        },
+      };
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        throw new ConflictException({
+          message: 'Duplicate data found while importing users',
+          detail: 'Please check email/employeeId/studentId values in file and database',
+        });
+      }
+
+      throw new InternalServerErrorException({
+        message: 'Import users failed',
+        error: error?.message || 'Unknown error',
+      });
+    }
+  }
 
   /**
    * Create new user (admin creates user before they login)
