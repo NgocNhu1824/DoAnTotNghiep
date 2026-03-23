@@ -45,3 +45,33 @@ export interface UserStatistics {
     student?: number;
   };
 }
+
+export interface UserImportError {
+  rowIndex?: number;
+  field?: string;
+  code?: string;
+  message?: string;
+}
+
+export interface UserImportResult {
+  mode?: 'dryRun' | 'strict';
+  inserted: number;
+  total: number;
+  failed: number;
+  errors?: UserImportError[];
+  preview?: Array<{
+    rowIndex: number;
+    email: string;
+    fullName: string;
+    roleCode: string;
+    campusCode: string;
+    valid: boolean;
+  }>;
+  summary?: {
+    total: number;
+    valid?: number;
+    invalid?: number;
+    inserted: number;
+    failed: number;
+  };
+}

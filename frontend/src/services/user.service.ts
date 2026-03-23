@@ -5,6 +5,7 @@ import {
   UpdateUserDto,
   FilterUserDto,
   UserStatistics,
+  UserImportResult,
 } from '../types/user.types';
 
 export const userService = {
@@ -99,5 +100,32 @@ export const userService = {
       '/users/statistics'
     );
     return response.data;
+  },
+
+  importUsers: async (
+    file: File,
+    mode: 'dryRun' | 'strict' = 'strict',
+  ): Promise<UserImportResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('mode', mode);
+
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      data: UserImportResult;
+    }>('/users/import', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    return response?.data ?? (response as unknown as UserImportResult);
+  },
+
+  downloadImportTemplate: async (): Promise<Blob> => {
+    return await api.get<Blob>('/users/import/template', {
+      responseType: 'blob' as any,
+    });
   },
 };
