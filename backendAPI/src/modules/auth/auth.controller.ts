@@ -7,7 +7,6 @@ import {
   Req,
   Res,
   UseGuards,
-  HttpStatus,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -22,6 +21,8 @@ import { VerifyFaceIdDto } from './dto/verify-face-id.dto';
 import { StartFaceScanSessionDto } from './dto/start-face-scan-session.dto';
 import { SubmitFaceScanFrameDto } from './dto/submit-face-scan-frame.dto';
 import { CompleteFaceScanSessionDto } from './dto/complete-face-scan-session.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -146,6 +147,24 @@ export class AuthController {
     @Body() dto: SetPasswordDto,
   ) {
     return this.authService.setPassword(user._id.toString(), dto);
+  }
+
+  /**
+   * POST /api/auth/forgot-password
+   * Always returns generic success message to prevent email enumeration.
+   */
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  /**
+   * POST /api/auth/reset-password
+   * Reset password by one-time token from email link.
+   */
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 
   /**

@@ -7,6 +7,7 @@ import { PERMISSIONS } from '../utils/permissions';
 
 // Pages
 import LoginPage from '../pages/LoginPage';
+import ResetPasswordPage from '../pages/ResetPasswordPage';
 import AuthCallbackPage from '../pages/AuthCallbackPage';
 import PublicIncidentReportPage from '../pages/Public/PublicIncidentReportPage';
 import DashboardPage from '../pages/Admin/DashboardPage';
@@ -36,6 +37,7 @@ const AppRoutes: React.FC = () => {
         <Routes>
           {/* Public Routes */}
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="/incident-report/:roomId" element={<PublicIncidentReportPage />} />
           <Route path="/public/incident-report/:roomId" element={<PublicIncidentReportPage />} />

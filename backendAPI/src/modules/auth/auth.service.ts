@@ -5,21 +5,27 @@ import {
   BadRequestException,
   NotFoundException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
+import * as nodemailer from 'nodemailer';
 import { User } from '@/database/schemas/user.schema';
 import { Campus } from '@/database/schemas/campus.schema';
 import { Role } from '@/database/schemas/role.schema';
 import { Permission } from '@/database/schemas/permission.schema';
 import { RolePermission } from '@/database/schemas/role-permission.schema';
 import { FaceTemplate } from '@/database/schemas/face-template.schema';
+import { ResetPasswordToken } from '@/database/schemas/reset-password-token.schema';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { JwtPayload } from '@/common/interfaces/auth.interface';
 import { SetPasswordDto } from './dto/set-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 const DEV_EMBEDDING_DIMENSION = 128;
 const DEFAULT_VERIFY_SIMILARITY_THRESHOLD = 0.88;
@@ -117,6 +123,7 @@ type EmbeddingProviderResponse = {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly faceScanSessions = new Map<string, FaceScanSession>();
 
   constructor(
@@ -126,7 +133,10 @@ export class AuthService {
     @InjectModel(Permission.name) private permissionModel: Model<Permission>,
     @InjectModel(RolePermission.name) private rolePermissionModel: Model<RolePermission>,
     @InjectModel(FaceTemplate.name) private faceTemplateModel: Model<FaceTemplate>,
+    @InjectModel(ResetPasswordToken.name)
+    private resetPasswordTokenModel: Model<ResetPasswordToken>,
     private jwtService: JwtService,
+    private configService: ConfigService,
   ) {}
 
   /**
@@ -364,6 +374,161 @@ export class AuthService {
       success: true,
       message: 'Password has been set successfully',
     };
+  }
+
+  /**
+   * Create one-time reset token and send reset email.
+   * Always returns generic success message to prevent user enumeration.
+   */
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const genericResponse = {
+      success: true,
+      message:
+        'If this email exists in our system, a password reset link has been sent.',
+    };
+
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    const user = await this.userModel
+      .findOne({ email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') } })
+      .select('_id email fullName isActive')
+      .exec();
+
+    if (!user || !user.isActive) {
+      return genericResponse;
+    }
+
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = this.hashResetToken(rawToken);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    // Revoke all previous unused tokens for this user.
+    await this.resetPasswordTokenModel.updateMany(
+      { userId: user._id, used: false },
+      { $set: { used: true } },
+    );
+
+    await this.resetPasswordTokenModel.create({
+      userId: user._id,
+      tokenHash,
+      expiresAt,
+      used: false,
+    });
+
+    await this.sendResetPasswordEmail(user.email, user.fullName, rawToken, expiresAt);
+
+    return genericResponse;
+  }
+
+  /**
+   * Reset password by one-time token.
+   */
+  async resetPassword(dto: ResetPasswordDto) {
+    const { token, newPassword, confirmPassword } = dto;
+
+    if (newPassword !== confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    const tokenHash = this.hashResetToken(token);
+    const tokenDoc = await this.resetPasswordTokenModel
+      .findOne({
+        tokenHash,
+        used: false,
+        expiresAt: { $gt: new Date() },
+      })
+      .exec();
+
+    if (!tokenDoc) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    const user = await this.userModel
+      .findById(tokenDoc.userId)
+      .select('+passwordHash')
+      .exec();
+
+    if (!user || !user.isActive) {
+      tokenDoc.used = true;
+      await tokenDoc.save();
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    tokenDoc.used = true;
+    await tokenDoc.save();
+
+    return {
+      success: true,
+      message: 'Password has been reset successfully',
+    };
+  }
+
+  private hashResetToken(token: string): string {
+    const pepper = this.configService.get<string>('RESET_PASSWORD_TOKEN_PEPPER') || '';
+    return createHash('sha256')
+      .update(`${token}:${pepper}`)
+      .digest('hex');
+  }
+
+  private async sendResetPasswordEmail(
+    email: string,
+    fullName: string,
+    rawToken: string,
+    expiresAt: Date,
+  ) {
+    const host = this.configService.get<string>('MAIL_HOST');
+    const port = Number(this.configService.get<string>('MAIL_PORT') || '587');
+    const user = this.configService.get<string>('MAIL_USER');
+    const pass = this.configService.get<string>('MAIL_PASSWORD');
+    const from =
+      this.configService.get<string>('MAIL_FROM') ||
+      this.configService.get<string>('MAIL_USER') ||
+      'no-reply@example.com';
+
+    if (!host || !user || !pass) {
+      this.logger.warn('Missing MAIL_HOST/MAIL_USER/MAIL_PASSWORD. Skip reset password email.');
+      return;
+    }
+
+    const frontendUrl = (this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3001').replace(/\/$/, '');
+    const resetUrl = `${frontendUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass },
+    });
+
+    const expiredAtText = expiresAt.toLocaleString('vi-VN', { hour12: false });
+
+    try {
+      await transporter.sendMail({
+        from,
+        to: email,
+        subject: 'Password Reset Request',
+        text: [
+          `Hello ${fullName || 'user'},`,
+          '',
+          'We received a request to reset your password.',
+          `Reset link: ${resetUrl}`,
+          `This link expires at: ${expiredAtText}`,
+          '',
+          'If you did not request this, please ignore this email.',
+        ].join('\n'),
+        html: `
+          <p>Hello ${fullName || 'user'},</p>
+          <p>We received a request to reset your password.</p>
+          <p><a href="${resetUrl}">Click here to reset your password</a></p>
+          <p>This link expires at: <strong>${expiredAtText}</strong></p>
+          <p>If you did not request this, please ignore this email.</p>
+        `,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to send reset password email to ${email}: ${error.message}`);
+    }
   }
 
   /**
