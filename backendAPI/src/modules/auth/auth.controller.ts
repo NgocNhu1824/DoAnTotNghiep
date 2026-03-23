@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -23,6 +24,7 @@ import { SubmitFaceScanFrameDto } from './dto/submit-face-scan-frame.dto';
 import { CompleteFaceScanSessionDto } from './dto/complete-face-scan-session.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -124,6 +126,19 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   async getProfile(@CurrentUser() user: User) {
     return this.authService.getProfile(user._id.toString());
+  }
+
+  /**
+   * PUT /api/auth/profile
+   * Update current user profile
+   */
+  @Put('profile')
+  @UseGuards(JwtAuthGuard)
+  async updateProfile(
+    @CurrentUser() user: User,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.authService.updateProfile(user._id.toString(), dto);
   }
 
   /**

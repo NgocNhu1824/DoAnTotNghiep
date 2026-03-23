@@ -120,6 +120,7 @@ type EmbeddingProviderResponse = {
     faces?: Array<Record<string, unknown>>;
   };
 };
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class AuthService {
@@ -373,6 +374,60 @@ export class AuthService {
     return {
       success: true,
       message: 'Password has been set successfully',
+    };
+  }
+
+    /**
+     * Update current user's own profile fields.
+     */
+    async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const payload: Partial<UpdateProfileDto> = {};
+
+    if (typeof dto.fullName === 'string') {
+      const fullName = dto.fullName.trim();
+      if (!fullName) {
+        throw new BadRequestException('Full name cannot be empty');
+      }
+      payload.fullName = fullName;
+    }
+
+    if (typeof dto.phone === 'string') {
+      const phone = dto.phone.trim();
+      if (!phone) {
+        throw new BadRequestException('Phone cannot be empty');
+      }
+      payload.phone = phone;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      throw new BadRequestException('No fields to update');
+    }
+
+    const updatedUser = await this.userModel
+      .findOneAndUpdate(
+        { _id: userId, isActive: true },
+        payload,
+        { new: true, runValidators: true }
+      )
+      .select('-faceData -fingerprintData -googleId +passwordHash')
+      .populate('campusId', 'campusCode campusName')
+      .populate('roleId', 'roleName')
+      .exec();
+
+    if (!updatedUser) {
+      throw new NotFoundException('User not found or inactive');
+    }
+
+    const hasPassword = Boolean(updatedUser.passwordHash);
+
+    const user = updatedUser.toObject();
+    delete user.passwordHash;
+
+    return {
+      success: true,
+      message: 'Profile updated successfully',
+      data: user,
+      hasPassword,
     };
   }
 

@@ -1,5 +1,5 @@
 import apiService from './api.service';
-import { User, Campus, Permission, RoleDetails } from '../types/auth.types';
+import { User, Campus, Permission, RoleDetails, UpdateProfileDto } from '../types/auth.types';
 import { STORAGE_KEYS } from '../constants';
 
 class AuthService {
@@ -22,14 +22,14 @@ class AuthService {
   }
 
   async getCurrentUser(): Promise<{ user: User; roleDetails: RoleDetails | null; permissions: Permission[]; hasPassword: boolean }> {
-    const response = await apiService.get<{ 
-      success: boolean; 
+    const response = await apiService.get<{
+      success: boolean;
       data: User;
       roleDetails?: RoleDetails;
       permissions?: Permission[];
       hasPassword?: boolean;
     }>('/auth/profile');
-    
+
     return {
       user: response.data,
       roleDetails: response.roleDetails || null,
@@ -52,6 +52,20 @@ class AuthService {
     confirmPassword: string;
   }): Promise<{ success: boolean; message: string }> {
     return apiService.post('/auth/reset-password', payload);
+  }
+  async updateProfile(payload: UpdateProfileDto): Promise<{ user: User; hasPassword: boolean; message: string }> {
+    const response = await apiService.put<{
+      success: boolean;
+      message: string;
+      data: User;
+      hasPassword?: boolean;
+    }>('/auth/profile', payload);
+
+    return {
+      user: response.data,
+      hasPassword: Boolean(response.hasPassword),
+      message: response.message || 'Profile updated successfully',
+    };
   }
 
   async checkAuth(): Promise<boolean> {
