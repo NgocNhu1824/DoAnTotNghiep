@@ -26,6 +26,7 @@ import { JwtPayload } from '@/common/interfaces/auth.interface';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { LoginWithPasswordDto } from './dto/login-with-password.dto';
 
 const DEV_EMBEDDING_DIMENSION = 128;
 const DEFAULT_VERIFY_SIMILARITY_THRESHOLD = 0.88;
@@ -270,6 +271,105 @@ export class AuthService {
       },
       roleDetails,
       permissions,
+    };
+  }
+
+  /**
+   * Login user with email and password.
+   */
+  async loginWithPassword(dto: LoginWithPasswordDto): Promise<AuthResponseDto> {
+    const normalizedEmail = dto.email.trim().toLowerCase();
+
+    const user = await this.userModel
+      .findOne({ email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') } })
+      .select('+passwordHash')
+      .populate('campusId', 'campusCode campusName address')
+      .populate('roleId', 'roleCode roleLevel roleName canAccessWeb scope description')
+      .exec();
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (!user.isActive) {
+      throw new UnauthorizedException('Your account has been deactivated');
+    }
+
+    if (!user.passwordHash) {
+      throw new UnauthorizedException(
+        'This account has not set a password yet. Please sign in with Google first.',
+      );
+    }
+
+    const passwordMatched = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!passwordMatched) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    let roleDetails = null;
+    let permissions = [];
+    let permissionCodes = [];
+
+    if (user.roleId) {
+      const role = user.roleId as any;
+      roleDetails = {
+        id: role._id.toString(),
+        roleCode: role.roleCode,
+        roleName: role.roleName,
+        roleLevel: role.roleLevel,
+        scope: role.scope,
+        canAccessWeb: role.canAccessWeb || false,
+        description: role.description,
+      };
+
+      const rolePermissions = await this.rolePermissionModel
+        .find({ roleId: role._id })
+        .populate('permissionId')
+        .exec();
+
+      permissions = rolePermissions
+        .filter(rp => rp.permissionId)
+        .map(rp => {
+          const perm = rp.permissionId as any;
+          return {
+            id: perm._id.toString(),
+            permissionCode: perm.permissionCode,
+            permissionName: perm.permissionName,
+            resource: perm.resource,
+            action: perm.action,
+            description: perm.description,
+          };
+        });
+
+      permissionCodes = permissions.map(p => p.permissionName);
+    }
+
+    const payload: JwtPayload = {
+      sub: user._id.toString(),
+      email: user.email,
+      roleCode: roleDetails?.roleCode || 'STUDENT',
+      roleLevel: roleDetails?.roleLevel || 4,
+      roleScope: roleDetails?.scope || 'SELF',
+      campusId: user.campusId?._id?.toString() || null,
+      permissions: permissionCodes,
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+
+    return {
+      success: true,
+      accessToken,
+      user: {
+        id: user._id.toString(),
+        email: user.email,
+        fullName: user.fullName,
+        avatar: user.avatar,
+        roleId: user.roleId ? (user.roleId as any)._id.toString() : undefined,
+        campusId: user.campusId,
+      },
+      roleDetails,
+      permissions,
+      hasPassword: true,
     };
   }
 

@@ -1,10 +1,33 @@
 import apiService from './api.service';
-import { User, Campus, Permission, RoleDetails, UpdateProfileDto } from '../types/auth.types';
+import { User, Campus, Permission, RoleDetails, UpdateProfileDto, LoginResponse } from '../types/auth.types';
 import { STORAGE_KEYS } from '../constants';
 
 class AuthService {
   async getAllCampuses(): Promise<Campus[]> {
     return apiService.get('/campus');
+  }
+
+  async loginWithEmailPassword(payload: { email: string; password: string }): Promise<LoginResponse> {
+    const response = await apiService.post<{
+      success: boolean;
+      accessToken: string;
+      user: User & { id?: string };
+      roleDetails?: RoleDetails;
+      permissions?: Permission[];
+      hasPassword?: boolean;
+    }>('/auth/login', payload);
+
+    return {
+      success: response.success,
+      accessToken: response.accessToken,
+      user: {
+        ...response.user,
+        _id: response.user._id || response.user.id || '',
+      },
+      roleDetails: response.roleDetails || undefined,
+      permissions: response.permissions || [],
+      hasPassword: Boolean(response.hasPassword ?? true),
+    };
   }
 
   loginWithGoogle(campusId: string): void {

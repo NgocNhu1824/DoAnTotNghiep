@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, AlertCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -8,12 +9,19 @@ import { Alert, AlertDescription } from '../components/ui/alert';
 import { authService } from '../services/auth.service';
 import { Campus } from '../types/auth.types';
 import Loading from '../components/common/Loading';
+import { useAuth } from '../context/AuthContext';
+import { getDefaultDashboard } from '../constants/roles';
 
 const LoginPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { login } = useAuth();
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [selectedCampus, setSelectedCampus] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isPasswordSubmitting, setIsPasswordSubmitting] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetSuccess, setResetSuccess] = useState(false);
@@ -54,6 +62,46 @@ const LoginPage: React.FC = () => {
       return;
     }
     authService.loginWithGoogle(selectedCampus);
+  };
+
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!email.trim() || !password) {
+      setError('Please enter both email and password');
+      return;
+    }
+
+    try {
+      setIsPasswordSubmitting(true);
+      setError('');
+
+      const result = await authService.loginWithEmailPassword({
+        email: email.trim(),
+        password,
+      });
+
+      login(
+        result.accessToken,
+        result.user,
+        result.roleDetails,
+        result.permissions || [],
+        Boolean(result.hasPassword ?? true),
+      );
+
+      const defaultRoute = getDefaultDashboard(
+        result.roleDetails?.roleName || 'unknown',
+        result.roleDetails?.scope,
+        result.roleDetails?.roleCode,
+      );
+      navigate(defaultRoute, { replace: true });
+    } catch (err: any) {
+      const rawMessage = err?.message;
+      const message = Array.isArray(rawMessage) ? rawMessage[0] : rawMessage;
+      setError(message || 'Unable to sign in with email and password.');
+    } finally {
+      setIsPasswordSubmitting(false);
+    }
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
@@ -172,7 +220,48 @@ const LoginPage: React.FC = () => {
           </Alert>
         )}
 
-        <form className="space-y-6">
+        <form className="space-y-6" onSubmit={handlePasswordLogin}>
+          <div>
+            <Label htmlFor="email">Email Address</Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="your.email@fpt.edu.vn"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-2 border-gray-300"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mt-2 border-gray-300"
+            />
+          </div>
+
+          <Button
+            type="submit"
+            disabled={isPasswordSubmitting}
+            className="w-full bg-[#0066cc] hover:bg-[#005bb8]"
+          >
+            {isPasswordSubmitting ? 'Signing in...' : 'Sign in with Email'}
+          </Button>
+
+          <div className="relative my-2">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-4 bg-white text-gray-500">or continue with Google</span>
+            </div>
+          </div>
+
           <div>
             <Label htmlFor="campus">Select Campus</Label>
             <div className="relative mt-2">
@@ -244,7 +333,7 @@ const LoginPage: React.FC = () => {
               <div className="w-full border-t border-gray-300"></div>
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-4 bg-white text-gray-500">or contact</span>
+              <span className="px-4 bg-white text-gray-500">Need help?</span>
             </div>
           </div>
 

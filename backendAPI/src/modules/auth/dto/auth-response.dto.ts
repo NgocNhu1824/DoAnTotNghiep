@@ -1,6 +1,7 @@
 export class AuthResponseDto {
   success: boolean;
   accessToken: string;
+  hasPassword?: boolean;
   user: {
     id: string;
     email: string;

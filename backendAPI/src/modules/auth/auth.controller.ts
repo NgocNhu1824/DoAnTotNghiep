@@ -25,6 +25,7 @@ import { CompleteFaceScanSessionDto } from './dto/complete-face-scan-session.dto
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { LoginWithPasswordDto } from './dto/login-with-password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -32,6 +33,15 @@ export class AuthController {
     private authService: AuthService,
     private configService: ConfigService,
   ) { }
+
+  /**
+   * POST /api/auth/login
+   * Login with email and password
+   */
+  @Post('login')
+  async loginWithPassword(@Body() dto: LoginWithPasswordDto) {
+    return this.authService.loginWithPassword(dto);
+  }
 
   /**
    * GET /api/auth/google/login?campusId=xxx
