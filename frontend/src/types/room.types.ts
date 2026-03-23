@@ -56,3 +56,36 @@ export interface RoomStatistics {
   unavailable: number;
   maintain: number;
 }
+
+export interface RoomImportError {
+  rowIndex?: number;
+  field?: string;
+  code?: string;
+  message?: string;
+}
+
+export interface RoomImportResult {
+  mode?: 'dryRun' | 'strict';
+  inserted: number;
+  total: number;
+  failed: number;
+  errors?: RoomImportError[];
+  preview?: Array<{
+    rowIndex: number;
+    roomCode: string;
+    roomName: string;
+    building: string;
+    floor: string;
+    capacity: string;
+    roomType: string;
+    campusCode: string;
+    valid: boolean;
+  }>;
+  summary?: {
+    total: number;
+    valid?: number;
+    invalid?: number;
+    inserted: number;
+    failed: number;
+  };
+}
