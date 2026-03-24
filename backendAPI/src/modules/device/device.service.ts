@@ -6,9 +6,7 @@ import { CreateDeviceDto, UpdateDeviceDto } from './dto';
 
 @Injectable()
 export class DeviceService {
-  constructor(
-    @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
-  ) {}
+  constructor(@InjectModel(Device.name) private deviceModel: Model<DeviceDocument>) {}
 
   async create(dto: CreateDeviceDto): Promise<Device> {
     const existing = await this.deviceModel.findOne({ deviceCode: dto.deviceCode });

@@ -177,15 +177,15 @@ export class UsersService {
       if (!Types.ObjectId.isValid(updateUserDto.campusId)) {
         throw new BadRequestException('Invalid campus ID');
       }
-      (updateUserDto as any).campusId = new Types.ObjectId(
-        updateUserDto.campusId,
-      );
+      (updateUserDto as any).campusId = new Types.ObjectId(updateUserDto.campusId);
     }
 
     const updatedUser = await this.userModel
       .findByIdAndUpdate(id, updateUserDto, { new: true })
       .select('-faceData -fingerprintData -googleId')
-      .populate('campusId', 'campusCode campusName address')      .populate('roleId', 'roleName roleCode roleLevel')      .exec();
+      .populate('campusId', 'campusCode campusName address')
+      .populate('roleId', 'roleName roleCode roleLevel')
+      .exec();
 
     if (!updatedUser) {
       throw new NotFoundException(`User not found with ID: ${id}`);
@@ -267,7 +267,7 @@ export class UsersService {
    */
   async getStatistics(campusFilter: any = {}) {
     const filter = { ...campusFilter };
-    
+
     const total = await this.userModel.countDocuments(filter);
     const active = await this.userModel.countDocuments({ ...filter, isActive: true });
     const inactive = await this.userModel.countDocuments({ ...filter, isActive: false });

@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { EventsGateway } from '@/common/gateways/events.gateway';
@@ -129,10 +125,7 @@ export class IncidentsService {
     };
   }
 
-  async findAllForManagement(
-    query: QueryIncidentsDto,
-    campusFilter: any,
-  ): Promise<any[]> {
+  async findAllForManagement(query: QueryIncidentsDto, campusFilter: any): Promise<any[]> {
     const filter: any = {};
 
     const campusId = this.getCampusIdFromFilter(campusFilter);
@@ -267,11 +260,7 @@ export class IncidentsService {
     };
   }
 
-  private async findIncidentWithAccess(
-    id: string,
-    campusFilter: any,
-    lean = true,
-  ): Promise<any> {
+  private async findIncidentWithAccess(id: string, campusFilter: any, lean = true): Promise<any> {
     const campusId = this.getCampusIdFromFilter(campusFilter);
 
     const filter: any = { _id: new Types.ObjectId(id) };

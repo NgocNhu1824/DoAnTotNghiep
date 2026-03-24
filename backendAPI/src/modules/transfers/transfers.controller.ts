@@ -111,11 +111,7 @@ export class TransfersController {
   // Từ chối transfer
   @Patch(':id/reject')
   @RequirePermissions('transfers.reject')
-  async reject(
-    @Param('id') id: string,
-    @Body('reason') reason: string,
-    @CurrentUser() user: any,
-  ) {
+  async reject(@Param('id') id: string, @Body('reason') reason: string, @CurrentUser() user: any) {
     const result = await this.transfersService.reject(id, reason, user);
     return { success: true, data: result };
   }

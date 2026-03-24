@@ -29,11 +29,7 @@ export class ScheduleService {
     private readonly userModel: Model<User>,
   ) {}
 
-  async importSchedules(
-    file: any,
-    mode: 'dryRun' | 'strict' | 'lenient',
-    user: any,
-  ): Promise<any> {
+  async importSchedules(file: any, mode: 'dryRun' | 'strict' | 'lenient', user: any): Promise<any> {
     const rawRows = await CsvParserHelper.parse(file);
     const formatErrors = ImportValidatorHelper.validateFormat(rawRows);
 
@@ -62,9 +58,7 @@ export class ScheduleService {
     const mappedRows = rawRows.map((row, index) => {
       const rowIndex = index + 1;
 
-      const room = rooms.find(
-        (r) => r.roomCode.toLowerCase() === row.roomcode?.toLowerCase(),
-      );
+      const room = rooms.find((r) => r.roomCode.toLowerCase() === row.roomcode?.toLowerCase());
 
       if (!room && row.roomcode) {
         errors.push({
@@ -108,7 +102,7 @@ export class ScheduleService {
       if (dateStart) {
         try {
           dayOfWeek = ConflictDetectorHelper.calculateDayOfWeek(dateStart);
-          
+
           if (row.dayofweek) {
             const csvDayOfWeek = Number(row.dayofweek);
             if (csvDayOfWeek !== dayOfWeek) {
@@ -156,9 +150,7 @@ export class ScheduleService {
     const duplicateErrors = ConflictDetectorHelper.findDuplicatesInFile(mappedRows);
     errors.push(...duplicateErrors);
 
-    const validDates = mappedRows
-      .filter((r) => r.dateStart)
-      .map((r) => r.dateStart);
+    const validDates = mappedRows.filter((r) => r.dateStart).map((r) => r.dateStart);
 
     const existingSchedules =
       validDates.length > 0
@@ -174,10 +166,7 @@ export class ScheduleService {
             .exec()
         : [];
 
-    const conflictErrors = ConflictDetectorHelper.detectConflicts(
-      mappedRows,
-      existingSchedules,
-    );
+    const conflictErrors = ConflictDetectorHelper.detectConflicts(mappedRows, existingSchedules);
     errors.push(...conflictErrors);
 
     if (mode === 'dryRun') {
@@ -195,15 +184,14 @@ export class ScheduleService {
         errors,
         summary: {
           total: rawRows.length,
-          valid: mappedRows.filter((r, i) => !errors.find((e) => e.rowIndex === i + 1))
-            .length,
+          valid: mappedRows.filter((r, i) => !errors.find((e) => e.rowIndex === i + 1)).length,
           invalid: errors.length,
         },
       };
     }
 
     if (mode === 'strict' && errors.length > 0) {
-      const failedCount = new Set(errors.map(e => e.rowIndex)).size;
+      const failedCount = new Set(errors.map((e) => e.rowIndex)).size;
       throw new BadRequestException({
         message: 'Import data contains errors',
         errors,
@@ -225,7 +213,7 @@ export class ScheduleService {
     });
 
     if (validRows.length === 0) {
-      const failedCount = new Set(errors.map(e => e.rowIndex)).size;
+      const failedCount = new Set(errors.map((e) => e.rowIndex)).size;
       throw new BadRequestException({
         message: 'No valid rows to import',
         errors,
@@ -245,7 +233,7 @@ export class ScheduleService {
         ordered: false,
       });
 
-      const failedCount = new Set(errors.map(e => e.rowIndex)).size;
+      const failedCount = new Set(errors.map((e) => e.rowIndex)).size;
       return {
         success: true,
         mode,
@@ -274,11 +262,7 @@ export class ScheduleService {
     }
   }
 
-  async update(
-    id: string,
-    dto: UpdateScheduleDto,
-    user: any,
-  ): Promise<Schedule> {
+  async update(id: string, dto: UpdateScheduleDto, user: any): Promise<Schedule> {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid schedule ID');
     }
@@ -331,10 +315,7 @@ export class ScheduleService {
         .lean()
         .exec();
 
-      const conflicts = ConflictDetectorHelper.detectConflicts(
-        [testSchedule],
-        existingSchedules,
-      );
+      const conflicts = ConflictDetectorHelper.detectConflicts([testSchedule], existingSchedules);
 
       if (conflicts.length > 0) {
         throw new ConflictException({

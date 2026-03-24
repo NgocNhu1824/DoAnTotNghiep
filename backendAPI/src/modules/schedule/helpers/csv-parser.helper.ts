@@ -28,48 +28,48 @@ export class CsvParserHelper {
   private static parseCsv(buffer: Buffer, resolve: Function, reject: Function) {
     const content = buffer.toString('utf-8');
 
-      if (!content.trim()) {
-        reject(new BadRequestException('File is empty'));
-        return;
-      }
+    if (!content.trim()) {
+      reject(new BadRequestException('File is empty'));
+      return;
+    }
 
-      const seenHeaders = new Set<string>();
+    const seenHeaders = new Set<string>();
 
-      Papa.parse(content, {
-        header: true,
-        skipEmptyLines: true,
-        transformHeader: (header: string) => {
-          const normalized = header
-            .toLowerCase()
-            .trim()
-            .replace(/[\s_-]/g, '');
+    Papa.parse(content, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header: string) => {
+        const normalized = header
+          .toLowerCase()
+          .trim()
+          .replace(/[\s_-]/g, '');
 
-          if (seenHeaders.has(normalized)) {
-            throw new Error(`Duplicate header detected: "${header}" (normalized: "${normalized}")`);
-          }
-          seenHeaders.add(normalized);
+        if (seenHeaders.has(normalized)) {
+          throw new Error(`Duplicate header detected: "${header}" (normalized: "${normalized}")`);
+        }
+        seenHeaders.add(normalized);
 
-          return normalized;
-        },
-        complete: (results) => {
-          if (!results.data || results.data.length === 0) {
-            reject(new BadRequestException('No data rows found in CSV'));
-            return;
-          }
+        return normalized;
+      },
+      complete: (results) => {
+        if (!results.data || results.data.length === 0) {
+          reject(new BadRequestException('No data rows found in CSV'));
+          return;
+        }
 
-          resolve(results.data);
-        },
-        error: (error) => {
-          reject(new BadRequestException(`CSV parse error: ${error.message}`));
-        },
-      });
+        resolve(results.data);
+      },
+      error: (error) => {
+        reject(new BadRequestException(`CSV parse error: ${error.message}`));
+      },
+    });
   }
 
   private static parseExcel(buffer: Buffer, resolve: Function, reject: Function) {
     try {
       const workbook = XLSX.read(buffer, { type: 'buffer' });
       const sheetName = workbook.SheetNames[0];
-      
+
       if (!sheetName) {
         reject(new BadRequestException('No sheets found in Excel file'));
         return;
@@ -79,14 +79,16 @@ export class CsvParserHelper {
       const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
       if (!rawData || rawData.length < 2) {
-        reject(new BadRequestException('Excel file must contain headers and at least one data row'));
+        reject(
+          new BadRequestException('Excel file must contain headers and at least one data row'),
+        );
         return;
       }
 
       const headers = rawData[0] as string[];
       const seenHeaders = new Set<string>();
-      
-      const normalizedHeaders = headers.map(h => {
+
+      const normalizedHeaders = headers.map((h) => {
         const normalized = String(h || '')
           .toLowerCase()
           .trim()
@@ -103,12 +105,12 @@ export class CsvParserHelper {
       const data = [];
       for (let i = 1; i < rawData.length; i++) {
         const row = rawData[i] as any[];
-        if (row.every(cell => !cell && cell !== 0)) continue;
+        if (row.every((cell) => !cell && cell !== 0)) continue;
 
         const obj: any = {};
         normalizedHeaders.forEach((header, idx) => {
           const cellValue = row[idx];
-          
+
           if (header === 'datestart' && typeof cellValue === 'number') {
             // Convert Excel serial date to YYYY-MM-DD string
             const excelEpoch = new Date(1899, 11, 30);
@@ -117,14 +119,20 @@ export class CsvParserHelper {
             const month = String(jsDate.getMonth() + 1).padStart(2, '0');
             const day = String(jsDate.getDate()).padStart(2, '0');
             obj[header] = `${year}-${month}-${day}`;
-          }
-          else if ((header === 'starttime' || header === 'endtime') && typeof cellValue === 'number' && cellValue < 1) {
+          } else if (
+            (header === 'starttime' || header === 'endtime') &&
+            typeof cellValue === 'number' &&
+            cellValue < 1
+          ) {
             const totalMinutes = Math.round(cellValue * 24 * 60);
             const hours = Math.floor(totalMinutes / 60);
             const minutes = totalMinutes % 60;
             obj[header] = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-          }
-          else if ((header === 'starttime' || header === 'endtime') && typeof cellValue === 'string' && cellValue.includes(':')) {
+          } else if (
+            (header === 'starttime' || header === 'endtime') &&
+            typeof cellValue === 'string' &&
+            cellValue.includes(':')
+          ) {
             const parts = cellValue.split(':');
             if (parts.length === 2) {
               const hours = parts[0].trim().padStart(2, '0');
@@ -133,9 +141,9 @@ export class CsvParserHelper {
             } else {
               obj[header] = String(cellValue).trim();
             }
-          }
-          else {
-            obj[header] = cellValue !== undefined && cellValue !== null ? String(cellValue).trim() : '';
+          } else {
+            obj[header] =
+              cellValue !== undefined && cellValue !== null ? String(cellValue).trim() : '';
           }
         });
         data.push(obj);

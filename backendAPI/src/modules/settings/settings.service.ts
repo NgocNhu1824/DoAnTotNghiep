@@ -225,7 +225,11 @@ export class SettingsService {
     await this.invalidateSettingCache(key, campusId);
   }
 
-  async getEffectiveByKey(key: string, campusId: string | undefined, currentUser: any): Promise<any> {
+  async getEffectiveByKey(
+    key: string,
+    campusId: string | undefined,
+    currentUser: any,
+  ): Promise<any> {
     const normalizedKey = this.normalizeKey(key);
     const requestedCampus = this.normalizeCampusInput(campusId);
 
@@ -258,9 +262,7 @@ export class SettingsService {
       return cached;
     }
 
-    const campusSetting = campusId
-      ? await this.getActiveSettingByScope(key, campusId)
-      : null;
+    const campusSetting = campusId ? await this.getActiveSettingByScope(key, campusId) : null;
 
     const globalSetting = await this.getActiveSettingByScope(key, null);
 
@@ -334,9 +336,7 @@ export class SettingsService {
   }
 
   private getDefaultSettingValue(key: string): unknown {
-    const maxOverdueMinutes = Number(
-      this.configService.get<string>('MAX_OVERDUE_MINUTES') || 15,
-    );
+    const maxOverdueMinutes = Number(this.configService.get<string>('MAX_OVERDUE_MINUTES') || 15);
     const autoUnlockBeforeClass = Number(
       this.configService.get<string>('AUTO_UNLOCK_BEFORE_CLASS') || 5,
     );

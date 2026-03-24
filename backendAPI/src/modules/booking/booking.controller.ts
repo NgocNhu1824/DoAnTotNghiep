@@ -94,11 +94,7 @@ export class BookingController {
   @Get('self')
   @RequirePermissions('bookings.read')
   @RequireScopes('SELF')
-  async findSelf(
-    @Query() query: QueryBookingDto,
-    @CurrentUser() user: any,
-    @Req() request: any,
-  ) {
+  async findSelf(@Query() query: QueryBookingDto, @CurrentUser() user: any, @Req() request: any) {
     const data = await this.bookingService.findSelf(query, user, request.campusFilter);
     return {
       success: true,
@@ -127,11 +123,7 @@ export class BookingController {
   @Post()
   @RequirePermissions('bookings.manage')
   @RequireScopes('CAMPUS', 'GLOBAL')
-  async create(
-    @Body() dto: CreateBookingDto,
-    @CurrentUser() user: any,
-    @Req() request: any,
-  ) {
+  async create(@Body() dto: CreateBookingDto, @CurrentUser() user: any, @Req() request: any) {
     const data = await this.bookingService.create(dto, user, request.campusFilter);
     return {
       success: true,
@@ -143,11 +135,7 @@ export class BookingController {
   @Get()
   @RequirePermissions('bookings.manage')
   @RequireScopes('CAMPUS', 'GLOBAL')
-  async findAll(
-    @Query() query: QueryBookingDto,
-    @CurrentUser() user: any,
-    @Req() request: any,
-  ) {
+  async findAll(@Query() query: QueryBookingDto, @CurrentUser() user: any, @Req() request: any) {
     const data = await this.bookingService.findAll(query, user, request.campusFilter);
     return {
       success: true,

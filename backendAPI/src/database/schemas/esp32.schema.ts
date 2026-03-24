@@ -26,10 +26,40 @@ export class ESP32 {
   lastHeartbeat: Date;
 
   @Prop({
-    type: [{
-      id: { type: String, required: true },
-      connected: { type: Boolean, required: true },
-    }],
+    default: null,
+  })
+  lastSyncAt: Date;
+
+  @Prop({
+    default: null,
+  })
+  gatewayId?: string;
+
+  @Prop({
+    type: [
+      {
+        pin: { type: Number, required: true },
+        name: { type: String, required: true },
+        type: { type: String, default: 'relay' },
+        state: { type: Number, enum: [0, 1], default: 0 },
+      },
+    ],
+    default: [],
+  })
+  devices: {
+    pin: number;
+    name: string;
+    type: string;
+    state: 0 | 1;
+  }[];
+
+  @Prop({
+    type: [
+      {
+        id: { type: String, required: true },
+        connected: { type: Boolean, required: true },
+      },
+    ],
     default: [],
   })
   solenoids: { id: string; connected: boolean }[];

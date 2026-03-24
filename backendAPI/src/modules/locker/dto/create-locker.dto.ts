@@ -22,8 +22,20 @@ export class CreateLockerDto {
   deviceId?: string;
 
   @IsOptional()
+  @IsNumber()
+  controlPin?: number;
+
+  @IsOptional()
   @IsMongoId()
   campusId?: string | null;
+
+  @IsOptional()
+  @IsMongoId()
+  roomId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  roomName?: string;
 
   @IsOptional()
   @IsEnum(LockerStatus)

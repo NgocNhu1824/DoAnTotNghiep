@@ -5,9 +5,7 @@ import { Campus } from '@/database/schemas/campus.schema';
 
 @Injectable()
 export class CampusService {
-  constructor(
-    @InjectModel(Campus.name) private campusModel: Model<Campus>,
-  ) {}
+  constructor(@InjectModel(Campus.name) private campusModel: Model<Campus>) {}
 
   /**
    * Get all active campuses

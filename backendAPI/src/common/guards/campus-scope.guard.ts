@@ -4,7 +4,7 @@ import { AppConfig } from '../../config/app.config';
 /**
  * CampusScopeGuard
  * Automatically filters data by campusId based on user role
- * 
+ *
  * - Super Admin (Phase 1): Filtered to Can Tho only
  * - Super Admin (Phase 3): No filter (see all campuses)
  * - Campus-scoped roles: Auto-inject campusId filter

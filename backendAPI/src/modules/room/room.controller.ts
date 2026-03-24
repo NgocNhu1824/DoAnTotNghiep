@@ -1,11 +1,11 @@
-import { 
-  Controller, 
-  Get, 
-  Post, 
-  Body, 
-  Patch, 
-  Param, 
-  Delete, 
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
   Query,
   HttpCode,
   HttpStatus,
@@ -70,19 +70,13 @@ export class RoomController {
 
   @Patch(':id')
   @RequirePermissions('rooms.update')
-  async update(
-    @Param('id') id: string, 
-    @Body() updateRoomDto: UpdateRoomDto
-  ) {
+  async update(@Param('id') id: string, @Body() updateRoomDto: UpdateRoomDto) {
     return await this.roomService.update(id, updateRoomDto);
   }
 
   @Patch(':id/status')
   @RequirePermissions('rooms.update')
-  async updateStatus(
-    @Param('id') id: string,
-    @Body('status') status: string,
-  ) {
+  async updateStatus(@Param('id') id: string, @Body('status') status: string) {
     return await this.roomService.updateStatus(id, status);
   }
 

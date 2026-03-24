@@ -339,10 +339,7 @@ export class RolesService {
   /**
    * Assign permissions to role
    */
-  private async assignPermissions(
-    roleId: string,
-    permissionIds: string[],
-  ): Promise<void> {
+  private async assignPermissions(roleId: string, permissionIds: string[]): Promise<void> {
     const rolePermissions = permissionIds.map((permissionId) => ({
       roleId: new Types.ObjectId(roleId),
       permissionId: new Types.ObjectId(permissionId),

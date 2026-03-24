@@ -24,8 +24,18 @@ const LockerIoTStatus: React.FC<LockerIoTStatusProps> = ({ deviceEsp32 }) => {
     const fetchIoTStatus = async () => {
       try {
         const response = await apiService.getIoTStatus(deviceEsp32);
-        setSolenoids(response.solenoids);
-        setRoomMapping(response.roomMapping);
+        const payload = response?.data ?? response;
+        const mappedSolenoids = Array.isArray(payload?.devices)
+          ? payload.devices.map((device: any) => ({
+              id: String(device.pin),
+              connected: Number(device.state) === 1,
+            }))
+          : Array.isArray(payload?.solenoids)
+            ? payload.solenoids
+            : [];
+
+        setSolenoids(mappedSolenoids);
+        setRoomMapping(payload?.roomMapping ?? null);
       } catch (error) {
         console.error('Failed to fetch IoT status:', error);
       } finally {

@@ -1,9 +1,4 @@
-import {
-  CallHandler,
-  ExecutionContext,
-  Injectable,
-  NestInterceptor,
-} from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { AuditLogsService } from '@/modules/audit-logs/audit-logs.service';
@@ -26,12 +21,7 @@ export class AuditLogInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const action =
-      method === 'POST'
-        ? 'CREATE'
-        : method === 'DELETE'
-          ? 'DELETE'
-          : 'UPDATE';
+    const action = method === 'POST' ? 'CREATE' : method === 'DELETE' ? 'DELETE' : 'UPDATE';
 
     const user = request?.user || {};
     const userId = user?.sub || user?._id || 'anonymous';

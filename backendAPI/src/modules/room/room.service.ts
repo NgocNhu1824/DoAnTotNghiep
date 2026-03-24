@@ -6,16 +6,14 @@ import { CreateRoomDto, UpdateRoomDto } from './dto';
 
 @Injectable()
 export class RoomService {
-  constructor(
-    @InjectModel(Room.name) private roomModel: Model<RoomDocument>,
-  ) {}
+  constructor(@InjectModel(Room.name) private roomModel: Model<RoomDocument>) {}
 
   async create(createRoomDto: CreateRoomDto): Promise<Room> {
     try {
-      const existingRoom = await this.roomModel.findOne({ 
-        roomCode: createRoomDto.roomCode 
+      const existingRoom = await this.roomModel.findOne({
+        roomCode: createRoomDto.roomCode,
       });
-      
+
       if (existingRoom) {
         throw new ConflictException('Room code already exists');
       }
@@ -24,7 +22,7 @@ export class RoomService {
         ...createRoomDto,
         campusId: new Types.ObjectId(createRoomDto.campusId),
       });
-      
+
       return await room.save();
     } catch (error) {
       throw error;
@@ -33,27 +31,27 @@ export class RoomService {
 
   async findAll(query?: any): Promise<Room[]> {
     const filter: any = {};
-    
+
     if (query?.campusId) {
       filter.campusId = new Types.ObjectId(query.campusId);
     }
-    
+
     if (query?.status) {
       filter.status = query.status;
     }
-    
+
     if (query?.building) {
       filter.building = query.building;
     }
-    
+
     if (query?.floor) {
       filter.floor = parseInt(query.floor);
     }
-    
+
     if (query?.roomType) {
       filter.roomType = query.roomType;
     }
-    
+
     if (query?.isActive !== undefined) {
       filter.isActive = query.isActive === 'true';
     }
@@ -71,16 +69,12 @@ export class RoomService {
       throw new NotFoundException('Invalid room ID');
     }
 
-    const room = await this.roomModel
-      .findById(id)
-      .populate('campusId')
-      .populate('devices')
-      .exec();
-    
+    const room = await this.roomModel.findById(id).populate('campusId').populate('devices').exec();
+
     if (!room) {
       throw new NotFoundException('Room not found');
     }
-    
+
     return room;
   }
 
@@ -90,11 +84,11 @@ export class RoomService {
       .populate('campusId')
       .populate('devices')
       .exec();
-    
+
     if (!room) {
       throw new NotFoundException('Room not found');
     }
-    
+
     return room;
   }
 
@@ -108,7 +102,7 @@ export class RoomService {
         roomCode: updateRoomDto.roomCode,
         _id: { $ne: id },
       });
-      
+
       if (existingRoom) {
         throw new ConflictException('Room code already exists');
       }
@@ -125,11 +119,11 @@ export class RoomService {
       .populate('campusId')
       .populate('devices')
       .exec();
-    
+
     if (!room) {
       throw new NotFoundException('Room not found');
     }
-    
+
     return room;
   }
 
@@ -139,11 +133,11 @@ export class RoomService {
     }
 
     const room = await this.roomModel.findByIdAndDelete(id).exec();
-    
+
     if (!room) {
       throw new NotFoundException('Room not found');
     }
-    
+
     return { message: 'Room deleted successfully' };
   }
 
@@ -162,17 +156,17 @@ export class RoomService {
       .populate('campusId')
       .populate('devices')
       .exec();
-    
+
     if (!room) {
       throw new NotFoundException('Room not found');
     }
-    
+
     return room;
   }
 
   async getAvailableRooms(campusId?: string): Promise<Room[]> {
     const filter: any = { status: 'available', isActive: true };
-    
+
     if (campusId) {
       filter.campusId = new Types.ObjectId(campusId);
     }
@@ -187,7 +181,7 @@ export class RoomService {
 
   async getRoomsByBuilding(building: string, campusId?: string): Promise<Room[]> {
     const filter: any = { building };
-    
+
     if (campusId) {
       filter.campusId = new Types.ObjectId(campusId);
     }
@@ -202,7 +196,7 @@ export class RoomService {
 
   async getRoomStatistics(campusId?: string): Promise<any> {
     const filter: any = {};
-    
+
     if (campusId) {
       filter.campusId = new Types.ObjectId(campusId);
     }

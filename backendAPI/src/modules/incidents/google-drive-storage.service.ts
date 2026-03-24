@@ -36,8 +36,7 @@ export class GoogleDriveStorageService {
 
   constructor(private readonly configService: ConfigService) {
     this.folderId = this.configService.get<string>('GDRIVE_INCIDENTS_FOLDER_ID') || '';
-    this.credentialsPath =
-      this.configService.get<string>('GOOGLE_APPLICATION_CREDENTIALS') || '';
+    this.credentialsPath = this.configService.get<string>('GOOGLE_APPLICATION_CREDENTIALS') || '';
     this.oauthClientId =
       this.configService.get<string>('GDRIVE_OAUTH_CLIENT_ID') ||
       this.configService.get<string>('GOOGLE_CLIENT_ID') ||
@@ -46,8 +45,7 @@ export class GoogleDriveStorageService {
       this.configService.get<string>('GDRIVE_OAUTH_CLIENT_SECRET') ||
       this.configService.get<string>('GOOGLE_CLIENT_SECRET') ||
       '';
-    this.oauthRefreshToken =
-      this.configService.get<string>('GDRIVE_OAUTH_REFRESH_TOKEN') || '';
+    this.oauthRefreshToken = this.configService.get<string>('GDRIVE_OAUTH_REFRESH_TOKEN') || '';
 
     const hasServiceAccount = Boolean(this.credentialsPath);
     const hasOAuth = Boolean(
@@ -70,10 +68,7 @@ export class GoogleDriveStorageService {
       );
 
       if (hasOAuth) {
-        const oauthClient = new google.auth.OAuth2(
-          this.oauthClientId,
-          this.oauthClientSecret,
-        );
+        const oauthClient = new google.auth.OAuth2(this.oauthClientId, this.oauthClientSecret);
         oauthClient.setCredentials({ refresh_token: this.oauthRefreshToken });
 
         this.driveClient = google.drive({ version: 'v3', auth: oauthClient });

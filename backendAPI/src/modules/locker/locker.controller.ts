@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Post,
-  Put,
-  Query,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { LockerService } from './locker.service';
 import { CreateLockerDto } from './dto/create-locker.dto';
 import { UpdateLockerDto } from './dto/update-locker.dto';
@@ -15,7 +6,7 @@ import { InternalServerErrorException } from '@nestjs/common';
 
 @Controller('lockers')
 export class LockerController {
-  constructor(private readonly lockerService: LockerService) { }
+  constructor(private readonly lockerService: LockerService) {}
 
   // ===== CREATE =====
   @Post()
@@ -45,25 +36,33 @@ export class LockerController {
   // ===== ESP32 (MUST COME BEFORE :id) =====
   @Post('esp32/heartbeat')
   reportHeartbeat(
-    @Body() body: { deviceEsp32: string; solenoids: any[] },
+    @Body()
+    body: {
+      deviceEsp32: string;
+      solenoids: any[];
+      batteryLevel?: number;
+    },
   ) {
-    return this.lockerService.reportHeartbeat(
-      body.deviceEsp32,
-      body.solenoids,
-    );
+    return this.lockerService.reportHeartbeat(body.deviceEsp32, body.solenoids, body.batteryLevel);
   }
 
   @Post('esp32/command')
   sendCommand(
     @Body()
-    body: { deviceEsp32: string; idSolenoid: string; action: string },
+    body: {
+      deviceEsp32: string;
+      idSolenoid: string;
+      action: string;
+    },
   ) {
-    return this.lockerService.sendCommand(
-      body.deviceEsp32,
-      body.idSolenoid,
-      body.action,
-    );
+    return this.lockerService.sendCommand(body.deviceEsp32, body.idSolenoid, body.action);
   }
+
+  @Get(':id/access-logs')
+  getAccessLogs(@Param('id') id: string, @Query('limit') limit?: string) {
+    return this.lockerService.getLockerAccessLogs(id, Number(limit || 20));
+  }
+
   // ===== ID ROUTES (ALWAYS LAST) =====
   @Get(':id')
   findOne(@Param('id') id: string) {
@@ -85,6 +84,68 @@ export class LockerController {
 export class Esp32Controller {
   constructor(private readonly lockerService: LockerService) {}
 
+  @Post('sync/init')
+  syncInit(
+    @Body()
+    body: {
+      deviceId: string;
+      gatewayId?: string;
+      devices: Array<{ pin: number; name: string; type?: string; state?: number }>;
+    },
+  ) {
+    return this.lockerService.syncInit(body);
+  }
+
+  @Post('sync/state')
+  syncState(
+    @Body()
+    body: {
+      deviceId: string;
+      pin: number;
+      value: number;
+    },
+  ) {
+    return this.lockerService.syncState(body);
+  }
+
+  @Post('config/update')
+  updateConfig(
+    @Body()
+    body: {
+      deviceId: string;
+      devices: Array<{ pin: number; name: string; type?: string; state?: number }>;
+    },
+  ) {
+    return this.lockerService.updateDeviceConfig(body);
+  }
+
+  @Get(':deviceId/config')
+  getConfig(@Param('deviceId') deviceId: string) {
+    return this.lockerService.getDeviceConfig(deviceId);
+  }
+
+  @Post('resync')
+  requestResync(@Body() body: { deviceId: string }) {
+    return this.lockerService.requestResync(body.deviceId);
+  }
+
+  @Post('resync/all')
+  requestResyncAll() {
+    return this.lockerService.requestResyncAll();
+  }
+
+  @Post('control')
+  sendPinControl(
+    @Body()
+    body: {
+      deviceId: string;
+      pin: number;
+      action: 'on' | 'off';
+    },
+  ) {
+    return this.lockerService.sendPinControl(body);
+  }
+
   @Get()
   findAll() {
     console.log('Received request for /esp32');
@@ -93,23 +154,42 @@ export class Esp32Controller {
 
   @Post('heartbeat')
   reportHeartbeat(
-    @Body() body: { deviceEsp32: string; solenoids: any[] },
+    @Body()
+    body: {
+      deviceEsp32: string;
+      solenoids: any[];
+      batteryLevel?: number;
+    },
   ) {
-    return this.lockerService.reportHeartbeat(
-      body.deviceEsp32,
-      body.solenoids,
-    );
+    return this.lockerService.reportHeartbeat(body.deviceEsp32, body.solenoids, body.batteryLevel);
+  }
+
+  @Post('access-log')
+  createAccessLog(
+    @Body()
+    body: {
+      deviceId: string;
+      method: string;
+      status: 'success' | 'failed' | 'pending';
+      fingerId?: number | null;
+      userId?: string | null;
+      userName?: string | null;
+      metadata?: Record<string, any>;
+      pin?: number;
+    },
+  ) {
+    return this.lockerService.createAccessLogEntry(body);
   }
 
   @Post('command')
   sendCommand(
     @Body()
-    body: { deviceEsp32: string; idSolenoid: string; action: string },
+    body: {
+      deviceEsp32: string;
+      idSolenoid: string;
+      action: string;
+    },
   ) {
-    return this.lockerService.sendCommand(
-      body.deviceEsp32,
-      body.idSolenoid,
-      body.action,
-    );
+    return this.lockerService.sendCommand(body.deviceEsp32, body.idSolenoid, body.action);
   }
 }

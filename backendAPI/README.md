@@ -178,6 +178,43 @@ Xem file schema trong thư mục `src/database/schemas/` hoặc tham khảo docu
 - **teacher**: Giảng viên
 - **student**: Sinh viên
 
+## 🔄 Locker Update/Delete/Open Flows
+
+### 1) Update locker (mapping room, locker number, locker name, IoT pin)
+
+- UI: Admin Locker Management -> Edit locker.
+- API: `PUT /api/lockers/:id`
+- Các field có thể cập nhật:
+	- `lockerNumber`
+	- `position` (dùng như locker name)
+	- `campusId`, `roomId`, `roomName`
+	- `esp32Id` hoặc `deviceId`
+	- `controlPin` (pin mapping tới relay/solenoid trên ESP32)
+	- `status`, `isActive`, `batteryLevel`
+- Validation chính:
+	- Không cho trùng `lockerNumber`.
+	- `controlPin` phải thuộc danh sách pin của ESP32 đang map.
+	- Khi đổi ESP32, backend tự đồng bộ lại `deviceId` theo ESP32 mới.
+
+### 2) Delete locker (xóa dữ liệu locker để map/sync lại IoT)
+
+- UI: Admin Locker Management -> Delete.
+- API: `DELETE /api/lockers/:id`
+- Hành vi:
+	- Xóa bản ghi locker.
+	- Dọn access log liên quan tới locker (theo `lockerId`, và theo `deviceId + pin` nếu có mapping pin).
+- Mục đích:
+	- Làm sạch dữ liệu locker cũ để có thể chỉnh lại config IoT rồi chạy `Sync IoT` khởi tạo lại mapping.
+
+### 3) Open locker flow (remote open)
+
+- Luồng command điều khiển từ backend:
+	- API điều khiển pin: `POST /api/esp32/control` với payload `{ deviceId, pin, action: 'on' | 'off' }`
+	- Hoặc API command solenoid cũ: `POST /api/esp32/command` với payload `{ deviceEsp32, idSolenoid, action }`
+- Backend phát lệnh realtime qua gateway bằng event `hardware:command`.
+- Gateway chuyển lệnh tới ESP32 (HTTP polling queue hoặc websocket realtime channel, tùy mode đang chạy).
+- Khi có trạng thái trả về, backend nhận `sync/state` và ghi access log (`remote_open`, `iot_state_sync`) để theo dõi audit.
+
 ## 📄 License
 
 MIT

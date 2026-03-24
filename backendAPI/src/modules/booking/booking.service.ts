@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Booking } from '@/database/schemas/booking.schema';
@@ -96,9 +92,7 @@ export class BookingService {
       throw new BadRequestException('Invalid startTime value');
     }
 
-    const cutoff =
-      startDateTime.getTime() -
-      BookingService.SELF_BOOKING_LEAD_MINUTES * 60 * 1000;
+    const cutoff = startDateTime.getTime() - BookingService.SELF_BOOKING_LEAD_MINUTES * 60 * 1000;
 
     if (Date.now() >= cutoff) {
       throw new BadRequestException(
@@ -263,11 +257,11 @@ export class BookingService {
     const booking = await this.findBookingOrThrow(id, campusId, 'Booking not found');
 
     if (!BookingValidationHelper.isOwnBooking(booking, userId)) {
-        throw new NotFoundException('Booking not found');
+      throw new NotFoundException('Booking not found');
     }
 
     if (booking.status !== 'pending') {
-        throw new BadRequestException('Only pending bookings can be cancelled');
+      throw new BadRequestException('Only pending bookings can be cancelled');
     }
 
     const reason = BookingValidationHelper.normalizeCancelReason(cancelReason);
@@ -334,7 +328,9 @@ export class BookingService {
       .lean()
       .exec();
 
-    const busyRoomIds = new Set(busyRows.map((item: any) => item.roomId?.toString?.() || String(item.roomId)));
+    const busyRoomIds = new Set(
+      busyRows.map((item: any) => item.roomId?.toString?.() || String(item.roomId)),
+    );
     return rooms.filter((room: any) => !busyRoomIds.has(room._id.toString()));
   }
 
@@ -526,7 +522,9 @@ export class BookingService {
     this.eventsGateway.broadcastBookingUpdate('updated', payload);
 
     if (payload.status !== 'pending') {
-      await this.notificationsService.cancelBookingReminder(payload._id?.toString?.() || String(payload._id));
+      await this.notificationsService.cancelBookingReminder(
+        payload._id?.toString?.() || String(payload._id),
+      );
     }
 
     if (previousStatus !== payload.status) {
@@ -541,10 +539,14 @@ export class BookingService {
 
     const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
 
-    const booking = await this.findBookingOrThrow(id, campusId, 'Booking to complete was not found');
+    const booking = await this.findBookingOrThrow(
+      id,
+      campusId,
+      'Booking to complete was not found',
+    );
 
     if (booking.status !== 'approved') {
-        throw new BadRequestException('Only approved bookings can be completed');
+      throw new BadRequestException('Only approved bookings can be completed');
     }
 
     booking.status = 'completed';
@@ -553,7 +555,9 @@ export class BookingService {
 
     const payload = await this.toBookingPayload(booking);
     this.eventsGateway.broadcastBookingUpdate('updated', payload);
-    await this.notificationsService.cancelBookingReminder(payload._id?.toString?.() || String(payload._id));
+    await this.notificationsService.cancelBookingReminder(
+      payload._id?.toString?.() || String(payload._id),
+    );
     return payload;
   }
 

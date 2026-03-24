@@ -22,5 +22,4 @@ export class CreateSelfBookingDto {
   @IsNotEmpty()
   @MaxLength(500)
   purpose: string;
-
 }

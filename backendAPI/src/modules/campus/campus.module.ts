@@ -5,9 +5,7 @@ import { CampusService } from './campus.service';
 import { Campus, CampusSchema } from '@/database/schemas/campus.schema';
 
 @Module({
-  imports: [
-    MongooseModule.forFeature([{ name: Campus.name, schema: CampusSchema }]),
-  ],
+  imports: [MongooseModule.forFeature([{ name: Campus.name, schema: CampusSchema }])],
   controllers: [CampusController],
   providers: [CampusService],
   exports: [CampusService],
