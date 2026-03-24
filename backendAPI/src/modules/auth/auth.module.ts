@@ -13,6 +13,10 @@ import { Role, RoleSchema } from '@/database/schemas/role.schema';
 import { Permission, PermissionSchema } from '@/database/schemas/permission.schema';
 import { RolePermission, RolePermissionSchema } from '@/database/schemas/role-permission.schema';
 import { FaceTemplate, FaceTemplateSchema } from '@/database/schemas/face-template.schema';
+import {
+  ResetPasswordToken,
+  ResetPasswordTokenSchema,
+} from '@/database/schemas/reset-password-token.schema';
 
 @Module({
   imports: [
@@ -34,6 +38,7 @@ import { FaceTemplate, FaceTemplateSchema } from '@/database/schemas/face-templa
       { name: Permission.name, schema: PermissionSchema },
       { name: RolePermission.name, schema: RolePermissionSchema },
       { name: FaceTemplate.name, schema: FaceTemplateSchema },
+      { name: ResetPasswordToken.name, schema: ResetPasswordTokenSchema },
     ]),
   ],
   controllers: [AuthController],

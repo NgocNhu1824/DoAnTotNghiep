@@ -1,10 +1,33 @@
 import apiService from './api.service';
-import { User, Campus, Permission, RoleDetails } from '../types/auth.types';
+import { User, Campus, Permission, RoleDetails, UpdateProfileDto, LoginResponse } from '../types/auth.types';
 import { STORAGE_KEYS } from '../constants';
 
 class AuthService {
   async getAllCampuses(): Promise<Campus[]> {
     return apiService.get('/campus');
+  }
+
+  async loginWithEmailPassword(payload: { email: string; password: string }): Promise<LoginResponse> {
+    const response = await apiService.post<{
+      success: boolean;
+      accessToken: string;
+      user: User & { id?: string };
+      roleDetails?: RoleDetails;
+      permissions?: Permission[];
+      hasPassword?: boolean;
+    }>('/auth/login', payload);
+
+    return {
+      success: response.success,
+      accessToken: response.accessToken,
+      user: {
+        ...response.user,
+        _id: response.user._id || response.user.id || '',
+      },
+      roleDetails: response.roleDetails || undefined,
+      permissions: response.permissions || [],
+      hasPassword: Boolean(response.hasPassword ?? true),
+    };
   }
 
   loginWithGoogle(campusId: string): void {
@@ -22,14 +45,14 @@ class AuthService {
   }
 
   async getCurrentUser(): Promise<{ user: User; roleDetails: RoleDetails | null; permissions: Permission[]; hasPassword: boolean }> {
-    const response = await apiService.get<{ 
-      success: boolean; 
+    const response = await apiService.get<{
+      success: boolean;
       data: User;
       roleDetails?: RoleDetails;
       permissions?: Permission[];
       hasPassword?: boolean;
     }>('/auth/profile');
-    
+
     return {
       user: response.data,
       roleDetails: response.roleDetails || null,
@@ -40,6 +63,32 @@ class AuthService {
 
   async setPassword(payload: { newPassword: string; confirmPassword: string }): Promise<{ success: boolean; message: string }> {
     return apiService.post('/auth/set-password', payload);
+  }
+
+  async forgotPassword(email: string): Promise<{ success: boolean; message: string }> {
+    return apiService.post('/auth/forgot-password', { email });
+  }
+
+  async resetPassword(payload: {
+    token: string;
+    newPassword: string;
+    confirmPassword: string;
+  }): Promise<{ success: boolean; message: string }> {
+    return apiService.post('/auth/reset-password', payload);
+  }
+  async updateProfile(payload: UpdateProfileDto): Promise<{ user: User; hasPassword: boolean; message: string }> {
+    const response = await apiService.put<{
+      success: boolean;
+      message: string;
+      data: User;
+      hasPassword?: boolean;
+    }>('/auth/profile', payload);
+
+    return {
+      user: response.data,
+      hasPassword: Boolean(response.hasPassword),
+      message: response.message || 'Profile updated successfully',
+    };
   }
 
   async checkAuth(): Promise<boolean> {

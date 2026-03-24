@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { User, AuthState, Permission, RoleDetails } from '../types/auth.types';
+import { User, AuthState, Permission, RoleDetails, UpdateProfileDto } from '../types/auth.types';
 import { authService } from '../services/auth.service';
 
 interface AuthContextType extends AuthState {
@@ -7,6 +7,7 @@ interface AuthContextType extends AuthState {
   logout: () => void;
   fetchUserProfile: () => Promise<void>;
   completePasswordSetup: (newPassword: string, confirmPassword: string) => Promise<void>;
+  updateProfile: (payload: UpdateProfileDto) => Promise<{ message: string }>;
   hasPermission: (permissionName: string) => boolean;
   hasAnyPermission: (permissionNames: string[]) => boolean;
   hasAllPermissions: (permissionNames: string[]) => boolean;
@@ -129,6 +130,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setState((prev) => ({ ...prev, hasPassword: true }));
   }, []);
 
+  const updateProfile = useCallback(async (payload: UpdateProfileDto) => {
+    const result = await authService.updateProfile(payload);
+
+    authService.saveUser(result.user);
+    authService.saveHasPassword(result.hasPassword);
+
+    setState((prev) => ({
+      ...prev,
+      user: result.user,
+      hasPassword: result.hasPassword,
+    }));
+
+    return { message: result.message };
+  }, []);
+
   const logout = useCallback(async () => {
     await authService.logout();
     setState({
@@ -179,6 +195,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         logout,
         fetchUserProfile,
         completePasswordSetup,
+        updateProfile,
         hasPermission,
         hasAnyPermission,
         hasAllPermissions,

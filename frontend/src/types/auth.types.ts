@@ -61,4 +61,10 @@ export interface LoginResponse {
   user: User;
   roleDetails?: RoleDetails;
   permissions?: Permission[];
+  hasPassword?: boolean;
+}
+
+export interface UpdateProfileDto {
+  fullName?: string;
+  phone?: string;
 }
