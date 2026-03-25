@@ -5,9 +5,7 @@ import { TimeSlotsService } from './time-slots.service';
 import { TimeSlot, TimeSlotSchema } from '@/database/schemas/time-slot.schema';
 
 @Module({
-  imports: [
-    MongooseModule.forFeature([{ name: TimeSlot.name, schema: TimeSlotSchema }]),
-  ],
+  imports: [MongooseModule.forFeature([{ name: TimeSlot.name, schema: TimeSlotSchema }])],
   controllers: [TimeSlotsController],
   providers: [TimeSlotsService],
   exports: [TimeSlotsService],

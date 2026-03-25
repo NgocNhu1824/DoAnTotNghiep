@@ -1,4 +1,12 @@
-import { IsString, IsOptional, IsArray, IsBoolean, IsNumber, IsEnum, IsMongoId } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsArray,
+  IsBoolean,
+  IsNumber,
+  IsEnum,
+  IsMongoId,
+} from 'class-validator';
 
 export class UpdateRoleDto {
   @IsString()

@@ -1,4 +1,14 @@
-import { IsOptional, IsDateString, IsEnum, IsString, IsNumber, Min, Max, IsMongoId, IsBoolean } from 'class-validator';
+import {
+  IsOptional,
+  IsDateString,
+  IsEnum,
+  IsString,
+  IsNumber,
+  Min,
+  Max,
+  IsMongoId,
+  IsBoolean,
+} from 'class-validator';
 
 export class UpdateScheduleDto {
   @IsOptional()

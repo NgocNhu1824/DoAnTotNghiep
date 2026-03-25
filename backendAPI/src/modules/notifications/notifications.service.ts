@@ -12,217 +12,240 @@ import { NotificationsQueueService } from './notifications.queue';
 
 @Injectable()
 export class NotificationsService {
-      async notifyTransferApproved(payload: {
-        transferId: string;
-        campusId: string;
-        fromUserId: string;
-        toUserId: string;
-        roomId: string;
-        lockerId: string;
-        fromScheduleId: string;
-        toScheduleId: string;
-        reason?: string | null;
-        approvedBy: string;
-      }): Promise<void> {
-        const requesterId = this.extractObjectId(payload?.fromUserId);
-        const recipientId = this.extractObjectId(payload?.toUserId);
-        const campusId = this.extractObjectId(payload?.campusId);
-        const transferId = String(payload?.transferId || '').trim();
-        const approvedBy = this.extractObjectId(payload?.approvedBy);
-        if (!requesterId || !campusId || !transferId) return;
-        const notificationItems: CreateNotificationInput[] = [];
+  async notifyTransferApproved(payload: {
+    transferId: string;
+    campusId: string;
+    fromUserId: string;
+    toUserId: string;
+    roomId: string;
+    lockerId: string;
+    fromScheduleId: string;
+    toScheduleId: string;
+    reason?: string | null;
+    approvedBy: string;
+  }): Promise<void> {
+    const requesterId = this.extractObjectId(payload?.fromUserId);
+    const recipientId = this.extractObjectId(payload?.toUserId);
+    const campusId = this.extractObjectId(payload?.campusId);
+    const transferId = String(payload?.transferId || '').trim();
+    const approvedBy = this.extractObjectId(payload?.approvedBy);
+    if (!requesterId || !campusId || !transferId) return;
+    const notificationItems: CreateNotificationInput[] = [];
 
-        notificationItems.push({
-          recipientId: requesterId,
-          campusId,
-          senderId: approvedBy || recipientId,
-          type: 'transfer_approved',
-          title: 'Transfer request approved',
-          message: 'Your transfer request has been approved.',
-          priority: 'high',
-          data: {
-            transferId,
-            roomId: payload.roomId,
-            lockerId: payload.lockerId,
-            fromScheduleId: payload.fromScheduleId,
-            toScheduleId: payload.toScheduleId,
-            status: 'approved',
-            approvedBy,
-          },
-          dedupeKey: `transfer-approved:${transferId}:requester:${requesterId}`,
-        });
+    notificationItems.push({
+      recipientId: requesterId,
+      campusId,
+      senderId: approvedBy || recipientId,
+      type: 'transfer_approved',
+      title: 'Transfer request approved',
+      message: 'Your transfer request has been approved.',
+      priority: 'high',
+      data: {
+        transferId,
+        roomId: payload.roomId,
+        lockerId: payload.lockerId,
+        fromScheduleId: payload.fromScheduleId,
+        toScheduleId: payload.toScheduleId,
+        status: 'approved',
+        approvedBy,
+      },
+      dedupeKey: `transfer-approved:${transferId}:requester:${requesterId}`,
+    });
 
-        if (approvedBy && approvedBy !== requesterId) {
-          notificationItems.push({
-            recipientId: approvedBy,
-            campusId,
-            senderId: requesterId,
-            type: 'transfer_approved',
-            title: 'Transfer request approved',
-            message: 'You have approved a transfer request.',
-            priority: 'medium',
-            data: {
-              transferId,
-              roomId: payload.roomId,
-              lockerId: payload.lockerId,
-              fromScheduleId: payload.fromScheduleId,
-              toScheduleId: payload.toScheduleId,
-              status: 'approved',
-              approvedBy,
-            },
-            dedupeKey: `transfer-approved:${transferId}:actor:${approvedBy}`,
-          });
-        }
-
-        const approverIds = await this.findBookingApproverIds(campusId);
-        const adminRecipients = approverIds.filter(
-          (id) => id !== requesterId && id !== approvedBy,
-        );
-
-        adminRecipients.forEach((adminId) => {
-          notificationItems.push({
-            recipientId: adminId,
-            campusId,
-            senderId: approvedBy || recipientId || requesterId,
-            type: 'transfer_approved_admin',
-            title: 'A transfer request was approved',
-            message: 'A transfer request in your campus has been approved.',
-            priority: 'medium',
-            data: {
-              transferId,
-              roomId: payload.roomId,
-              lockerId: payload.lockerId,
-              fromScheduleId: payload.fromScheduleId,
-              toScheduleId: payload.toScheduleId,
-              status: 'approved',
-              approvedBy,
-            },
-            dedupeKey: `transfer-approved:${transferId}:admin:${adminId}`,
-          });
-        });
-        await this.createAndBroadcastMany(notificationItems);
-      }
-
-      async notifyTransferRejected(payload: {
-        transferId: string;
-        campusId: string;
-        fromUserId: string;
-        toUserId: string;
-        roomId: string;
-        lockerId: string;
-        fromScheduleId: string;
-        toScheduleId: string;
-        reason?: string | null;
-        rejectedBy: string;
-        rejectReason?: string;
-      }): Promise<void> {
-        const requesterId = this.extractObjectId(payload?.fromUserId);
-        const recipientId = this.extractObjectId(payload?.toUserId);
-        const campusId = this.extractObjectId(payload?.campusId);
-        const transferId = String(payload?.transferId || '').trim();
-        const rejectedBy = this.extractObjectId(payload?.rejectedBy);
-        if (!requesterId || !campusId || !transferId) return;
-        const notificationItems: CreateNotificationInput[] = [];
-
-        notificationItems.push({
-          recipientId: requesterId,
-          campusId,
-          senderId: rejectedBy || recipientId,
-          type: 'transfer_rejected',
-          title: 'Transfer request rejected',
-          message: payload.rejectReason ? `Your transfer request was rejected. Reason: ${payload.rejectReason}` : 'Your transfer request was rejected.',
-          priority: 'high',
-          data: {
-            transferId,
-            roomId: payload.roomId,
-            lockerId: payload.lockerId,
-            fromScheduleId: payload.fromScheduleId,
-            toScheduleId: payload.toScheduleId,
-            status: 'rejected',
-            rejectedBy,
-            rejectReason: payload.rejectReason || null,
-          },
-          dedupeKey: `transfer-rejected:${transferId}:requester:${requesterId}`,
-        });
-
-        if (rejectedBy && rejectedBy !== requesterId) {
-          notificationItems.push({
-            recipientId: rejectedBy,
-            campusId,
-            senderId: requesterId,
-            type: 'transfer_rejected',
-            title: 'Transfer request rejected',
-            message: payload.rejectReason ? `You have rejected a transfer request. Reason: ${payload.rejectReason}` : 'You have rejected a transfer request.',
-            priority: 'medium',
-            data: {
-              transferId,
-              roomId: payload.roomId,
-              lockerId: payload.lockerId,
-              fromScheduleId: payload.fromScheduleId,
-              toScheduleId: payload.toScheduleId,
-              status: 'rejected',
-              rejectedBy,
-              rejectReason: payload.rejectReason || null,
-            },
-            dedupeKey: `transfer-rejected:${transferId}:actor:${rejectedBy}`,
-          });
-        }
-
-        const approverIds = await this.findBookingApproverIds(campusId);
-        const adminRecipients = approverIds.filter(
-          (id) => id !== requesterId && id !== rejectedBy,
-        );
-
-        adminRecipients.forEach((adminId) => {
-          notificationItems.push({
-            recipientId: adminId,
-            campusId,
-            senderId: rejectedBy || recipientId || requesterId,
-            type: 'transfer_rejected_admin',
-            title: 'A transfer request was rejected',
-            message: payload.rejectReason
-              ? `A transfer request in your campus was rejected. Reason: ${payload.rejectReason}`
-              : 'A transfer request in your campus was rejected.',
-            priority: 'medium',
-            data: {
-              transferId,
-              roomId: payload.roomId,
-              lockerId: payload.lockerId,
-              fromScheduleId: payload.fromScheduleId,
-              toScheduleId: payload.toScheduleId,
-              status: 'rejected',
-              rejectedBy,
-              rejectReason: payload.rejectReason || null,
-            },
-            dedupeKey: `transfer-rejected:${transferId}:admin:${adminId}`,
-          });
-        });
-        await this.createAndBroadcastMany(notificationItems);
-      }
-    async notifyTransferCancelled(payload: {
-      transferId: string;
-      campusId: string;
-      fromUserId: string;
-      toUserId: string;
-      roomId: string;
-      lockerId: string;
-      fromScheduleId: string;
-      toScheduleId: string;
-      reason?: string | null;
-      cancelledBy: string;
-    }): Promise<void> {
-      const recipientId = this.extractObjectId(payload?.toUserId);
-      const senderId = this.extractObjectId(payload?.fromUserId);
-      const campusId = this.extractObjectId(payload?.campusId);
-      const transferId = String(payload?.transferId || '').trim();
-      const cancelledBy = this.extractObjectId(payload?.cancelledBy);
-      const cancelReason = String(payload?.reason || '').trim();
-      if (!recipientId || !campusId || !transferId) {
-        return;
-      }
-      const notificationItems: CreateNotificationInput[] = [];
+    if (approvedBy && approvedBy !== requesterId) {
       notificationItems.push({
-        recipientId,
+        recipientId: approvedBy,
+        campusId,
+        senderId: requesterId,
+        type: 'transfer_approved',
+        title: 'Transfer request approved',
+        message: 'You have approved a transfer request.',
+        priority: 'medium',
+        data: {
+          transferId,
+          roomId: payload.roomId,
+          lockerId: payload.lockerId,
+          fromScheduleId: payload.fromScheduleId,
+          toScheduleId: payload.toScheduleId,
+          status: 'approved',
+          approvedBy,
+        },
+        dedupeKey: `transfer-approved:${transferId}:actor:${approvedBy}`,
+      });
+    }
+
+    const approverIds = await this.findBookingApproverIds(campusId);
+    const adminRecipients = approverIds.filter((id) => id !== requesterId && id !== approvedBy);
+
+    adminRecipients.forEach((adminId) => {
+      notificationItems.push({
+        recipientId: adminId,
+        campusId,
+        senderId: approvedBy || recipientId || requesterId,
+        type: 'transfer_approved_admin',
+        title: 'A transfer request was approved',
+        message: 'A transfer request in your campus has been approved.',
+        priority: 'medium',
+        data: {
+          transferId,
+          roomId: payload.roomId,
+          lockerId: payload.lockerId,
+          fromScheduleId: payload.fromScheduleId,
+          toScheduleId: payload.toScheduleId,
+          status: 'approved',
+          approvedBy,
+        },
+        dedupeKey: `transfer-approved:${transferId}:admin:${adminId}`,
+      });
+    });
+    await this.createAndBroadcastMany(notificationItems);
+  }
+
+  async notifyTransferRejected(payload: {
+    transferId: string;
+    campusId: string;
+    fromUserId: string;
+    toUserId: string;
+    roomId: string;
+    lockerId: string;
+    fromScheduleId: string;
+    toScheduleId: string;
+    reason?: string | null;
+    rejectedBy: string;
+    rejectReason?: string;
+  }): Promise<void> {
+    const requesterId = this.extractObjectId(payload?.fromUserId);
+    const recipientId = this.extractObjectId(payload?.toUserId);
+    const campusId = this.extractObjectId(payload?.campusId);
+    const transferId = String(payload?.transferId || '').trim();
+    const rejectedBy = this.extractObjectId(payload?.rejectedBy);
+    if (!requesterId || !campusId || !transferId) return;
+    const notificationItems: CreateNotificationInput[] = [];
+
+    notificationItems.push({
+      recipientId: requesterId,
+      campusId,
+      senderId: rejectedBy || recipientId,
+      type: 'transfer_rejected',
+      title: 'Transfer request rejected',
+      message: payload.rejectReason
+        ? `Your transfer request was rejected. Reason: ${payload.rejectReason}`
+        : 'Your transfer request was rejected.',
+      priority: 'high',
+      data: {
+        transferId,
+        roomId: payload.roomId,
+        lockerId: payload.lockerId,
+        fromScheduleId: payload.fromScheduleId,
+        toScheduleId: payload.toScheduleId,
+        status: 'rejected',
+        rejectedBy,
+        rejectReason: payload.rejectReason || null,
+      },
+      dedupeKey: `transfer-rejected:${transferId}:requester:${requesterId}`,
+    });
+
+    if (rejectedBy && rejectedBy !== requesterId) {
+      notificationItems.push({
+        recipientId: rejectedBy,
+        campusId,
+        senderId: requesterId,
+        type: 'transfer_rejected',
+        title: 'Transfer request rejected',
+        message: payload.rejectReason
+          ? `You have rejected a transfer request. Reason: ${payload.rejectReason}`
+          : 'You have rejected a transfer request.',
+        priority: 'medium',
+        data: {
+          transferId,
+          roomId: payload.roomId,
+          lockerId: payload.lockerId,
+          fromScheduleId: payload.fromScheduleId,
+          toScheduleId: payload.toScheduleId,
+          status: 'rejected',
+          rejectedBy,
+          rejectReason: payload.rejectReason || null,
+        },
+        dedupeKey: `transfer-rejected:${transferId}:actor:${rejectedBy}`,
+      });
+    }
+
+    const approverIds = await this.findBookingApproverIds(campusId);
+    const adminRecipients = approverIds.filter((id) => id !== requesterId && id !== rejectedBy);
+
+    adminRecipients.forEach((adminId) => {
+      notificationItems.push({
+        recipientId: adminId,
+        campusId,
+        senderId: rejectedBy || recipientId || requesterId,
+        type: 'transfer_rejected_admin',
+        title: 'A transfer request was rejected',
+        message: payload.rejectReason
+          ? `A transfer request in your campus was rejected. Reason: ${payload.rejectReason}`
+          : 'A transfer request in your campus was rejected.',
+        priority: 'medium',
+        data: {
+          transferId,
+          roomId: payload.roomId,
+          lockerId: payload.lockerId,
+          fromScheduleId: payload.fromScheduleId,
+          toScheduleId: payload.toScheduleId,
+          status: 'rejected',
+          rejectedBy,
+          rejectReason: payload.rejectReason || null,
+        },
+        dedupeKey: `transfer-rejected:${transferId}:admin:${adminId}`,
+      });
+    });
+    await this.createAndBroadcastMany(notificationItems);
+  }
+  async notifyTransferCancelled(payload: {
+    transferId: string;
+    campusId: string;
+    fromUserId: string;
+    toUserId: string;
+    roomId: string;
+    lockerId: string;
+    fromScheduleId: string;
+    toScheduleId: string;
+    reason?: string | null;
+    cancelledBy: string;
+  }): Promise<void> {
+    const recipientId = this.extractObjectId(payload?.toUserId);
+    const senderId = this.extractObjectId(payload?.fromUserId);
+    const campusId = this.extractObjectId(payload?.campusId);
+    const transferId = String(payload?.transferId || '').trim();
+    const cancelledBy = this.extractObjectId(payload?.cancelledBy);
+    const cancelReason = String(payload?.reason || '').trim();
+    if (!recipientId || !campusId || !transferId) {
+      return;
+    }
+    const notificationItems: CreateNotificationInput[] = [];
+    notificationItems.push({
+      recipientId,
+      campusId,
+      senderId,
+      type: 'transfer_cancelled',
+      title: 'Transfer request cancelled',
+      message: cancelReason
+        ? `Your transfer request has been cancelled. Reason: ${cancelReason}`
+        : 'Your transfer request has been cancelled.',
+      priority: 'high',
+      data: {
+        transferId,
+        roomId: payload.roomId,
+        lockerId: payload.lockerId,
+        fromScheduleId: payload.fromScheduleId,
+        toScheduleId: payload.toScheduleId,
+        status: 'cancelled',
+        cancelledBy,
+        cancelReason: cancelReason || null,
+      },
+      dedupeKey: `transfer-cancelled:${transferId}:recipient:${recipientId}`,
+    });
+    if (senderId && senderId !== recipientId) {
+      notificationItems.push({
+        recipientId: senderId,
         campusId,
         senderId,
         type: 'transfer_cancelled',
@@ -241,63 +264,38 @@ export class NotificationsService {
           cancelledBy,
           cancelReason: cancelReason || null,
         },
-        dedupeKey: `transfer-cancelled:${transferId}:recipient:${recipientId}`,
+        dedupeKey: `transfer-cancelled:${transferId}:sender:${senderId}`,
       });
-      if (senderId && senderId !== recipientId) {
-        notificationItems.push({
-          recipientId: senderId,
-          campusId,
-          senderId,
-          type: 'transfer_cancelled',
-          title: 'Transfer request cancelled',
-            message: cancelReason
-              ? `Your transfer request has been cancelled. Reason: ${cancelReason}`
-              : 'Your transfer request has been cancelled.',
-          priority: 'high',
-          data: {
-            transferId,
-            roomId: payload.roomId,
-            lockerId: payload.lockerId,
-            fromScheduleId: payload.fromScheduleId,
-            toScheduleId: payload.toScheduleId,
-            status: 'cancelled',
-            cancelledBy,
-              cancelReason: cancelReason || null,
-          },
-          dedupeKey: `transfer-cancelled:${transferId}:sender:${senderId}`,
-        });
-      }
-      // Send notifications to all campus admins (approvers)
-      const approverIds = await this.findBookingApproverIds(campusId);
-      const adminRecipients = approverIds.filter(
-        (id) => id !== recipientId && id !== senderId
-      );
-      adminRecipients.forEach((adminId) => {
-        notificationItems.push({
-          recipientId: adminId,
-          campusId,
-          senderId,
-          type: 'transfer_cancelled_admin',
-          title: 'A transfer request was cancelled',
-          message: cancelReason
-            ? `A transfer request in your campus has just been cancelled. Reason: ${cancelReason}`
-            : 'A transfer request in your campus has just been cancelled.',
-          priority: 'medium',
-          data: {
-            transferId,
-            roomId: payload.roomId,
-            lockerId: payload.lockerId,
-            fromScheduleId: payload.fromScheduleId,
-            toScheduleId: payload.toScheduleId,
-            status: 'cancelled',
-            cancelledBy,
-            cancelReason: cancelReason || null,
-          },
-          dedupeKey: `transfer-cancelled:${transferId}:admin:${adminId}`,
-        });
-      });
-      await this.createAndBroadcastMany(notificationItems);
     }
+    // Send notifications to all campus admins (approvers)
+    const approverIds = await this.findBookingApproverIds(campusId);
+    const adminRecipients = approverIds.filter((id) => id !== recipientId && id !== senderId);
+    adminRecipients.forEach((adminId) => {
+      notificationItems.push({
+        recipientId: adminId,
+        campusId,
+        senderId,
+        type: 'transfer_cancelled_admin',
+        title: 'A transfer request was cancelled',
+        message: cancelReason
+          ? `A transfer request in your campus has just been cancelled. Reason: ${cancelReason}`
+          : 'A transfer request in your campus has just been cancelled.',
+        priority: 'medium',
+        data: {
+          transferId,
+          roomId: payload.roomId,
+          lockerId: payload.lockerId,
+          fromScheduleId: payload.fromScheduleId,
+          toScheduleId: payload.toScheduleId,
+          status: 'cancelled',
+          cancelledBy,
+          cancelReason: cancelReason || null,
+        },
+        dedupeKey: `transfer-cancelled:${transferId}:admin:${adminId}`,
+      });
+    });
+    await this.createAndBroadcastMany(notificationItems);
+  }
   private readonly logger = new Logger(NotificationsService.name);
 
   constructor(
@@ -376,7 +374,9 @@ export class NotificationsService {
         {
           _id: id,
           recipientId: userId,
-          ...(campusFilter?.campusId ? { campusId: new Types.ObjectId(campusFilter.campusId) } : {}),
+          ...(campusFilter?.campusId
+            ? { campusId: new Types.ObjectId(campusFilter.campusId) }
+            : {}),
         },
         {
           $set: {
@@ -399,7 +399,9 @@ export class NotificationsService {
       .updateMany(
         {
           recipientId: userId,
-          ...(campusFilter?.campusId ? { campusId: new Types.ObjectId(campusFilter.campusId) } : {}),
+          ...(campusFilter?.campusId
+            ? { campusId: new Types.ObjectId(campusFilter.campusId) }
+            : {}),
           isRead: false,
         },
         {
@@ -418,7 +420,9 @@ export class NotificationsService {
     try {
       const bookingId = this.extractObjectId(bookingPayload?._id);
       const campusId = this.extractObjectId(bookingPayload?.campusId);
-      const requesterId = this.extractObjectId(bookingPayload?.lecturerId?._id || bookingPayload?.lecturerId);
+      const requesterId = this.extractObjectId(
+        bookingPayload?.lecturerId?._id || bookingPayload?.lecturerId,
+      );
       const roomCode = bookingPayload?.roomId?.roomCode || 'Unknown room';
       const requesterName =
         bookingPayload?.lecturerId?.fullName || bookingPayload?.lecturerId?.email || 'Lecturer';
@@ -481,7 +485,9 @@ export class NotificationsService {
 
     const approverIds = await this.findBookingApproverIds(campusId);
     const recipients = approverIds.filter(
-      (id) => id !== this.extractObjectId((booking as any)?.lecturerId?._id || (booking as any)?.lecturerId),
+      (id) =>
+        id !==
+        this.extractObjectId((booking as any)?.lecturerId?._id || (booking as any)?.lecturerId),
     );
 
     if (recipients.length === 0) {
@@ -514,7 +520,9 @@ export class NotificationsService {
       return;
     }
 
-    const recipientId = this.extractObjectId(bookingPayload?.lecturerId?._id || bookingPayload?.lecturerId);
+    const recipientId = this.extractObjectId(
+      bookingPayload?.lecturerId?._id || bookingPayload?.lecturerId,
+    );
     const bookingId = this.extractObjectId(bookingPayload?._id);
     const campusId = this.extractObjectId(bookingPayload?.campusId);
     const roomCode = bookingPayload?.roomId?.roomCode || 'Unknown room';
@@ -533,7 +541,8 @@ export class NotificationsService {
         campusId,
         senderId: null,
         type: status === 'approved' ? 'booking_approved' : 'booking_rejected',
-        title: status === 'approved' ? `Booking approved: ${roomCode}` : `Booking rejected: ${roomCode}`,
+        title:
+          status === 'approved' ? `Booking approved: ${roomCode}` : `Booking rejected: ${roomCode}`,
         message:
           status === 'approved'
             ? `Your booking request for room ${roomCode} has been approved`
@@ -623,9 +632,7 @@ export class NotificationsService {
     }
 
     const approverIds = await this.findBookingApproverIds(campusId);
-    const managementRecipients = approverIds.filter(
-      (id) => id !== recipientId && id !== senderId,
-    );
+    const managementRecipients = approverIds.filter((id) => id !== recipientId && id !== senderId);
 
     managementRecipients.forEach((managerId) => {
       notificationItems.push({

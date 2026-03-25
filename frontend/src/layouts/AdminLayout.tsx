@@ -27,6 +27,7 @@ import {
   ChevronDown,
   FileText,
   Cpu,
+  ArrowLeftRight,
   TriangleAlert,
 } from 'lucide-react';
 
@@ -112,7 +113,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       {
         id: 'transfers',
         label: 'Transfer',
-        icon: Cpu, 
+        icon: ArrowLeftRight,
         path: '/transfers',
         requiredPermissions: [PERMISSIONS.TRANSFERS_READ],
       },

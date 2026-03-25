@@ -6,7 +6,7 @@ export class Schedule extends Document {
   @Prop({ type: Types.ObjectId, ref: 'Campus', required: true })
   campusId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Room'})
+  @Prop({ type: Types.ObjectId, ref: 'Room' })
   roomId?: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
@@ -18,10 +18,10 @@ export class Schedule extends Document {
   @Prop({ required: true, min: 2, max: 7 })
   dayOfWeek: number; // 2=Monday, 7=Saturday
 
-  @Prop({ 
+  @Prop({
     type: String,
     enum: ['OLDSLOT', 'NEWSLOT'],
-    required: true
+    required: true,
   })
   slotType: string;
 
@@ -49,17 +49,17 @@ export class Schedule extends Document {
   @Prop()
   semester?: string;
 
-  @Prop({ 
+  @Prop({
     type: String,
     enum: ['scheduled', 'ongoing', 'completed', 'cancelled'],
-    default: 'scheduled'
+    default: 'scheduled',
   })
   status: string;
 
-  @Prop({ 
+  @Prop({
     type: String,
     enum: ['manual', 'imported', 'api'],
-    default: 'imported'
+    default: 'imported',
   })
   source: string;
 
@@ -74,12 +74,12 @@ export const ScheduleSchema = SchemaFactory.createForClass(Schedule);
 
 ScheduleSchema.index(
   { campusId: 1, roomId: 1, dateStart: 1, slotNumber: 1, dayOfWeek: 1 },
-  { unique: true }
+  { unique: true },
 );
 
 ScheduleSchema.index(
   { campusId: 1, lecturerId: 1, dateStart: 1, slotNumber: 1, dayOfWeek: 1 },
-  { unique: true }
+  { unique: true },
 );
 
 // Query optimization indexes

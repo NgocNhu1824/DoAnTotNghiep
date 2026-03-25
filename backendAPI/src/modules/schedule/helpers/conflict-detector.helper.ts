@@ -46,7 +46,7 @@ export class ConflictDetectorHelper {
       // Business rule: 1 room/date = 1 slotType
       const roomDateKey = `${row.roomId}_${dateStr}`;
       const existingSlotType = roomDateSlotTypes.get(roomDateKey);
-      
+
       if (existingSlotType && existingSlotType.slotType !== row.slotType) {
         errors.push({
           rowIndex,
@@ -62,10 +62,7 @@ export class ConflictDetectorHelper {
     return errors;
   }
 
-  static detectConflicts(
-    newSchedules: any[],
-    existingSchedules: any[],
-  ): ValidationError[] {
+  static detectConflicts(newSchedules: any[], existingSchedules: any[]): ValidationError[] {
     const errors: ValidationError[] = [];
 
     newSchedules.forEach((newSch, index) => {
@@ -91,8 +88,8 @@ export class ConflictDetectorHelper {
 
         const isSameRoom = existing.roomId.toString() === roomIdStr;
         const isSameLecturer = existing.lecturerId.toString() === lecturerIdStr;
-        const isSameSlot = existing.slotNumber === newSch.slotNumber && 
-                          existing.dayOfWeek === newSch.dayOfWeek;
+        const isSameSlot =
+          existing.slotNumber === newSch.slotNumber && existing.dayOfWeek === newSch.dayOfWeek;
 
         if (isSameRoom && existing.slotType !== newSch.slotType && !hasSlotTypeMismatch) {
           errors.push({
@@ -177,11 +174,11 @@ export class ConflictDetectorHelper {
   // JS day (0-6) to system day (2-7), no Sunday
   static calculateDayOfWeek(date: Date): number {
     const jsDay = date.getUTCDay();
-    
+
     if (jsDay === 0) {
       throw new Error('Classes are not scheduled on Sunday');
     }
-    
+
     return jsDay + 1;
   }
 }

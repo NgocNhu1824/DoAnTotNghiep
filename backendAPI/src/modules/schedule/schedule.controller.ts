@@ -50,17 +50,13 @@ export class ScheduleController {
     // Validate file type (CSV or Excel)
     const fileName = file.originalname?.toLowerCase() || '';
     const validExtensions = ['.csv', '.xlsx', '.xls'];
-    const isValid = validExtensions.some(ext => fileName.endsWith(ext));
-    
+    const isValid = validExtensions.some((ext) => fileName.endsWith(ext));
+
     if (!isValid) {
       throw new BadRequestException('Only CSV or Excel files are accepted (.csv, .xlsx, .xls)');
     }
 
-    const result = await this.scheduleService.importSchedules(
-      file,
-      dto.mode || 'strict',
-      user,
-    );
+    const result = await this.scheduleService.importSchedules(file, dto.mode || 'strict', user);
 
     return {
       success: true,
@@ -104,11 +100,7 @@ export class ScheduleController {
   @Roles('TRAINING_OFFICER', 'CAMPUS_ADMIN', 'SUPER_ADMIN')
   @RequireScopes('CAMPUS', 'GLOBAL')
   @RequirePermissions('schedules.update')
-  async update(
-    @Param('id') id: string,
-    @Body() dto: UpdateScheduleDto,
-    @CurrentUser() user: any,
-  ) {
+  async update(@Param('id') id: string, @Body() dto: UpdateScheduleDto, @CurrentUser() user: any) {
     const updated = await this.scheduleService.update(id, dto, user);
 
     return {

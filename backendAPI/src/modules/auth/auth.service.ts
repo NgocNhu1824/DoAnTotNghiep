@@ -98,25 +98,25 @@ type EmbeddingProviderResponse = {
   };
   data?: {
     embedding?: unknown;
+    detectorScore?: unknown;
+    poseYaw?: unknown;
+    posePitch?: unknown;
+    poseRoll?: unknown;
+    bboxCenterX?: unknown;
+    bboxArea?: unknown;
+    facePose?: unknown;
+    face_pose?: unknown;
+    face?: {
+      embedding?: unknown;
+      normedEmbedding?: unknown;
+      normed_embedding?: unknown;
       detectorScore?: unknown;
       poseYaw?: unknown;
       posePitch?: unknown;
       poseRoll?: unknown;
       bboxCenterX?: unknown;
       bboxArea?: unknown;
-      facePose?: unknown;
-      face_pose?: unknown;
-    face?: {
-      embedding?: unknown;
-      normedEmbedding?: unknown;
-      normed_embedding?: unknown;
-        detectorScore?: unknown;
-        poseYaw?: unknown;
-        posePitch?: unknown;
-        poseRoll?: unknown;
-        bboxCenterX?: unknown;
-        bboxArea?: unknown;
-        pose?: unknown;
+      pose?: unknown;
     };
     faces?: Array<Record<string, unknown>>;
   };
@@ -144,10 +144,7 @@ export class AuthService {
   /**
    * Validate and login user with Google
    */
-  async validateGoogleUser(
-    googleProfile: any,
-    campusId: string,
-  ): Promise<AuthResponseDto> {
+  async validateGoogleUser(googleProfile: any, campusId: string): Promise<AuthResponseDto> {
     const { googleId, email, fullName, avatar } = googleProfile;
 
     // Normalize email to lowercase for comparison
@@ -160,15 +157,13 @@ export class AuthService {
     }
 
     // 2. Find user by email (case-insensitive)
-    let user = await this.userModel
+    const user = await this.userModel
       .findOne({ email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') } })
       .populate('campusId', 'campusCode campusName address')
       .exec();
 
     if (!user) {
-      throw new UnauthorizedException(
-        'Email not found in system. Please contact administrator.',
-      );
+      throw new UnauthorizedException('Email not found in system. Please contact administrator.');
     }
 
     // 3. Check if user is active
@@ -180,12 +175,12 @@ export class AuthService {
     if (!user.googleId) {
       user.googleId = googleId;
       user.avatar = avatar || user.avatar;
-      
+
       // Only update campusId if user doesn't have one yet
       if (!user.campusId) {
         user.campusId = campusId as any;
       }
-      
+
       await user.save();
     } else {
       // Update avatar if changed
@@ -227,8 +222,8 @@ export class AuthService {
 
       // Extract permission details
       permissions = rolePermissions
-        .filter(rp => rp.permissionId) // Ensure permission exists
-        .map(rp => {
+        .filter((rp) => rp.permissionId) // Ensure permission exists
+        .map((rp) => {
           const perm = rp.permissionId as any;
           return {
             id: perm._id.toString(),
@@ -241,7 +236,7 @@ export class AuthService {
         });
 
       // Extract permission names for JWT (not codes!)
-      permissionCodes = permissions.map(p => p.permissionName);
+      permissionCodes = permissions.map((p) => p.permissionName);
     }
 
     // 7. Generate JWT token with full payload
@@ -418,8 +413,8 @@ export class AuthService {
 
       // Extract permission details
       permissions = rolePermissions
-        .filter(rp => rp.permissionId)
-        .map(rp => {
+        .filter((rp) => rp.permissionId)
+        .map((rp) => {
           const perm = rp.permissionId as any;
           return {
             id: perm._id.toString(),
@@ -451,10 +446,7 @@ export class AuthService {
       throw new BadRequestException('Passwords do not match');
     }
 
-    const user = await this.userModel
-      .findById(userId)
-      .select('+passwordHash')
-      .exec();
+    const user = await this.userModel.findById(userId).select('+passwordHash').exec();
 
     if (!user) {
       throw new NotFoundException('User not found');
@@ -740,7 +732,7 @@ export class AuthService {
     const sessionId = randomUUID();
     const now = Date.now();
     const stepRules = this.buildFaceScanStepRules();
-    const challengeSteps = stepRules.map(rule => rule.step);
+    const challengeSteps = stepRules.map((rule) => rule.step);
     const ttlMs = this.getFaceScanSessionTtlMs();
     const minFrames = this.getFaceScanMinFrames();
     const minDurationMs = this.getFaceScanMinDurationMs();
@@ -800,7 +792,9 @@ export class AuthService {
     const maxAbsRoll = this.getFaceScanMaxAbsRoll();
 
     if (analysis.detectorScore !== null && analysis.detectorScore < minDetectorScore) {
-      throw new BadRequestException('Face quality is too low. Keep your face centered and try again.');
+      throw new BadRequestException(
+        'Face quality is too low. Keep your face centered and try again.',
+      );
     }
 
     if (analysis.bboxArea !== null && analysis.bboxArea < minBboxArea) {
@@ -853,16 +847,19 @@ export class AuthService {
       data: {
         sessionId: session.sessionId,
         challengePassed,
-        currentChallenge: challengeCompleted ? null : nextStepRule?.step ?? null,
+        currentChallenge: challengeCompleted ? null : (nextStepRule?.step ?? null),
         completedChallenges: session.currentStepIndex,
         totalChallenges: session.stepRules.length,
         challengeCompleted,
         framesCollected,
         stepPassFrames: challengeCompleted ? 0 : session.currentStepPassFrames,
-        stepRequiredFrames: challengeCompleted ? 0 : nextStepRule?.requiredFrames ?? 0,
+        stepRequiredFrames: challengeCompleted ? 0 : (nextStepRule?.requiredFrames ?? 0),
         remainingStepMs: challengeCompleted
           ? 0
-          : Math.max(0, (nextStepRule?.timeoutMs ?? 0) - (Date.now() - session.currentStepStartedAt)),
+          : Math.max(
+              0,
+              (nextStepRule?.timeoutMs ?? 0) - (Date.now() - session.currentStepStartedAt),
+            ),
         durationMs,
         detectorScore: analysis.detectorScore,
         poseYaw: analysis.poseYaw,
@@ -888,11 +885,19 @@ export class AuthService {
     const scanDurationMs = this.extractSessionDurationMs(session);
     const minDurationMs = this.getFaceScanMinDurationMs();
     if (scanDurationMs < minDurationMs) {
-      throw new BadRequestException(`Face scan duration is too short. Please scan for at least ${minDurationMs}ms.`);
+      throw new BadRequestException(
+        `Face scan duration is too short. Please scan for at least ${minDurationMs}ms.`,
+      );
     }
 
-    const aggregatedEmbedding = this.aggregateEmbeddings(session.frames.map(frame => frame.embedding));
-    const livenessMetrics = this.computeLivenessMetrics(session.frames, challengeCompleted, scanDurationMs);
+    const aggregatedEmbedding = this.aggregateEmbeddings(
+      session.frames.map((frame) => frame.embedding),
+    );
+    const livenessMetrics = this.computeLivenessMetrics(
+      session.frames,
+      challengeCompleted,
+      scanDurationMs,
+    );
     const livenessThreshold = this.getFaceScanLivenessThreshold();
     const livenessPassed = livenessMetrics.score >= livenessThreshold;
     const user = await this.getActiveUserOrThrow(userId);
@@ -951,7 +956,8 @@ export class AuthService {
 
   private buildFaceScanStepRules(): FaceScanStepRule[] {
     const firstTurn: FaceScanChallengeStep = Math.random() < 0.5 ? 'turn-left' : 'turn-right';
-    const secondTurn: FaceScanChallengeStep = firstTurn === 'turn-left' ? 'turn-right' : 'turn-left';
+    const secondTurn: FaceScanChallengeStep =
+      firstTurn === 'turn-left' ? 'turn-right' : 'turn-left';
     const stepTimeoutMs = this.getFaceScanStepTimeoutMs();
 
     return [
@@ -999,7 +1005,11 @@ export class AuthService {
 
     if (analysis.poseYaw !== null) {
       if (stepRule.step === 'turn-left' || stepRule.step === 'turn-right') {
-        return this.evaluateDirectionalTurn(session, analysis.poseYaw, DEFAULT_FACE_SCAN_TURN_YAW_THRESHOLD);
+        return this.evaluateDirectionalTurn(
+          session,
+          analysis.poseYaw,
+          DEFAULT_FACE_SCAN_TURN_YAW_THRESHOLD,
+        );
       }
 
       return Math.abs(analysis.poseYaw) <= 10;
@@ -1008,14 +1018,20 @@ export class AuthService {
     if (session.baselineCenterX !== null && analysis.bboxCenterX !== null) {
       const offset = analysis.bboxCenterX - session.baselineCenterX;
       if (stepRule.step === 'turn-left' || stepRule.step === 'turn-right') {
-        return this.evaluateDirectionalTurn(session, offset, DEFAULT_FACE_SCAN_TURN_OFFSET_THRESHOLD);
+        return this.evaluateDirectionalTurn(
+          session,
+          offset,
+          DEFAULT_FACE_SCAN_TURN_OFFSET_THRESHOLD,
+        );
       }
 
       return Math.abs(offset) <= 10;
     }
 
     // Final fallback: if no pose/bbox metadata exists, require some embedding drift.
-    const centerFrame = session.frames.find(frame => frame.embedding.length === analysis.embedding.length);
+    const centerFrame = session.frames.find(
+      (frame) => frame.embedding.length === analysis.embedding.length,
+    );
     if (!centerFrame) {
       return false;
     }
@@ -1057,7 +1073,7 @@ export class AuthService {
     durationMs: number,
   ): FaceScanLivenessMetrics {
     const detectorScores = frames
-      .map(frame => frame.detectorScore)
+      .map((frame) => frame.detectorScore)
       .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
     const detectorAverage = detectorScores.length
       ? detectorScores.reduce((sum, value) => sum + value, 0) / detectorScores.length
@@ -1066,35 +1082,43 @@ export class AuthService {
     let diversityAccumulator = 0;
     let diversityCount = 0;
     for (let idx = 1; idx < frames.length; idx += 1) {
-      const similarity = this.calculateCosineSimilarity(frames[idx - 1].embedding, frames[idx].embedding);
+      const similarity = this.calculateCosineSimilarity(
+        frames[idx - 1].embedding,
+        frames[idx].embedding,
+      );
       diversityAccumulator += Math.max(0, 1 - similarity);
       diversityCount += 1;
     }
     const embeddingDiversity = diversityCount > 0 ? diversityAccumulator / diversityCount : 0;
 
     const yawValues = frames
-      .map(frame => frame.poseYaw)
+      .map((frame) => frame.poseYaw)
       .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
     const yawRange = yawValues.length > 0 ? Math.max(...yawValues) - Math.min(...yawValues) : 0;
 
     const centerXValues = frames
-      .map(frame => frame.bboxCenterX)
+      .map((frame) => frame.bboxCenterX)
       .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-    const centerXRange = centerXValues.length > 0 ? Math.max(...centerXValues) - Math.min(...centerXValues) : 0;
+    const centerXRange =
+      centerXValues.length > 0 ? Math.max(...centerXValues) - Math.min(...centerXValues) : 0;
 
     const bboxAreas = frames
-      .map(frame => frame.bboxArea)
+      .map((frame) => frame.bboxArea)
       .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-    const bboxAreaAverage = bboxAreas.length > 0
-      ? bboxAreas.reduce((sum, value) => sum + value, 0) / bboxAreas.length
-      : 0;
+    const bboxAreaAverage =
+      bboxAreas.length > 0
+        ? bboxAreas.reduce((sum, value) => sum + value, 0) / bboxAreas.length
+        : 0;
 
     const yawScore = Math.max(0, Math.min(1, yawRange / 35));
     const centerShiftScore = Math.max(0, Math.min(1, centerXRange / 55));
     const movementScore = Math.max(yawScore, centerShiftScore);
     const diversityScore = Math.max(0, Math.min(1, embeddingDiversity / 0.12));
     const qualityScore = Math.max(0, Math.min(1, (detectorAverage - 0.45) / 0.5));
-    const bboxScore = Math.max(0, Math.min(1, bboxAreaAverage / (this.getFaceScanMinBboxArea() * 1.5)));
+    const bboxScore = Math.max(
+      0,
+      Math.min(1, bboxAreaAverage / (this.getFaceScanMinBboxArea() * 1.5)),
+    );
     const challengeScore = challengeCompleted ? 1 : 0;
     const durationScore = Math.max(0, Math.min(1, durationMs / this.getFaceScanMinDurationMs()));
     const score =
@@ -1131,7 +1155,7 @@ export class AuthService {
     }
 
     const dimension = embeddings[0].length;
-    const dimensionMismatch = embeddings.some(vector => vector.length !== dimension);
+    const dimensionMismatch = embeddings.some((vector) => vector.length !== dimension);
     if (dimensionMismatch) {
       throw new BadRequestException('Embedding dimension mismatch in scan session');
     }
@@ -1143,7 +1167,7 @@ export class AuthService {
       }
     }
 
-    const averaged = merged.map(value => value / embeddings.length);
+    const averaged = merged.map((value) => value / embeddings.length);
     return this.normalizeEmbedding(averaged);
   }
 
@@ -1170,7 +1194,7 @@ export class AuthService {
       .lean()
       .exec();
 
-    const duplicatedTemplate = existingTemplates.find(template => {
+    const duplicatedTemplate = existingTemplates.find((template) => {
       if (!Array.isArray(template.embedding) || template.embedding.length !== embedding.length) {
         return false;
       }
@@ -1221,7 +1245,9 @@ export class AuthService {
 
     const storedEmbedding = registeredTemplate.embedding as number[];
     if (storedEmbedding.length !== candidateEmbedding.length) {
-      throw new BadRequestException('Face template version mismatch. Please register Face ID again.');
+      throw new BadRequestException(
+        'Face template version mismatch. Please register Face ID again.',
+      );
     }
 
     const similarity = this.calculateCosineSimilarity(candidateEmbedding, storedEmbedding);
@@ -1268,7 +1294,8 @@ export class AuthService {
       return providerAnalysis;
     }
 
-    const allowFallback = (process.env.FACE_EMBEDDING_ALLOW_DEV_FALLBACK || 'true').toLowerCase() === 'true';
+    const allowFallback =
+      (process.env.FACE_EMBEDDING_ALLOW_DEV_FALLBACK || 'true').toLowerCase() === 'true';
     if (!allowFallback) {
       throw new BadRequestException('Face embedding provider is not configured');
     }
@@ -1284,7 +1311,9 @@ export class AuthService {
     };
   }
 
-  private async extractFaceAnalysisFromProvider(faceImageBase64: string): Promise<FaceAnalysis | null> {
+  private async extractFaceAnalysisFromProvider(
+    faceImageBase64: string,
+  ): Promise<FaceAnalysis | null> {
     const providerUrl = (process.env.FACE_EMBEDDING_PROVIDER_URL || '').trim();
     if (!providerUrl) {
       return null;
@@ -1316,7 +1345,9 @@ export class AuthService {
       });
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new BadRequestException(`Face embedding provider timed out after ${providerTimeoutMs}ms`);
+        throw new BadRequestException(
+          `Face embedding provider timed out after ${providerTimeoutMs}ms`,
+        );
       }
 
       throw new BadRequestException('Face embedding provider is unreachable');
@@ -1365,8 +1396,8 @@ export class AuthService {
         continue;
       }
 
-      const parsedEmbedding = candidate.map(value => Number(value));
-      const isAllFinite = parsedEmbedding.every(value => Number.isFinite(value));
+      const parsedEmbedding = candidate.map((value) => Number(value));
+      const isAllFinite = parsedEmbedding.every((value) => Number.isFinite(value));
       if (parsedEmbedding.length > 0 && isAllFinite) {
         embedding = parsedEmbedding;
         break;
@@ -1502,7 +1533,12 @@ export class AuthService {
     const y1 = Number(rawBbox[1]);
     const x2 = Number(rawBbox[2]);
     const y2 = Number(rawBbox[3]);
-    if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) {
+    if (
+      !Number.isFinite(x1) ||
+      !Number.isFinite(y1) ||
+      !Number.isFinite(x2) ||
+      !Number.isFinite(y2)
+    ) {
       return null;
     }
 
@@ -1528,7 +1564,7 @@ export class AuthService {
       throw new BadRequestException('Embedding vector is empty');
     }
 
-    const valid = embedding.every(value => Number.isFinite(value));
+    const valid = embedding.every((value) => Number.isFinite(value));
     if (!valid) {
       throw new BadRequestException('Embedding vector contains invalid values');
     }
@@ -1538,7 +1574,7 @@ export class AuthService {
       throw new BadRequestException('Embedding vector norm is invalid');
     }
 
-    return embedding.map(value => value / norm);
+    return embedding.map((value) => value / norm);
   }
 
   private calculateCosineSimilarity(lhs: number[], rhs: number[]): number {

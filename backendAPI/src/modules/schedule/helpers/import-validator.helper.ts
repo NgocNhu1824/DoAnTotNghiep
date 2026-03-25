@@ -127,7 +127,7 @@ export class ImportValidatorHelper {
       }
 
       const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-      
+
       if (row.starttime && !timeRegex.test(row.starttime)) {
         errors.push({
           rowIndex,
@@ -213,20 +213,17 @@ export class ImportValidatorHelper {
   // Normalize time: "7:0" -> "07:00"
   static normalizeTime(time: string): string {
     if (!time) return time;
-    
+
     const parts = time.split(':');
     if (parts.length !== 2) return time;
 
     const hours = parts[0].padStart(2, '0');
     const minutes = parts[1].padStart(2, '0');
-    
+
     return `${hours}:${minutes}`;
   }
 
-  static parseBooleanValue(
-    value: unknown,
-    defaultValue?: boolean,
-  ): boolean | undefined {
+  static parseBooleanValue(value: unknown, defaultValue?: boolean): boolean | undefined {
     if (value === undefined || value === null || value === '') {
       return defaultValue;
     }

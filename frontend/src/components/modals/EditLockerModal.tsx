@@ -1,239 +1,472 @@
-import React, { useEffect, useState } from 'react';
-import Button from '../common/Button';
-import { LockerPayload, LockerEntity, LockerStatus } from '../../types/locker.type';
+import React, { useEffect, useMemo, useState } from 'react';
+
 import { lockerService } from '../../services/locker.service';
+import roomService from '../../services/room.service';
+import { LockerEntity, LockerPayload, LockerStatus } from '../../types/locker.type';
+import { Room } from '../../types/room.types';
+import { Button } from '../ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+
+type Campus = { _id: string; campusName: string };
+type Esp32Device = {
+  id: string;
+  name: string;
+  lockCount: number;
+  assignedLockerCount: number;
+  status: string;
+  solenoids: { id: string; connected: boolean }[];
+  devices: { pin: number; name: string; type?: string; state?: 0 | 1 }[];
+  deviceId: string;
+};
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onEdit: (data: LockerPayload) => Promise<void>;
+  onSave: (id: string, data: LockerPayload) => Promise<void>;
   locker?: LockerEntity;
-  campuses: { _id: string; campusName: string }[];
+  campuses: Campus[];
 }
 
-const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker, campuses }) => {
-  const [form, setForm] = useState<LockerPayload | null>(null);
-  const [errors, setErrors] = useState<{ [key: string]: string }>({});
+const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, campuses }) => {
+  const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [esp32Devices, setEsp32Devices] = useState<Esp32Device[]>([]);
+  const [loadingDevices, setLoadingDevices] = useState(false);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [loadingRooms, setLoadingRooms] = useState(false);
+
+  const [form, setForm] = useState<LockerPayload>({
+    lockerNumber: 1,
+    position: '',
+    batteryLevel: 0,
+    status: 'available',
+    deviceId: '',
+    isActive: true,
+    campusId: null,
+    roomId: null,
+    roomName: null,
+    solenoids: [],
+    esp32Id: null,
+    controlPin: null,
+  });
 
   useEffect(() => {
-    if (locker) {
-      setForm({
-        lockerNumber: locker.lockerNumber,
-        position: locker.position,
-        status: locker.status,
-        batteryLevel: locker.batteryLevel,
-        deviceId: locker.deviceId ?? '',
-        isActive: locker.isActive,
-        campusId: locker.campusId ?? null,
-        solenoids: locker.solenoids ?? [], // Ensure solenoids are included
-        esp32Id: locker.esp32Id ?? null, // Ensure esp32Id is included and matches updated type
-      });
-    }
+    if (!locker) return;
+    setForm({
+      lockerNumber: locker.lockerNumber,
+      position: locker.position,
+      batteryLevel: locker.batteryLevel,
+      status: locker.status,
+      deviceId: locker.deviceId || '',
+      isActive: locker.isActive,
+      campusId: locker.campusId,
+      roomId: locker.roomId ?? null,
+      roomName: locker.roomName ?? null,
+      solenoids: locker.solenoids || [],
+      esp32Id: locker.esp32Id || null,
+      controlPin: locker.controlPin ?? null,
+    });
+    setErrors({});
   }, [locker]);
 
-  if (!isOpen || !form) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const fetchDevices = async () => {
+      try {
+        setLoadingDevices(true);
+        const data = await lockerService.getEsp32Devices();
+        setEsp32Devices(Array.isArray(data) ? data : []);
+      } finally {
+        setLoadingDevices(false);
+      }
+    };
+
+    fetchDevices();
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !form.campusId) {
+      setRooms([]);
+      return;
+    }
+
+    let active = true;
+    const fetchRooms = async () => {
+      try {
+        setLoadingRooms(true);
+        const rows = await roomService.getAllRooms({ campusId: form.campusId ?? undefined });
+        if (active) {
+          setRooms(Array.isArray(rows) ? rows : []);
+        }
+      } catch {
+        if (active) {
+          setRooms([]);
+        }
+      } finally {
+        if (active) {
+          setLoadingRooms(false);
+        }
+      }
+    };
+
+    fetchRooms();
+
+    return () => {
+      active = false;
+    };
+  }, [isOpen, form.campusId]);
+
+  const selectedEsp32 = useMemo(
+    () => esp32Devices.find((device) => device.id === form.esp32Id) || null,
+    [esp32Devices, form.esp32Id]
+  );
+
+  const availableControlPins = useMemo(() => {
+    if (!selectedEsp32) return [] as number[];
+
+    const fromDevices = (selectedEsp32.devices || [])
+      .map((item) => Number(item.pin))
+      .filter((pin) => Number.isFinite(pin));
+
+    const fromSolenoids = (selectedEsp32.solenoids || [])
+      .map((item) => {
+        const matched = String(item.id || '').match(/(\d+)/);
+        return matched ? Number(matched[1]) : NaN;
+      })
+      .filter((pin) => Number.isFinite(pin));
+
+    return Array.from(new Set([...fromDevices, ...fromSolenoids])).sort((a, b) => a - b);
+  }, [selectedEsp32]);
+
+  const parseIntegerWithoutLeadingZero = (rawValue: string, fallback = 0) => {
+    const digitsOnly = String(rawValue || '').replace(/\D/g, '');
+    if (!digitsOnly) {
+      return fallback;
+    }
+
+    const normalized = digitsOnly.replace(/^0+(?=\d)/, '');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : fallback;
+  };
+
+  if (!locker) return null;
 
   const validate = () => {
-    const errs: { [key: string]: string } = {};
+    const nextErrors: Record<string, string> = {};
 
-    // Validate lockerNumber
-    if (!form.lockerNumber || form.lockerNumber < 1) {
-      errs.lockerNumber = 'Locker number must be greater than 0';
+    if (!Number.isInteger(form.lockerNumber) || form.lockerNumber <= 0) {
+      nextErrors.lockerNumber = 'Locker number must be greater than 0';
     }
 
-    // Validate position
     if (!form.position.trim()) {
-      errs.position = 'Position cannot be empty';
+      nextErrors.position = 'Position is required';
     }
 
-    // Validate batteryLevel
-    if (form.batteryLevel === undefined || form.batteryLevel < 0 || form.batteryLevel > 100) {
-      errs.batteryLevel = 'Battery level must be between 0 and 100';
+    if (form.batteryLevel < 0 || form.batteryLevel > 100) {
+      nextErrors.batteryLevel = 'Battery level must be between 0 and 100';
     }
 
-    // Validate campusId
     if (!form.campusId) {
-      errs.campusId = 'Please select a campus';
+      nextErrors.campusId = 'Please select a campus';
     }
 
-    // Validate deviceId
-    if (!form.deviceId || !form.deviceId.trim()) {
-      errs.deviceId = 'Device ID cannot be empty';
+    if (!form.roomId) {
+      nextErrors.roomId = 'Please select a room';
     }
 
-    setErrors(errs);
-    return Object.keys(errs).length === 0;
+    if (!form.deviceId) {
+      nextErrors.deviceId = 'Please select an ESP32 device';
+    }
+
+    if (form.deviceId && !Number.isFinite(Number(form.controlPin))) {
+      nextErrors.controlPin = 'Please select a control pin for locker mapping';
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   };
 
   const handleSubmit = async () => {
     if (!validate()) return;
 
-    const payload: LockerPayload = {
-      lockerNumber: form.lockerNumber,
-      position: form.position,
-      status: form.status,
-      batteryLevel: form.batteryLevel,
-      deviceId: form.deviceId || '', // Ensure deviceId is always a string
-      isActive: form.isActive,
-      campusId: form.campusId,
-      solenoids: form.solenoids ?? [], // Ensure solenoids are included
-      esp32Id: form.esp32Id ?? null, // Ensure esp32Id is included and matches updated type
-    };
-
-    // Check for duplicates
-    const existingLockers: LockerEntity[] = await lockerService.getAll();
-    const foundDuplicates = existingLockers.filter(
-      (item) =>
-        item.id !== locker?.id && // Exclude the current locker being edited.
-        (
-          item.lockerNumber === form.lockerNumber ||
-          item.position.toLowerCase() === form.position.toLowerCase() ||
-          item.deviceId === form.deviceId // Also check duplicate device ID.
-        )
-    );
-
-    if (foundDuplicates.length > 0) {
-      alert('Duplicate data detected. Please review your input.');
-      return;
+    try {
+      setSubmitting(true);
+      await onSave(locker.id, form);
+    } finally {
+      setSubmitting(false);
     }
-
-    await onEdit(payload);
-    onClose();
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-2xl">
-        <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">
-          Edit Locker
-        </h2>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Edit Locker</DialogTitle>
+          <DialogDescription>Update locker information and linked hardware.</DialogDescription>
+        </DialogHeader>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSubmit();
-          }}
-          className="grid grid-cols-1 md:grid-cols-2 gap-4"
-        >
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Locker Number
-            </label>
-            <input
-              type="number"
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="locker-number-edit">Locker Number</Label>
+            <Input
+              id="locker-number-edit"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
               value={form.lockerNumber}
-              onChange={(e) => setForm({ ...form, lockerNumber: +e.target.value })}
-              className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  lockerNumber: parseIntegerWithoutLeadingZero(e.target.value, 0),
+                }))
+              }
             />
-            {errors.lockerNumber && <p className="text-red-500 text-sm">{errors.lockerNumber}</p>}
+            {errors.lockerNumber && <p className="text-sm text-destructive">{errors.lockerNumber}</p>}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Position
-            </label>
-            <input
-              type="text"
+          <div className="space-y-2">
+            <Label htmlFor="locker-position-edit">Locker Name</Label>
+            <Input
+              id="locker-position-edit"
               value={form.position}
-              onChange={(e) => setForm({ ...form, position: e.target.value })}
-              className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => setForm((prev) => ({ ...prev, position: e.target.value }))}
+              placeholder="Example: Locker A1"
             />
-            {errors.position && <p className="text-red-500 text-sm">{errors.position}</p>}
+            {errors.position && <p className="text-sm text-destructive">{errors.position}</p>}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Battery Level
-            </label>
-            <input
-              type="number"
-              value={form.batteryLevel}
-              onChange={(e) => setForm({ ...form, batteryLevel: +e.target.value })}
-              className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
-            />
-            {errors.batteryLevel && <p className="text-red-500 text-sm">{errors.batteryLevel}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Status
-            </label>
-            <select
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value as LockerStatus })}
-              className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="available">Available</option>
-              <option value="occupied">Occupied</option>
-              <option value="maintenance">Maintenance</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Campus
-            </label>
-            <select
-              value={form.campusId || ''}
-              onChange={(e) => setForm({ ...form, campusId: e.target.value || null })}
-              className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Unassigned campus</option>
-              {campuses.map((campus) => (
-                <option key={campus._id} value={campus._id}>
-                  {campus.campusName}
-                </option>
-              ))}
-            </select>
-            {errors.campusId && <p className="text-red-500 text-sm">{errors.campusId}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Device ID
-            </label>
-            <input
+          <div className="space-y-2">
+            <Label htmlFor="locker-battery-edit">Battery Level (%)</Label>
+            <Input
+              id="locker-battery-edit"
               type="text"
-              value={form.deviceId || ''}
-              onChange={(e) => setForm({ ...form, deviceId: e.target.value })}
-              className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={form.batteryLevel}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  batteryLevel: parseIntegerWithoutLeadingZero(e.target.value, 0),
+                }))
+              }
             />
-            {errors.deviceId && <p className="text-red-500 text-sm">{errors.deviceId}</p>}
+            {errors.batteryLevel && <p className="text-sm text-destructive">{errors.batteryLevel}</p>}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Activation Status
-            </label>
-            <select
-              value={form.isActive ? 'true' : 'false'}
-              onChange={(e) => setForm({ ...form, isActive: e.target.value === 'true' })}
-              className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+          <div className="space-y-2">
+            <Label>Status</Label>
+            <Select
+              value={form.status}
+              onValueChange={(value) => setForm((prev) => ({ ...prev, status: value as LockerStatus }))}
             >
-              <option value="true">Active</option>
-              <option value="false">Inactive</option>
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="available">Available</SelectItem>
+                <SelectItem value="occupied">Occupied</SelectItem>
+                <SelectItem value="maintenance">Maintenance</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-        </form>
 
-        <div className="flex justify-center gap-4 mt-6">
-          <Button
-            onClick={onClose}
-            variant="secondary"
-            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded shadow-md"
-          >
-            Close
-          </Button>
+          <div className="space-y-2">
+            <Label>Campus</Label>
+            <Select
+              value={form.campusId ?? ''}
+              onValueChange={(value) =>
+                setForm((prev) => ({
+                  ...prev,
+                  campusId: value || null,
+                  roomId: null,
+                  roomName: null,
+                }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select campus" />
+              </SelectTrigger>
+              <SelectContent>
+                {campuses.map((campus) => (
+                  <SelectItem key={campus._id} value={campus._id}>
+                    {campus.campusName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.campusId && <p className="text-sm text-destructive">{errors.campusId}</p>}
+          </div>
 
-          <Button
-            onClick={handleSubmit}
-            className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded shadow-md"
-          >
-            Save
-          </Button>
+          <div className="space-y-2">
+            <Label>Room</Label>
+            <Select
+              value={form.roomId ?? ''}
+              onValueChange={(value) => {
+                const selectedRoom = rooms.find((room) => room._id === value);
+                setForm((prev) => ({
+                  ...prev,
+                  roomId: value || null,
+                  roomName: selectedRoom?.roomName || null,
+                }));
+              }}
+              disabled={!form.campusId || loadingRooms}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={
+                    !form.campusId
+                      ? 'Select campus first'
+                      : loadingRooms
+                        ? 'Loading rooms...'
+                        : 'Select room'
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {rooms.map((room) => (
+                  <SelectItem key={room._id} value={room._id}>
+                    {room.roomName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.roomId && <p className="text-sm text-destructive">{errors.roomId}</p>}
+          </div>
+
+          <div className="space-y-2">
+            <Label>ESP32 Device</Label>
+            <Select
+              value={form.esp32Id ?? ''}
+              onValueChange={(value) => {
+                const selected = esp32Devices.find((device) => device.id === value);
+                if (!selected) return;
+
+                const pinCandidates = Array.from(
+                  new Set([
+                    ...(selected.devices || [])
+                      .map((item) => Number(item.pin))
+                      .filter((pin) => Number.isFinite(pin)),
+                    ...(selected.solenoids || [])
+                      .map((item) => {
+                        const matched = String(item.id || '').match(/(\d+)/);
+                        return matched ? Number(matched[1]) : NaN;
+                      })
+                      .filter((pin) => Number.isFinite(pin)),
+                  ]),
+                ).sort((a, b) => a - b);
+
+                setForm((prev) => ({
+                  ...prev,
+                  esp32Id: selected.id,
+                  deviceId: selected.deviceId,
+                  solenoids: selected.solenoids || [],
+                  controlPin:
+                    Number.isFinite(Number(prev.controlPin)) &&
+                    pinCandidates.includes(Number(prev.controlPin))
+                      ? Number(prev.controlPin)
+                      : pinCandidates[0] ?? null,
+                }));
+              }}
+              disabled={loadingDevices}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={loadingDevices ? 'Loading devices...' : 'Select ESP32'} />
+              </SelectTrigger>
+              <SelectContent>
+                {esp32Devices.map((device) => (
+                  <SelectItem key={device.id} value={device.id}>
+                    {device.deviceId} ({device.status})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.deviceId && <p className="text-sm text-destructive">{errors.deviceId}</p>}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Control Pin Mapping</Label>
+            <Select
+              value={
+                Number.isFinite(Number(form.controlPin))
+                  ? String(Number(form.controlPin))
+                  : ''
+              }
+              onValueChange={(value) =>
+                setForm((prev) => ({
+                  ...prev,
+                  controlPin: Number(value),
+                }))
+              }
+              disabled={!selectedEsp32 || availableControlPins.length === 0}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={
+                    !selectedEsp32
+                      ? 'Select ESP32 first'
+                      : availableControlPins.length === 0
+                        ? 'No pin detected'
+                        : 'Select control pin'
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {availableControlPins.map((pin) => (
+                  <SelectItem key={pin} value={String(pin)}>
+                    Pin {pin}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.controlPin && <p className="text-sm text-destructive">{errors.controlPin}</p>}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Activation</Label>
+            <Select
+              value={form.isActive ? 'active' : 'inactive'}
+              onValueChange={(value) => setForm((prev) => ({ ...prev, isActive: value === 'active' }))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Selected Device ID</Label>
+            <Input value={form.deviceId || '-'} readOnly className="bg-muted" />
+          </div>
+
+          <div className="md:col-span-2 rounded-md border p-3 text-sm text-muted-foreground">
+            {selectedEsp32 ? (
+              <p>
+                Connected pins: {selectedEsp32.devices.length} | Solenoids: {selectedEsp32.solenoids.length}
+              </p>
+            ) : (
+              <p>No device preview available.</p>
+            )}
+          </div>
         </div>
-      </div>
-    </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={submitting}>
+            {submitting ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

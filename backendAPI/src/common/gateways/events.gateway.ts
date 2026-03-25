@@ -20,9 +20,7 @@ import { Logger } from '@nestjs/common';
   },
   namespace: '/events',
 })
-export class EventsGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
@@ -52,7 +50,7 @@ export class EventsGateway
     @ConnectedSocket() client: Socket,
   ) {
     this.logger.log(`Unlock request for locker ${data.lockerNumber}`);
-    
+
     // Broadcast to specific locker device
     this.server.emit(`locker:${data.lockerNumber}:command`, {
       action: 'unlock',
@@ -75,7 +73,7 @@ export class EventsGateway
     @ConnectedSocket() client: Socket,
   ) {
     this.logger.log(`Locker ${data.lockerNumber} status: ${data.status}`);
-    
+
     // Broadcast to all admin clients
     this.server.emit('locker:status:update', data);
 
@@ -89,7 +87,7 @@ export class EventsGateway
     @ConnectedSocket() client: Socket,
   ) {
     this.logger.log(`Face auth result for user ${data.userId}: ${data.matched}`);
-    
+
     this.server.emit('auth:result', {
       type: 'face',
       ...data,
@@ -105,7 +103,7 @@ export class EventsGateway
     @ConnectedSocket() client: Socket,
   ) {
     this.logger.log(`Fingerprint auth result for user ${data.userId}: ${data.matched}`);
-    
+
     this.server.emit('auth:result', {
       type: 'fingerprint',
       ...data,
@@ -116,11 +114,9 @@ export class EventsGateway
 
   // Event: Booking notification
   @SubscribeMessage('booking:notify')
-  handleBookingNotification(
-    @MessageBody() data: { userId: string; message: string },
-  ) {
+  handleBookingNotification(@MessageBody() data: { userId: string; message: string }) {
     this.logger.log(`Sending notification to user ${data.userId}`);
-    
+
     // Send to specific user
     this.server.emit(`user:${data.userId}:notification`, {
       message: data.message,
@@ -173,5 +169,78 @@ export class EventsGateway
       incident,
       timestamp: new Date(),
     });
+  }
+
+  // Broadcast hardware telemetry updates to dashboard clients.
+  broadcastHardwareUpdate(type: string, payload: any) {
+    this.server.emit('hardware:update', {
+      type,
+      payload,
+      timestamp: new Date(),
+    });
+  }
+
+  // Send control command down to serial gateway.
+  sendHardwareCommand(data: { deviceId: string; pin: number; action: 'on' | 'off'; correlationId?: string }) {
+    this.server.emit('hardware:command', {
+      ...data,
+      timestamp: new Date(),
+    });
+  }
+
+  // Push full configuration update to serial gateway.
+  sendHardwareConfigUpdate(data: {
+    deviceId: string;
+    devices: Array<{ pin: number; name: string; type?: string; state?: number }>;
+  }) {
+    this.server.emit('hardware:config:update', {
+      ...data,
+      timestamp: new Date(),
+    });
+  }
+
+  // Ask gateway to request a full device resync.
+  requestHardwareResync(deviceId: string) {
+    const correlationId = `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    this.server.emit('hardware:sync:request', {
+      deviceId,
+      correlationId,
+      timestamp: new Date(),
+    });
+
+    return { correlationId };
+  }
+
+  requestHardwareResyncAll() {
+    const correlationId = `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    this.server.emit('hardware:sync:request', {
+      all: true,
+      correlationId,
+      timestamp: new Date(),
+    });
+
+    return { correlationId };
+  }
+
+  @SubscribeMessage('hardware:sync:ack')
+  handleHardwareSyncAck(@MessageBody() data: any) {
+    this.logger.log(`Hardware sync ack: ${data?.status || 'unknown'} (${data?.correlationId || 'n/a'})`);
+    this.server.emit('hardware:update', {
+      type: 'sync_ack',
+      payload: data,
+      timestamp: new Date(),
+    });
+    return { success: true };
+  }
+
+  @SubscribeMessage('hardware:command:ack')
+  handleHardwareCommandAck(@MessageBody() data: any) {
+    this.logger.log(`Hardware command ack: ${data?.status || 'unknown'} (${data?.correlationId || 'n/a'})`);
+    this.server.emit('hardware:update', {
+      type: 'command_ack',
+      payload: data,
+      timestamp: new Date(),
+    });
+    return { success: true };
   }
 }

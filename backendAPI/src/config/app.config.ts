@@ -10,7 +10,7 @@ export class AppConfig {
 
   // Feature Flags
   static readonly MULTI_CAMPUS_ENABLED = process.env.MULTI_CAMPUS_ENABLED === 'true' || false;
-  
+
   // Supported Campuses (Phase 3: expand this)
   static readonly SUPPORTED_CAMPUSES = ['CANTHO'];
 

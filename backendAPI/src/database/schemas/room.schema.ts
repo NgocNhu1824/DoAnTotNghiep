@@ -32,11 +32,11 @@ export class Room {
   @Prop({ type: Types.ObjectId, ref: 'Campus', required: true, index: true })
   campusId: Types.ObjectId;
 
-  @Prop({ 
-    required: true, 
-    enum: ['available', 'unavailable', 'maintain'], 
+  @Prop({
+    required: true,
+    enum: ['available', 'unavailable', 'maintain'],
     default: 'available',
-    index: true 
+    index: true,
   })
   status: string;
 

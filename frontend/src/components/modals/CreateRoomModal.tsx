@@ -14,6 +14,19 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   onSubmit,
   campuses,
 }) => {
+  const parseNumberInput = (rawValue: string, fallback = 0) => {
+    if (!rawValue || rawValue.trim() === '') {
+      return fallback;
+    }
+
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+
+    return Math.max(0, Math.trunc(parsed));
+  };
+
   const [formData, setFormData] = useState<CreateRoomDto>({
     roomCode: '',
     roomName: '',
@@ -94,7 +107,9 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                 required
                 min="1"
                 value={formData.floor}
-                onChange={(e) => setFormData({ ...formData, floor: parseInt(e.target.value) })}
+                onChange={(e) =>
+                  setFormData({ ...formData, floor: Math.max(1, parseNumberInput(e.target.value, 1)) })
+                }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
             </div>
@@ -110,7 +125,9 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                 required
                 min="1"
                 value={formData.capacity}
-                onChange={(e) => setFormData({ ...formData, capacity: parseInt(e.target.value) })}
+                onChange={(e) =>
+                  setFormData({ ...formData, capacity: Math.max(1, parseNumberInput(e.target.value, 1)) })
+                }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
             </div>
@@ -125,7 +142,7 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                 min="0"
                 value={formData.lockerNumber}
                 onChange={(e) =>
-                  setFormData({ ...formData, lockerNumber: parseInt(e.target.value) })
+                  setFormData({ ...formData, lockerNumber: parseNumberInput(e.target.value, 0) })
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />

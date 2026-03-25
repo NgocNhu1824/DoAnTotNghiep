@@ -59,8 +59,6 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
     const permissions = permissionsFromDb.length > 0 ? permissionsFromDb : permissionsFromToken;
 
-    
-
     // Attach enhanced data to request.user
     return {
       _id: user._id,

@@ -80,7 +80,7 @@ class ApiService {
   }
 
   public getIoTStatus(deviceEsp32: string) {
-    return this.get(`/iot/status/${deviceEsp32}`);
+    return this.get(`/esp32/${deviceEsp32}/config`);
   }
 }
 

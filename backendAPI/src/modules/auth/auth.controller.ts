@@ -32,7 +32,7 @@ export class AuthController {
   constructor(
     private authService: AuthService,
     private configService: ConfigService,
-  ) { }
+  ) {}
 
   /**
    * POST /api/auth/login
@@ -49,10 +49,7 @@ export class AuthController {
    */
   @Get('google/login')
   @UseGuards(GoogleAuthGuard)
-  async googleLogin(
-    @Query('campusId') campusId: string,
-    @Req() req: any,
-  ): Promise<void> {
+  async googleLogin(@Query('campusId') campusId: string, @Req() req: any): Promise<void> {
     // Guard will redirect to Google
     // campusId will be passed as 'state' parameter in GoogleStrategy
   }
@@ -65,18 +62,14 @@ export class AuthController {
   @UseGuards(GoogleAuthGuard)
   async googleCallback(@Req() req: any, @Res() res: Response) {
     try {
-
-
       const { user } = req;
 
       // Validate and login user
-      const result = await this.authService.validateGoogleUser(
-        user,
-        user.campusId,
-      );
+      const result = await this.authService.validateGoogleUser(user, user.campusId);
 
       const frontendUrl = this.configService.get<string>('FRONTEND_URL');
-      const mobileAppUrl = this.configService.get<string>('MOBILE_APP_URL') || 'smartlockermobile://auth/callback';
+      const mobileAppUrl =
+        this.configService.get<string>('MOBILE_APP_URL') || 'smartlockermobile://auth/callback';
       const isMobileClient = user.client === 'mobile';
       const hasValidMobileRedirectUri =
         typeof user.redirectUri === 'string' &&
@@ -111,7 +104,8 @@ export class AuthController {
 
       // Redirect to frontend with error
       const frontendUrl = this.configService.get<string>('FRONTEND_URL');
-      const mobileAppUrl = this.configService.get<string>('MOBILE_APP_URL') || 'smartlockermobile://auth/callback';
+      const mobileAppUrl =
+        this.configService.get<string>('MOBILE_APP_URL') || 'smartlockermobile://auth/callback';
       const isMobileClient = req.user?.client === 'mobile';
       const hasValidMobileRedirectUri =
         typeof req.user?.redirectUri === 'string' &&
@@ -167,10 +161,7 @@ export class AuthController {
    */
   @Post('set-password')
   @UseGuards(JwtAuthGuard)
-  async setPassword(
-    @CurrentUser() user: User,
-    @Body() dto: SetPasswordDto,
-  ) {
+  async setPassword(@CurrentUser() user: User, @Body() dto: SetPasswordDto) {
     return this.authService.setPassword(user._id.toString(), dto);
   }
 
@@ -198,10 +189,7 @@ export class AuthController {
    */
   @Post('register-face-id')
   @UseGuards(JwtAuthGuard)
-  async registerFaceId(
-    @CurrentUser() user: User,
-    @Body() dto: RegisterFaceIdDto,
-  ) {
+  async registerFaceId(@CurrentUser() user: User, @Body() dto: RegisterFaceIdDto) {
     return this.authService.registerFaceId(user._id.toString(), dto.faceImageBase64);
   }
 
@@ -211,10 +199,7 @@ export class AuthController {
    */
   @Post('verify-face-id')
   @UseGuards(JwtAuthGuard)
-  async verifyFaceId(
-    @CurrentUser() user: User,
-    @Body() dto: VerifyFaceIdDto,
-  ) {
+  async verifyFaceId(@CurrentUser() user: User, @Body() dto: VerifyFaceIdDto) {
     return this.authService.verifyFaceId(user._id.toString(), dto.faceImageBase64);
   }
 
@@ -224,10 +209,7 @@ export class AuthController {
    */
   @Post('face-scan/register/session-start')
   @UseGuards(JwtAuthGuard)
-  async startFaceScanSession(
-    @CurrentUser() user: User,
-    @Body() _dto: StartFaceScanSessionDto,
-  ) {
+  async startFaceScanSession(@CurrentUser() user: User, @Body() _dto: StartFaceScanSessionDto) {
     return this.authService.startFaceScanSession(user._id.toString());
   }
 
@@ -237,10 +219,7 @@ export class AuthController {
    */
   @Post('face-scan/register/frame')
   @UseGuards(JwtAuthGuard)
-  async submitFaceScanFrame(
-    @CurrentUser() user: User,
-    @Body() dto: SubmitFaceScanFrameDto,
-  ) {
+  async submitFaceScanFrame(@CurrentUser() user: User, @Body() dto: SubmitFaceScanFrameDto) {
     return this.authService.submitFaceScanFrame(
       user._id.toString(),
       dto.sessionId,

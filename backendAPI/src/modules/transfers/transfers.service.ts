@@ -62,7 +62,11 @@ export class TransfersService {
         const candidateStartMinutes = this.parseTimeToMinutes(item.startTime);
         const reasons: string[] = [];
 
-        if (candidateStartMinutes < 0 || sourceEndMinutes < 0 || candidateStartMinutes < sourceEndMinutes) {
+        if (
+          candidateStartMinutes < 0 ||
+          sourceEndMinutes < 0 ||
+          candidateStartMinutes < sourceEndMinutes
+        ) {
           reasons.push('START_TIME_NOT_AFTER_SOURCE_END');
           summary.invalidCounts.beforeSourceEnd += 1;
         }
@@ -106,7 +110,7 @@ export class TransfersService {
     @InjectModel(User.name) private userModel: Model<User>,
     private readonly eventsGateway: EventsGateway,
     private readonly notificationsService: NotificationsService,
-  ) { }
+  ) {}
 
   private normalizeId(value: any): string {
     return value?.toString?.() || String(value);
@@ -120,7 +124,9 @@ export class TransfersService {
   }
 
   private parseTimeToMinutes(value: string): number {
-    const parts = String(value || '').split(':').map((part) => Number(part));
+    const parts = String(value || '')
+      .split(':')
+      .map((part) => Number(part));
     if (parts.length !== 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) {
       return -1;
     }
@@ -185,7 +191,9 @@ export class TransfersService {
 
   private resolveDateRange(fromDate?: string, toDate?: string): { start: Date; end: Date } {
     const now = new Date();
-    const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const todayStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
     const defaultEnd = new Date(todayStart);
     defaultEnd.setUTCDate(defaultEnd.getUTCDate() + 30);
 
@@ -203,7 +211,11 @@ export class TransfersService {
     return { start, end };
   }
 
-  async getSelfSourceSchedules(currentUser: any, fromDate?: string, toDate?: string): Promise<any[]> {
+  async getSelfSourceSchedules(
+    currentUser: any,
+    fromDate?: string,
+    toDate?: string,
+  ): Promise<any[]> {
     const userId = this.normalizeId(currentUser._id);
     const campusId = this.normalizeId(currentUser.campusId);
     const { start, end } = this.resolveDateRange(fromDate, toDate);
@@ -233,12 +245,12 @@ export class TransfersService {
       slotNumber: item.slotNumber,
       room: item.roomId
         ? {
-          id: this.normalizeId(item.roomId._id),
-          roomCode: item.roomId.roomCode,
-          roomName: item.roomId.roomName,
-          building: item.roomId.building,
-          floor: item.roomId.floor,
-        }
+            id: this.normalizeId(item.roomId._id),
+            roomCode: item.roomId.roomCode,
+            roomName: item.roomId.roomName,
+            building: item.roomId.building,
+            floor: item.roomId.floor,
+          }
         : null,
     }));
   }
@@ -305,9 +317,7 @@ export class TransfersService {
 
         return {
           item,
-          isValid:
-            gapMinutes >= 0 &&
-            lecturer?.isActive,
+          isValid: gapMinutes >= 0 && lecturer?.isActive,
           gapMinutes,
         };
       })
@@ -349,7 +359,10 @@ export class TransfersService {
     };
   }
 
-  async getSelfExistingBySourceSchedules(sourceScheduleIds: string[], currentUser: any): Promise<any> {
+  async getSelfExistingBySourceSchedules(
+    sourceScheduleIds: string[],
+    currentUser: any,
+  ): Promise<any> {
     if (!Array.isArray(sourceScheduleIds) || sourceScheduleIds.length === 0) {
       return {};
     }
@@ -406,7 +419,10 @@ export class TransfersService {
     return result;
   }
 
-  async getSelfIncomingByTargetSchedules(targetScheduleIds: string[], currentUser: any): Promise<any> {
+  async getSelfIncomingByTargetSchedules(
+    targetScheduleIds: string[],
+    currentUser: any,
+  ): Promise<any> {
     if (!Array.isArray(targetScheduleIds) || targetScheduleIds.length === 0) {
       return {};
     }
@@ -436,7 +452,10 @@ export class TransfersService {
     const scheduleObjectIds = Array.from(
       new Set(
         rows
-          .flatMap((item: any) => [this.normalizeId(item.fromScheduleId), this.normalizeId(item.toScheduleId)])
+          .flatMap((item: any) => [
+            this.normalizeId(item.fromScheduleId),
+            this.normalizeId(item.toScheduleId),
+          ])
           .filter((id) => Types.ObjectId.isValid(id)),
       ),
     ).map((id) => new Types.ObjectId(id));
@@ -544,7 +563,10 @@ export class TransfersService {
         .select('_id')
         .lean()
         .exec(),
-      this.lockerModel.findById(this.toObjectId(createTransferDto.lockerId, 'lockerId')).lean().exec(),
+      this.lockerModel
+        .findById(this.toObjectId(createTransferDto.lockerId, 'lockerId'))
+        .lean()
+        .exec(),
       this.userModel
         .findOne({
           _id: this.toObjectId(createTransferDto.toUserId, 'toUserId'),
@@ -582,7 +604,9 @@ export class TransfersService {
       throw new BadRequestException('Locker is inactive');
     }
 
-    const lockerCampusId = (locker as any).campusId ? this.normalizeId((locker as any).campusId) : null;
+    const lockerCampusId = (locker as any).campusId
+      ? this.normalizeId((locker as any).campusId)
+      : null;
     if (lockerCampusId && lockerCampusId !== campusId) {
       throw new BadRequestException('Locker does not belong to your campus');
     }
@@ -674,10 +698,7 @@ export class TransfersService {
         lockerId: this.toObjectId(createTransferDto.lockerId, 'lockerId'),
         fromScheduleId: this.toObjectId(createTransferDto.fromScheduleId, 'fromScheduleId'),
         toScheduleId: this.toObjectId(createTransferDto.toScheduleId, 'toScheduleId'),
-        $or: [
-          { status: 'pending' },
-          { status: 'approved' },
-        ],
+        $or: [{ status: 'pending' }, { status: 'approved' }],
       })
       .select('_id status')
       .lean()
@@ -739,9 +760,12 @@ export class TransfersService {
       throw new ForbiddenException('Transfer is not in your campus scope');
     }
 
-    const isOwner = transfer.fromUserId?.toString() === (currentUser._id?.toString?.() || currentUser._id);
+    const isOwner =
+      transfer.fromUserId?.toString() === (currentUser._id?.toString?.() || currentUser._id);
     if (!isOwner && currentUser.roleCode !== 'SUPER_ADMIN') {
-      throw new ForbiddenException('Only transfer owner or super admin can cancel transfer request');
+      throw new ForbiddenException(
+        'Only transfer owner or super admin can cancel transfer request',
+      );
     }
 
     if (transfer.status !== 'pending') {
@@ -780,10 +804,7 @@ export class TransfersService {
   async list(query: any, currentUser: any): Promise<any[]> {
     const filter: any = {};
     if (!['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(currentUser.roleCode)) {
-      filter.$or = [
-        { fromUserId: currentUser._id },
-        { toUserId: currentUser._id },
-      ];
+      filter.$or = [{ fromUserId: currentUser._id }, { toUserId: currentUser._id }];
     }
     if (query.status) filter.status = query.status;
     if (query.fromDate || query.toDate) {
@@ -792,10 +813,7 @@ export class TransfersService {
       if (query.toDate) filter.createdAt.$lte = new Date(query.toDate);
     }
     if (query.userId) {
-      filter.$or = [
-        { fromUserId: query.userId },
-        { toUserId: query.userId },
-      ];
+      filter.$or = [{ fromUserId: query.userId }, { toUserId: query.userId }];
     }
 
     const transfers = await this.transferModel.find(filter).sort({ createdAt: -1 }).lean().exec();
@@ -808,7 +826,10 @@ export class TransfersService {
     const scheduleIds = Array.from(
       new Set(
         transfers
-          .flatMap((item: any) => [this.normalizeId(item.fromScheduleId), this.normalizeId(item.toScheduleId)])
+          .flatMap((item: any) => [
+            this.normalizeId(item.fromScheduleId),
+            this.normalizeId(item.toScheduleId),
+          ])
           .filter((id) => Types.ObjectId.isValid(id)),
       ),
     ).map((id) => new Types.ObjectId(id));
@@ -831,7 +852,10 @@ export class TransfersService {
     const userIds = Array.from(
       new Set(
         transfers
-          .flatMap((item: any) => [this.normalizeId(item.fromUserId), this.normalizeId(item.toUserId)])
+          .flatMap((item: any) => [
+            this.normalizeId(item.fromUserId),
+            this.normalizeId(item.toUserId),
+          ])
           .filter((id) => Types.ObjectId.isValid(id)),
       ),
     ).map((id) => new Types.ObjectId(id));
@@ -943,10 +967,12 @@ export class TransfersService {
 
     const campusId = this.normalizeId(currentUser.campusId);
     const scheduleIds = Array.from(
-      new Set([
-        this.normalizeId((transfer as any).fromScheduleId),
-        this.normalizeId((transfer as any).toScheduleId),
-      ].filter((value) => Types.ObjectId.isValid(value))),
+      new Set(
+        [
+          this.normalizeId((transfer as any).fromScheduleId),
+          this.normalizeId((transfer as any).toScheduleId),
+        ].filter((value) => Types.ObjectId.isValid(value)),
+      ),
     ).map((value) => new Types.ObjectId(value));
 
     const scheduleRows = scheduleIds.length
@@ -1009,15 +1035,20 @@ export class TransfersService {
     const transfer = await this.transferModel.findById(id);
     if (!transfer) throw new NotFoundException('Transfer not found');
     // Allow only toUserId (recipient) or SUPER_ADMIN to approve
-    const isRecipient = transfer.toUserId?.toString() === (currentUser._id?.toString?.() || currentUser._id);
+    const isRecipient =
+      transfer.toUserId?.toString() === (currentUser._id?.toString?.() || currentUser._id);
     if (!isRecipient && currentUser.roleCode !== 'SUPER_ADMIN') {
       throw new ForbiddenException('Only recipient or super admin can approve transfer request');
     }
-    if (transfer.status !== 'pending') throw new BadRequestException('Only pending transfers can be approved');
+    if (transfer.status !== 'pending')
+      throw new BadRequestException('Only pending transfers can be approved');
     transfer.status = 'approved';
     (transfer as any).approvedAt = new Date();
     await transfer.save();
-    this.eventsGateway.server.emit('transfer:approved', { transferId: this.normalizeId(transfer._id), data: transfer });
+    this.eventsGateway.server.emit('transfer:approved', {
+      transferId: this.normalizeId(transfer._id),
+      data: transfer,
+    });
     await this.notificationsService.notifyTransferApproved({
       transferId: this.normalizeId(transfer._id),
       campusId: transfer.campusId,
@@ -1042,17 +1073,22 @@ export class TransfersService {
       throw new BadRequestException('Reject reason is required');
     }
     // Allow only toUserId (recipient) or SUPER_ADMIN to reject
-    const isRecipient = transfer.toUserId?.toString() === (currentUser._id?.toString?.() || currentUser._id);
+    const isRecipient =
+      transfer.toUserId?.toString() === (currentUser._id?.toString?.() || currentUser._id);
     if (!isRecipient && currentUser.roleCode !== 'SUPER_ADMIN') {
       throw new ForbiddenException('Only recipient or super admin can reject transfer request');
     }
-    if (transfer.status !== 'pending') throw new BadRequestException('Only pending transfers can be rejected');
+    if (transfer.status !== 'pending')
+      throw new BadRequestException('Only pending transfers can be rejected');
     transfer.status = 'rejected';
     (transfer as any).updatedAt = new Date();
     (transfer as any).rejectedAt = new Date();
     (transfer as any).rejectReason = rejectReason;
     await transfer.save();
-    this.eventsGateway.server.emit('transfer:rejected', { transferId: this.normalizeId(transfer._id), data: transfer });
+    this.eventsGateway.server.emit('transfer:rejected', {
+      transferId: this.normalizeId(transfer._id),
+      data: transfer,
+    });
     await this.notificationsService.notifyTransferRejected({
       transferId: this.normalizeId(transfer._id),
       campusId: transfer.campusId,

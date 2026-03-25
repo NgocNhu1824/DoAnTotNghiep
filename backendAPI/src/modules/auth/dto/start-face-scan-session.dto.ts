@@ -1,2 +1,1 @@
-export class StartFaceScanSessionDto {
-}
+export class StartFaceScanSessionDto {}

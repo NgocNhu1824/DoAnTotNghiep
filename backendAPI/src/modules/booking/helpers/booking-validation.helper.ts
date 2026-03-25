@@ -102,10 +102,7 @@ export class BookingValidationHelper {
 
   static dateMatchCondition(start: Date, end: Date): any {
     return {
-      $or: [
-        { bookingDate: { $gte: start, $lt: end } },
-        { dateStart: { $gte: start, $lt: end } },
-      ],
+      $or: [{ bookingDate: { $gte: start, $lt: end } }, { dateStart: { $gte: start, $lt: end } }],
     };
   }
 

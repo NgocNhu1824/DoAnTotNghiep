@@ -1,5 +1,5 @@
 import api from './api.service';
-import { LockerEntity, LockerPayload } from '../types/locker.type';
+import { LockerAccessLogEntity, LockerEntity, LockerPayload } from '../types/locker.type';
 
 export const lockerService = {
   getAll: async (params?: Record<string, any>): Promise<LockerEntity[]> => {
@@ -82,12 +82,45 @@ export const lockerService = {
     return res;
   },
 
+  requestDeviceResync: async (deviceId: string): Promise<{ deviceId: string; correlationId?: string | null }> => {
+    const res = await api.post('/esp32/resync', { deviceId });
+    const payload = res?.data ?? res;
+
+    return {
+      deviceId: payload?.deviceId ?? deviceId,
+      correlationId: payload?.correlationId ?? null,
+    };
+  },
+
+  requestAllDeviceResync: async (): Promise<{ correlationId?: string | null }> => {
+    const res = await api.post('/esp32/resync/all');
+    const payload = res?.data ?? res;
+
+    return {
+      correlationId: payload?.correlationId ?? null,
+    };
+  },
+
+  getAccessLogs: async (lockerId: string, limit = 20): Promise<LockerAccessLogEntity[]> => {
+    const res = await api.get(`/lockers/${lockerId}/access-logs`, {
+      params: { limit },
+    });
+
+    if (res?.success && Array.isArray(res.data)) {
+      return res.data;
+    }
+
+    return [];
+  },
+
   getEsp32Devices: async (): Promise<{
     id: string;
     name: string;
     lockCount: number;
+    assignedLockerCount: number;
     status: string;
     solenoids: { id: string; connected: boolean }[];
+    devices: { pin: number; name: string; type?: string; state?: 0 | 1 }[];
     deviceId: string;
   }[]> => {
     try {
@@ -107,11 +140,29 @@ export const lockerService = {
           name: device.deviceId || 'Unnamed Device',
           deviceId: device.deviceId,
           status: device.status ?? 'UNKNOWN',
-          lockCount: device.solenoids?.length ?? 0,
-          solenoids: (device.solenoids ?? []).map((s: any) => ({
-            id: s.id || s._id,
-            connected: !!s.connected,
-          })),
+          assignedLockerCount: Array.isArray(device.lockers) ? device.lockers.length : 0,
+          lockCount: Array.isArray(device.solenoids) && device.solenoids.length > 0
+            ? device.solenoids.length
+            : Array.isArray(device.devices)
+              ? device.devices.length
+              : 0,
+          solenoids: Array.isArray(device.solenoids) && device.solenoids.length > 0
+            ? device.solenoids.map((s: any) => ({
+                id: s.id || s._id,
+                connected: !!s.connected,
+              }))
+            : (device.devices ?? []).map((d: any) => ({
+                id: String(d.pin),
+                connected: Number(d.state) === 1,
+              })),
+          devices: Array.isArray(device.devices)
+            ? device.devices.map((d: any) => ({
+                pin: Number(d.pin),
+                name: String(d.name || `pin_${d.pin}`),
+                type: d.type,
+                state: Number(d.state) === 1 ? 1 : 0,
+              }))
+            : [],
         }))
         .sort((a, b) => {
           const aValue = isNaN(Number(a.deviceId)) ? a.deviceId : Number(a.deviceId);

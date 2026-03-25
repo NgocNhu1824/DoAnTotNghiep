@@ -10,10 +10,7 @@ export class TimeSlotsService {
     private readonly timeSlotModel: Model<TimeSlot>,
   ) {}
 
-  async findAll(filters: {
-    slotType?: 'OLDSLOT' | 'NEWSLOT';
-    isActive?: boolean;
-  }): Promise<any[]> {
+  async findAll(filters: { slotType?: 'OLDSLOT' | 'NEWSLOT'; isActive?: boolean }): Promise<any[]> {
     const query: any = {};
 
     if (filters.slotType) query.slotType = filters.slotType;

@@ -27,7 +27,9 @@ export class NotificationsWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const concurrency = Number(this.configService.get<string>('NOTIFICATION_WORKER_CONCURRENCY') || 5);
+    const concurrency = Number(
+      this.configService.get<string>('NOTIFICATION_WORKER_CONCURRENCY') || 5,
+    );
 
     this.worker = new Worker<BookingReminderJobPayload>(
       NOTIFICATION_QUEUE_NAME,
