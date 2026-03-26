@@ -52,6 +52,35 @@ function createLockerController(options) {
     }
   }
 
+  async function pushCommand(req, res) {
+    try {
+      const parsed = parser.parseJsonPayload(req.body);
+      const correlationId = String(parsed.correlationId || `cmd-${Date.now()}`);
+
+      await gatewayService.handleHardwareCommand({
+        ...parsed,
+        correlationId,
+      });
+
+      return res.status(202).json({
+        success: true,
+        message: 'Command accepted',
+        data: {
+          correlationId,
+          deviceId: parsed.deviceId,
+          pin: Number(parsed.pin),
+          action: parsed.action === 'off' ? 'off' : 'on',
+        },
+      });
+    } catch (error) {
+      logger.warn('Command push rejected', error.message);
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
   async function acknowledgeCommand(req, res) {
     try {
       const parsed = parser.parseJsonPayload(req.body);
@@ -73,6 +102,7 @@ function createLockerController(options) {
 
   return {
     ingest,
+    pushCommand,
     nextCommand,
     acknowledgeCommand,
   };

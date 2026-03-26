@@ -37,6 +37,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const userScope = (roleDetails?.scope || '').toUpperCase();
+  const userRole = (roleDetails?.roleCode || '').toUpperCase();
   const canReadNotifications = Boolean(user?._id);
 
   const baseMenuItems: Array<{
@@ -45,6 +46,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     icon: any;
     path: string;
     requiredPermissions?: string[];
+    userRoleRequired?: string[];
   }> = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     {
@@ -102,6 +104,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       icon: Calendar,
       path: '/schedules',
       requiredPermissions: [PERMISSIONS.SCHEDULES_READ],
+      
     },
     {
       id: 'incidents',
@@ -149,13 +152,21 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   let menuItems = baseMenuItems;
 
-  if (userScope === 'SELF') {
+  if (userScope === 'SELF' && userRole === 'LECTURER') {
+    menuItems = [
+      lecturerBookingMenuItem,
+      lecturerHistoryMenuItem,
+      lecturerScheduleMenuItem,
+      baseMenuItems.find(item => item.id === 'schedule')!, // Add transfer menu for lecturers
+    ];
+  } else if (userScope === 'SELF') {
     menuItems = [
       lecturerBookingMenuItem,
       lecturerHistoryMenuItem,
       lecturerScheduleMenuItem,
     ];
-  } else if (userScope === 'CAMPUS') {
+  }
+   else if (userScope === 'CAMPUS') {
     menuItems = baseMenuItems;
   } else {
     menuItems = baseMenuItems.filter((item) => {

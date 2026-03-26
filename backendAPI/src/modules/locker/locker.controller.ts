@@ -63,6 +63,11 @@ export class LockerController {
     return this.lockerService.getLockerAccessLogs(id, Number(limit || 20));
   }
 
+  @Post(':id/unlock')
+  unlock(@Param('id') id: string) {
+    return this.lockerService.unlockLocker(id);
+  }
+
   // ===== ID ROUTES (ALWAYS LAST) =====
   @Get(':id')
   findOne(@Param('id') id: string) {

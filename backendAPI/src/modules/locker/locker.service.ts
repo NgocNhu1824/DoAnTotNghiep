@@ -1,6 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { ConfigService } from '@nestjs/config';
 
 import { Locker } from '@/database/schemas/locker.schema';
 import { Campus } from '@/database/schemas/campus.schema';
@@ -13,6 +20,8 @@ import { UpdateLockerDto } from './dto/update-locker.dto';
 
 @Injectable()
 export class LockerService {
+  private readonly logger = new Logger(LockerService.name);
+
   constructor(
     @InjectModel(Locker.name)
     private readonly lockerModel: Model<Locker>,
@@ -27,6 +36,7 @@ export class LockerService {
     private readonly lockerAccessLogModel: Model<LockerAccessLog>,
 
     private readonly eventsGateway: EventsGateway,
+    private readonly configService: ConfigService,
   ) {}
 
   /* =========================
@@ -200,6 +210,80 @@ export class LockerService {
     if (rawEvent === 'init') return 'iot_init';
 
     return 'iot_gateway';
+  }
+
+  private getIotGatewayConfig() {
+    const baseUrl = String(this.configService.get<string>('IOT_GATEWAY_BASE_URL') || '').trim();
+    const username = String(this.configService.get<string>('IOT_GATEWAY_AUTH_USER') || '').trim();
+    const password = String(this.configService.get<string>('IOT_GATEWAY_AUTH_PASS') || '').trim();
+    const timeoutMs = Number(this.configService.get<string>('IOT_GATEWAY_TIMEOUT_MS') || 4000);
+
+    return {
+      baseUrl,
+      username,
+      password,
+      timeoutMs: Number.isFinite(timeoutMs) ? Math.max(500, timeoutMs) : 4000,
+    };
+  }
+
+  private async pushCommandToIotGateway(command: {
+    correlationId: string;
+    deviceId: string;
+    pin: number;
+    action: 'on' | 'off';
+  }) {
+    const { baseUrl, username, password, timeoutMs } = this.getIotGatewayConfig();
+    if (!baseUrl) {
+      return {
+        enabled: false,
+        accepted: false,
+        message: 'IOT gateway URL is not configured',
+      };
+    }
+
+    if (!username || !password) {
+      return {
+        enabled: false,
+        accepted: false,
+        message: 'IOT gateway basic auth credentials are not configured',
+      };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const endpoint = `${baseUrl.replace(/\/$/, '')}/api/lockers/command/push`;
+      const authHeader = Buffer.from(`${username}:${password}`).toString('base64');
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Basic ${authHeader}`,
+        },
+        body: JSON.stringify(command),
+        signal: controller.signal,
+      });
+
+      const payload = await response.json().catch(() => null);
+
+      return {
+        enabled: true,
+        accepted: response.ok,
+        statusCode: response.status,
+        payload,
+      };
+    } catch (error: any) {
+      this.logger.warn(`Failed to push command to iot-gateway: ${error?.message || 'unknown error'}`);
+      return {
+        enabled: true,
+        accepted: false,
+        message: error?.message || 'Request failed',
+      };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async createAccessLogEntry(payload: {
@@ -539,7 +623,7 @@ export class LockerService {
         }
 
         updateData.deviceId = targetEsp32.deviceId;
-        updateData.esp32Id = targetEsp32._id;
+        updateData.esp32Id = (targetEsp32 as any)._id;
       }
     } else if (existingLocker.deviceId) {
       targetEsp32 = await this.esp32Model.findOne({ deviceId: existingLocker.deviceId });
@@ -878,6 +962,79 @@ export class LockerService {
         pin,
         action,
         correlationId,
+      },
+    };
+  }
+
+  async unlockLocker(lockerId: string) {
+    if (!Types.ObjectId.isValid(lockerId)) {
+      throw new BadRequestException('Invalid locker id');
+    }
+
+    const locker = await this.lockerModel
+      .findById(lockerId)
+      .select('lockerNumber deviceId controlPin isActive')
+      .lean();
+
+    if (!locker) {
+      throw new NotFoundException('Locker not found');
+    }
+
+    if (!locker.isActive) {
+      throw new BadRequestException('Locker is inactive');
+    }
+
+    const deviceId = String(locker.deviceId || '').trim();
+    const pin = Number(locker.controlPin);
+    if (!deviceId || !Number.isFinite(pin)) {
+      throw new BadRequestException('Locker is not mapped to ESP32 device/pin');
+    }
+
+    const correlationId = `unlock-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+    this.eventsGateway.sendHardwareCommand({
+      deviceId,
+      pin,
+      action: 'on',
+      correlationId,
+    });
+
+    const gatewayDispatch = await this.pushCommandToIotGateway({
+      correlationId,
+      deviceId,
+      pin,
+      action: 'on',
+    });
+
+    await this.createAccessLogEntry({
+      deviceId,
+      method: 'remote_open',
+      status: 'pending',
+      metadata: {
+        lockerId,
+        lockerNumber: locker.lockerNumber,
+        pin,
+        action: 'on',
+        correlationId,
+        iotGatewayDispatch: gatewayDispatch,
+      },
+      pin,
+    });
+
+    if (gatewayDispatch.enabled && !gatewayDispatch.accepted) {
+      throw new InternalServerErrorException('Unlock command failed to dispatch to iot-gateway');
+    }
+
+    return {
+      success: true,
+      message: 'Unlock command accepted',
+      data: {
+        lockerId,
+        lockerNumber: locker.lockerNumber,
+        deviceId,
+        pin,
+        correlationId,
+        gatewayDispatch,
       },
     };
   }

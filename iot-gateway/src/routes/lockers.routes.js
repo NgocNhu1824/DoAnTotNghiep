@@ -48,6 +48,7 @@ function createLockersRoutes(options) {
   const basicAuth = buildBasicAuth(auth);
 
   router.post('/lockers/ingest', basicAuth, controller.ingest);
+  router.post('/lockers/command/push', basicAuth, controller.pushCommand);
   router.get('/lockers/command/next', basicAuth, controller.nextCommand);
   router.post('/lockers/command/ack', basicAuth, controller.acknowledgeCommand);
 
