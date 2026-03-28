@@ -40,4 +40,8 @@ export class QueryScheduleDto {
   @IsOptional()
   @IsBooleanString()
   isOnline?: string;
+
+  @IsOptional()
+  @IsBooleanString()
+  viewAllActivities?: string;
 }

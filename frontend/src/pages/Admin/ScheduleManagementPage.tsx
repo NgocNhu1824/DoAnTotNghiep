@@ -1,14 +1,11 @@
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Upload, Search, CalendarIcon, X, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { Upload, Search, X, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { format } from 'date-fns';
-import { enUS } from 'date-fns/locale';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import Loading from '../../components/common/Loading';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
-import { Calendar } from '../../components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Badge } from '../../components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
@@ -45,6 +42,41 @@ type DisplaySchedule = Schedule & {
 
 const isVirtualBookingSchedule = (schedule: Schedule | null): schedule is DisplaySchedule => {
   return Boolean(schedule && (schedule as DisplaySchedule)._virtualBooking);
+};
+
+const resolveScheduleSlotMeta = (schedule: Schedule, timeSlots: TimeSlot[]) => {
+  const rawTimeSlot = (schedule as any).timeSlotId;
+  const timeSlotId =
+    typeof rawTimeSlot === 'string'
+      ? rawTimeSlot
+      : rawTimeSlot && typeof rawTimeSlot === 'object'
+        ? String(rawTimeSlot._id || rawTimeSlot.id || '')
+        : '';
+
+  const matched =
+    (timeSlotId
+      ? timeSlots.find((slot) => String(slot._id || slot.id) === timeSlotId)
+      : undefined) ||
+    (rawTimeSlot && typeof rawTimeSlot === 'object'
+      ? {
+          slotType: rawTimeSlot.slotType,
+          slotNumber: rawTimeSlot.slotNumber,
+          startTime: rawTimeSlot.startTime,
+          endTime: rawTimeSlot.endTime,
+        }
+      : undefined);
+
+  const slotType = schedule.slotType || (matched as any)?.slotType;
+  const slotNumber = Number(schedule.slotNumber ?? (matched as any)?.slotNumber);
+  const startTime = schedule.startTime || (matched as any)?.startTime || '';
+  const endTime = schedule.endTime || (matched as any)?.endTime || '';
+
+  return {
+    slotType: (slotType as 'OLDSLOT' | 'NEWSLOT' | undefined) || undefined,
+    slotNumber: Number.isFinite(slotNumber) ? slotNumber : undefined,
+    startTime,
+    endTime,
+  };
 };
 
 const ScheduleManagementPage: React.FC = () => {
@@ -132,9 +164,10 @@ const ScheduleManagementPage: React.FC = () => {
       const params: QueryScheduleParams = {
         startDate: dateStr,
         endDate: dateStr,
+        viewAllActivities: 'true',
       };
 
-      const [schedulesData, approvedBookingData] = await Promise.all([
+      const [schedulesResult, bookingsResult] = await Promise.allSettled([
         scheduleService.getAll(params),
         bookingService.getAll({
           fromDate: dateStr,
@@ -143,8 +176,18 @@ const ScheduleManagementPage: React.FC = () => {
         }),
       ]);
 
-      setSchedules(schedulesData);
-      setApprovedBookings(approvedBookingData);
+      if (schedulesResult.status === 'fulfilled') {
+        setSchedules(schedulesResult.value || []);
+      } else {
+        throw schedulesResult.reason;
+      }
+
+      if (bookingsResult.status === 'fulfilled') {
+        setApprovedBookings(bookingsResult.value || []);
+      } else {
+        // Lecturer role may not have bookings.manage permission on /bookings.
+        setApprovedBookings([]);
+      }
     } catch (error: any) {
       console.error('Error fetching schedules:', error);
       toast.error('Unable to load schedules');
@@ -199,20 +242,28 @@ const ScheduleManagementPage: React.FC = () => {
 
     schedules.forEach((schedule) => {
       const roomId = typeof schedule.roomId === 'string' ? schedule.roomId : schedule.roomId?._id;
-      const slotInfo = resolveScheduleSlotInfo(schedule, timeSlotMapById);
+      const meta = resolveScheduleSlotMeta(schedule, timeSlots);
+      const slotNumber = meta.slotNumber;
+      const slotType = meta.slotType;
 
       // Skip malformed schedules that lack required identifiers to avoid runtime errors
-      if (!roomId || slotInfo.slotNumber === null || slotInfo.slotType === null) return;
+      if (!roomId || slotNumber === undefined || !slotType) return;
 
       const scheduleDate = new Date(schedule.dateStart);
       const dateStr = format(scheduleDate, 'yyyy-MM-dd');
 
-      const key = `${roomId}_${dateStr}_${slotInfo.slotNumber}_${slotInfo.slotType}`;
-      map.set(key, schedule);
+      const key = `${roomId}_${dateStr}_${slotNumber}_${slotType}`;
+      map.set(key, {
+        ...schedule,
+        slotNumber,
+        slotType,
+        startTime: meta.startTime || schedule.startTime,
+        endTime: meta.endTime || schedule.endTime,
+      });
     });
 
     return map;
-  }, [schedules, timeSlotMapById]);
+  }, [schedules, timeSlots]);
 
   const approvedBookingMap = useMemo(() => {
     const map = new Map<string, DisplaySchedule>();
@@ -286,21 +337,11 @@ const ScheduleManagementPage: React.FC = () => {
     return grid;
   }, [filteredRooms, filteredTimeSlots, scheduleMap, approvedBookingMap, currentDate]);
 
-  const handlePrevDay = () => {
-    const prevDate = new Date(currentDate);
-    prevDate.setDate(prevDate.getDate() - 1);
-    setCurrentDate(prevDate);
-  };
-
-  const handleNextDay = () => {
-    const nextDate = new Date(currentDate);
-    nextDate.setDate(nextDate.getDate() + 1);
-    setCurrentDate(nextDate);
-  };
-
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newDate = new Date(e.target.value);
-    setCurrentDate(newDate);
+  const handleDateChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newDate = new Date(event.target.value);
+    if (!Number.isNaN(newDate.getTime())) {
+      setCurrentDate(newDate);
+    }
   };
 
   const handleCellClick = (cell: ScheduleCell) => {
@@ -467,16 +508,6 @@ const ScheduleManagementPage: React.FC = () => {
     }
   };
 
-  // Format date for display
-  const formatDate = (date: Date): string => {
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  };
-
   // Get schedule display info
   const getScheduleInfo = (schedule: Schedule) => {
     const slotInfo = resolveScheduleSlotInfo(schedule, timeSlotMapById);
@@ -500,7 +531,7 @@ const ScheduleManagementPage: React.FC = () => {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Schedule Management</h1>
+          <h1 className="text-3xl font-bold tracking-tight">View all activities</h1>
           <p className="text-muted-foreground mt-2">
             Search, filter, and monitor schedules by room and time slot for the selected day
           </p>
@@ -524,45 +555,8 @@ const ScheduleManagementPage: React.FC = () => {
 
       {/* Filters */}
       <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-          <CardDescription>Search and filter schedules</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:gap-4">
-              <div className="flex items-center gap-2 mb-2 lg:mb-0">
-                <Button variant="outline" size="icon" onClick={handlePrevDay} aria-label="Previous day">
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="justify-start text-left font-normal min-w-[220px]">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {format(currentDate, 'PPP', { locale: enUS })}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={currentDate}
-                      onSelect={(date) => date && setCurrentDate(date)}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-                <Button variant="outline" size="icon" onClick={handleNextDay} aria-label="Next day">
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setCurrentDate(new Date())}>
-                  Today
-                </Button>
-              </div>
-              <div className="text-sm text-muted-foreground">{format(currentDate, 'EEEE', { locale: enUS })}</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <CardContent className="space-y-4 p-4 md:p-6">
+          <div className="grid grid-cols-1 items-end gap-4 lg:grid-cols-[minmax(260px,1fr)_220px_220px]">
             <div className="space-y-2">
               <Label htmlFor="room-search">Search</Label>
               <div className="relative">
@@ -576,6 +570,16 @@ const ScheduleManagementPage: React.FC = () => {
                   className="pl-9"
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="schedule-date">Date</Label>
+              <Input
+                id="schedule-date"
+                type="date"
+                value={format(currentDate, 'yyyy-MM-dd')}
+                onChange={handleDateChange}
+              />
             </div>
 
             <div className="space-y-2">
@@ -626,7 +630,7 @@ const ScheduleManagementPage: React.FC = () => {
       {/* Schedule Grid Table - Desktop */}
       <Card>
         <CardHeader>
-          <CardTitle>Schedule</CardTitle>
+          <CardTitle>View all activities</CardTitle>
           <CardDescription>Display schedules by room and slot for the selected date</CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
