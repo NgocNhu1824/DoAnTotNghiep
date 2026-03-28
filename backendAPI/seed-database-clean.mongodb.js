@@ -36,6 +36,7 @@ db.transfers.drop();
 db.notifications.drop();
 db.incidents.drop();
 db.access_logs.drop();
+db.room_usage_states.drop();
 
 print('✅ All collections dropped\n');
 
@@ -1034,6 +1035,7 @@ const accessLogsResult = db.access_logs.insertMany([
     userId: ObjectId("693ad44526d23ee0a8bf090a"),  // Tran Van Giang
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     scheduleId: ObjectId("693ad44526d23ee0a8bf090f"),
+    bookingId: null,
     action: "unlock",  // unlock, lock, access_denied, manual_override
     method: "face_recognition",  // face_recognition, fingerprint, rfid, mobile_app, manual
     success: true,
@@ -1052,6 +1054,7 @@ const accessLogsResult = db.access_logs.insertMany([
     userId: ObjectId("693ad44526d23ee0a8bf090a"),
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     scheduleId: ObjectId("693ad44526d23ee0a8bf090f"),
+    bookingId: null,
     action: "return",
     method: "mobile_app",
     success: true,
@@ -1070,6 +1073,7 @@ const accessLogsResult = db.access_logs.insertMany([
     userId: ObjectId("693ad44526d23ee0a8bf091e"),  // Security
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     scheduleId: null,
+    bookingId: null,
     action: "unlock",
     method: "rfid",
     success: true,
@@ -1083,6 +1087,56 @@ const accessLogsResult = db.access_logs.insertMany([
 ]);
 
 print(`✅ Inserted ${Object.keys(accessLogsResult.insertedIds).length} access logs`);
+
+// ============================================================
+// STEP 16.1: INSERT ROOM USAGE STATES (Current Room Occupancy)
+// ============================================================
+print('\n🏷️ Creating Room Usage States...');
+
+const roomUsageStatesResult = db.room_usage_states.insertMany([
+  {
+    roomId: ObjectId("693ad44526d23ee0a8bf090b"),
+    lockerId: ObjectId("693ad44526d23ee0a8bf090d"),
+    campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
+    currentUserId: null,
+    currentUserName: null,
+    currentUsageType: null,
+    scheduleId: null,
+    bookingId: null,
+    status: "vacant",
+    startedAt: null,
+    lastAccessLogId: ObjectId("693ad44526d23ee0a8bf0921"),
+    lastAction: "return",
+    lastMethod: "mobile_app",
+    lastReason: "End of class PRN231",
+    updatedByUserId: "693ad44526d23ee0a8bf090a",
+    metadata: {},
+    createdAt: new Date("2025-01-13T09:15:00.000Z"),
+    updatedAt: new Date("2025-01-13T09:15:00.000Z")
+  },
+  {
+    roomId: ObjectId("693ad44526d23ee0a8bf090c"),
+    lockerId: ObjectId("693ad44526d23ee0a8bf090e"),
+    campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
+    currentUserId: "693ad44526d23ee0a8bf091e",
+    currentUserName: "Nguyen Van Bao",
+    currentUsageType: "security",
+    scheduleId: null,
+    bookingId: null,
+    status: "occupied",
+    startedAt: new Date("2025-01-12T22:00:00.000Z"),
+    lastAccessLogId: ObjectId("693ad44526d23ee0a8bf0922"),
+    lastAction: "unlock",
+    lastMethod: "rfid",
+    lastReason: "Security patrol",
+    updatedByUserId: "693ad44526d23ee0a8bf091e",
+    metadata: {},
+    createdAt: new Date("2025-01-12T22:00:00.000Z"),
+    updatedAt: new Date("2025-01-12T22:00:00.000Z")
+  }
+]);
+
+print(`✅ Inserted ${Object.keys(roomUsageStatesResult.insertedIds).length} room usage states`);
 
 // ============================================================
 // STEP 17: CREATE INDEXES
@@ -1167,6 +1221,13 @@ db.access_logs.createIndex({ userId: 1, accessTime: -1 });
 db.access_logs.createIndex({ campusId: 1, accessTime: -1 });
 db.access_logs.createIndex({ action: 1, success: 1 });
 db.access_logs.createIndex({ deviceId: 1 });
+db.access_logs.createIndex({ scheduleId: 1, accessTime: -1 });
+db.access_logs.createIndex({ bookingId: 1, accessTime: -1 });
+
+// Room usage states indexes
+db.room_usage_states.createIndex({ roomId: 1 }, { unique: true });
+db.room_usage_states.createIndex({ campusId: 1, status: 1 });
+db.room_usage_states.createIndex({ lockerId: 1 });
 
 print('✅ All indexes created');
 
@@ -1192,6 +1253,7 @@ print(`   - transfers: ${db.transfers.countDocuments()} documents`);
 print(`   - notifications: ${db.notifications.countDocuments()} documents`);
 print(`   - incidents: ${db.incidents.countDocuments()} documents`);
 print(`   - access_logs: ${db.access_logs.countDocuments()} documents`);
+print(`   - room_usage_states: ${db.room_usage_states.countDocuments()} documents`);
 print(`   - settings: ${db.settings.countDocuments()} documents`);
 
 print('\n🏫 Campus:');
@@ -1258,6 +1320,10 @@ print(`   - Total: ${db.notifications.countDocuments()}`);
 
 print('\n🔐 Access Logs:');
 print(`   - Total entries: ${db.access_logs.countDocuments()}`);
+
+print('\n🏷️ Room Usage States:');
+print(`   - Occupied rooms: ${db.room_usage_states.countDocuments({ status: "occupied" })}`);
+print(`   - Vacant rooms: ${db.room_usage_states.countDocuments({ status: "vacant" })}`);
 
 print('\n⚙️ Settings:');
 print(`   - ${db.settings.countDocuments({ campusId: null })} global settings`);

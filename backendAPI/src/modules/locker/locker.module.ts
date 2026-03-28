@@ -9,9 +9,13 @@ import { Locker, LockerSchema } from '@/database/schemas/locker.schema';
 import { Campus, CampusSchema } from '@/database/schemas/campus.schema';
 import { ESP32, ESP32Schema } from '@/database/schemas/esp32.schema';
 import {
-  LockerAccessLog,
-  LockerAccessLogSchema,
-} from '@/database/schemas/locker-access-log.schema';
+  AccessLog,
+  AccessLogSchema,
+} from '@/database/schemas/access-log.schema';
+import {
+  RoomUsageState,
+  RoomUsageStateSchema,
+} from '@/database/schemas/room-usage-state.schema';
 
 @Module({
   imports: [
@@ -20,7 +24,8 @@ import {
       { name: Locker.name, schema: LockerSchema },
       { name: Campus.name, schema: CampusSchema },
       { name: ESP32.name, schema: ESP32Schema },
-      { name: LockerAccessLog.name, schema: LockerAccessLogSchema },
+      { name: AccessLog.name, schema: AccessLogSchema },
+      { name: RoomUsageState.name, schema: RoomUsageStateSchema },
     ]),
   ],
   controllers: [LockerController, Esp32Controller],

@@ -12,7 +12,8 @@ import { ConfigService } from '@nestjs/config';
 import { Locker } from '@/database/schemas/locker.schema';
 import { Campus } from '@/database/schemas/campus.schema';
 import { ESP32 } from '@/database/schemas/esp32.schema';
-import { LockerAccessLog } from '@/database/schemas/locker-access-log.schema';
+import { AccessLog } from '@/database/schemas/access-log.schema';
+import { RoomUsageState } from '@/database/schemas/room-usage-state.schema';
 import { EventsGateway } from '@/common/gateways/events.gateway';
 
 import { CreateLockerDto } from './dto/create-locker.dto';
@@ -36,8 +37,11 @@ export class LockerService {
     @InjectModel(ESP32.name)
     private readonly esp32Model: Model<ESP32>,
 
-    @InjectModel(LockerAccessLog.name)
-    private readonly lockerAccessLogModel: Model<LockerAccessLog>,
+    @InjectModel(AccessLog.name)
+    private readonly accessLogModel: Model<AccessLog>,
+
+    @InjectModel(RoomUsageState.name)
+    private readonly roomUsageStateModel: Model<RoomUsageState>,
 
     private readonly eventsGateway: EventsGateway,
     private readonly configService: ConfigService,
@@ -216,6 +220,165 @@ export class LockerService {
     return 'iot_gateway';
   }
 
+  private toObjectId(value: unknown): Types.ObjectId | null {
+    if (!value) return null;
+    const normalized = String(value).trim();
+    if (!Types.ObjectId.isValid(normalized)) {
+      return null;
+    }
+    return new Types.ObjectId(normalized);
+  }
+
+  private isTechnicalAccessMethod(method: string) {
+    const raw = String(method || '').trim().toLowerCase();
+    return raw === 'iot_state_sync' || raw === 'iot_heartbeat' || raw === 'iot_init' || raw === 'iot_gateway';
+  }
+
+  private normalizeAccessAction(
+    method: string,
+    metadata?: Record<string, any>,
+  ): 'unlock' | 'lock' | 'return' | 'state_sync' | 'heartbeat' | 'init' | 'manual_override' | string {
+    const rawAction = String(metadata?.action || '').trim().toLowerCase();
+    if (rawAction === 'unlock' || rawAction === 'open' || rawAction === 'on') return 'unlock';
+    if (rawAction === 'lock' || rawAction === 'close' || rawAction === 'off') return 'lock';
+    if (rawAction === 'return') return 'return';
+    if (rawAction === 'manual_override') return 'manual_override';
+    if (rawAction) return rawAction;
+
+    const normalizedMethod = String(method || '').trim().toLowerCase();
+    if (normalizedMethod === 'iot_state_sync') return 'state_sync';
+    if (normalizedMethod === 'iot_heartbeat') return 'heartbeat';
+    if (normalizedMethod === 'iot_init') return 'init';
+    return 'unlock';
+  }
+
+  private resolveUsageEffect(
+    status: 'success' | 'failed' | 'pending',
+    method: string,
+    action: string,
+    metadata?: Record<string, any>,
+  ): 'assign' | 'release' | 'none' {
+    const explicit = String(metadata?.usageEffect || '')
+      .trim()
+      .toLowerCase();
+
+    if (explicit === 'assign' || explicit === 'release' || explicit === 'none') {
+      return explicit;
+    }
+
+    if (status !== 'success') {
+      return 'none';
+    }
+
+    if (this.isTechnicalAccessMethod(method)) {
+      return 'none';
+    }
+
+    const normalizedAction = String(action || '').trim().toLowerCase();
+    if (
+      normalizedAction === 'lock' ||
+      normalizedAction === 'return' ||
+      normalizedAction === 'release' ||
+      normalizedAction === 'checkout'
+    ) {
+      return 'release';
+    }
+
+    if (
+      normalizedAction === 'unlock' ||
+      normalizedAction === 'open' ||
+      normalizedAction === 'checkin' ||
+      normalizedAction === 'manual_override'
+    ) {
+      return 'assign';
+    }
+
+    return 'none';
+  }
+
+  private async syncRoomUsageState(params: {
+    roomId: Types.ObjectId | null;
+    lockerId: Types.ObjectId | null;
+    campusId: Types.ObjectId | null;
+    status: 'success' | 'failed' | 'pending';
+    usageEffect: 'assign' | 'release' | 'none';
+    userId?: string | null;
+    userName?: string | null;
+    method: string;
+    action: string;
+    accessTime: Date;
+    accessLogId: Types.ObjectId;
+    metadata?: Record<string, any>;
+  }) {
+    if (!params.roomId || params.status !== 'success' || params.usageEffect === 'none') {
+      return;
+    }
+
+    const usageType = String(
+      params.metadata?.usageType || params.metadata?.sourceType || params.metadata?.unlockMode || 'general',
+    )
+      .trim()
+      .toLowerCase();
+
+    const scheduleId = this.toObjectId(params.metadata?.scheduleId);
+    const bookingId = this.toObjectId(params.metadata?.bookingId);
+    const metadataUserId = params.metadata?.assignedUserId || params.metadata?.userId;
+    const metadataUserName = params.metadata?.assignedUserName || params.metadata?.userName;
+
+    const baseSet = {
+      lockerId: params.lockerId || null,
+      campusId: params.campusId || null,
+      lastAccessLogId: params.accessLogId,
+      lastAction: params.action,
+      lastMethod: params.method,
+      lastReason: params.metadata?.reason ? String(params.metadata.reason) : null,
+      updatedByUserId: params.metadata?.executedByUserId
+        ? String(params.metadata.executedByUserId)
+        : params.userId || null,
+    };
+
+    if (params.usageEffect === 'release') {
+      await this.roomUsageStateModel.updateOne(
+        { roomId: params.roomId },
+        {
+          $setOnInsert: { roomId: params.roomId },
+          $set: {
+            ...baseSet,
+            status: 'vacant',
+            currentUserId: null,
+            currentUserName: null,
+            currentUsageType: null,
+            scheduleId: null,
+            bookingId: null,
+            startedAt: null,
+            metadata: params.metadata || {},
+          },
+        },
+        { upsert: true },
+      );
+      return;
+    }
+
+    await this.roomUsageStateModel.updateOne(
+      { roomId: params.roomId },
+      {
+        $setOnInsert: { roomId: params.roomId },
+        $set: {
+          ...baseSet,
+          status: 'occupied',
+          currentUserId: params.userId || (metadataUserId ? String(metadataUserId) : null),
+          currentUserName: params.userName || (metadataUserName ? String(metadataUserName) : null),
+          currentUsageType: usageType || 'general',
+          scheduleId: scheduleId || null,
+          bookingId: bookingId || null,
+          startedAt: params.accessTime,
+          metadata: params.metadata || {},
+        },
+      },
+      { upsert: true },
+    );
+  }
+
   private getIotGatewayConfig() {
     const baseUrl = String(this.configService.get<string>('IOT_GATEWAY_BASE_URL') || '').trim();
     const username = String(this.configService.get<string>('IOT_GATEWAY_AUTH_USER') || '').trim();
@@ -306,17 +469,71 @@ export class LockerService {
     }
 
     const lockerId = await this.resolveLockerForAccessLog(payload.deviceId, payload.pin);
-    const method = this.normalizeAccessLogMethod(payload.method, payload.metadata);
+    const metadata = { ...(payload.metadata || {}) };
+    const method = this.normalizeAccessLogMethod(payload.method, metadata);
+    const action = this.normalizeAccessAction(method, metadata);
+    const usageEffect = this.resolveUsageEffect(payload.status, method, action, metadata);
 
-    const created = await this.lockerAccessLogModel.create({
+    const rawAccessTime = metadata.accessTime;
+    const parsedAccessTime = rawAccessTime ? new Date(rawAccessTime) : new Date();
+    const accessTime = Number.isNaN(parsedAccessTime.getTime()) ? new Date() : parsedAccessTime;
+
+    const locker = lockerId
+      ? await this.lockerModel
+          .findById(lockerId)
+          .select('_id roomId campusId')
+          .lean()
+      : null;
+
+    const roomId = locker?.roomId ? new Types.ObjectId(String(locker.roomId)) : this.toObjectId(metadata.roomId);
+    const campusId = locker?.campusId
+      ? new Types.ObjectId(String(locker.campusId))
+      : this.toObjectId(metadata.campusId);
+    const scheduleId = this.toObjectId(metadata.scheduleId);
+    const bookingId = this.toObjectId(metadata.bookingId);
+
+    const rawUserId = payload.userId ?? (metadata.userId ? String(metadata.userId) : null);
+    const userObjectId = this.toObjectId(rawUserId);
+    if (rawUserId && !userObjectId && !metadata.rawUserId) {
+      metadata.rawUserId = String(rawUserId);
+    }
+    const userName = payload.userName ?? (metadata.userName ? String(metadata.userName) : null);
+
+    const created = await this.accessLogModel.create({
+      roomId: roomId || null,
       lockerId: lockerId || null,
+      userId: userObjectId,
+      userName,
+      campusId: campusId || null,
+      scheduleId: scheduleId || null,
+      bookingId: bookingId || null,
+      action,
       deviceId: payload.deviceId,
       fingerId: payload.fingerId ?? null,
-      userId: payload.userId ?? null,
-      userName: payload.userName ?? null,
       method,
+      success: payload.status === 'success',
       status: payload.status,
-      metadata: payload.metadata || {},
+      accessTime,
+      ipAddress: metadata.ipAddress ? String(metadata.ipAddress) : null,
+      location: metadata.location ? String(metadata.location) : null,
+      reason: metadata.reason ? String(metadata.reason) : null,
+      usageEffect,
+      metadata,
+    });
+
+    await this.syncRoomUsageState({
+      roomId,
+      lockerId: lockerId ? new Types.ObjectId(String(lockerId)) : null,
+      campusId,
+      status: payload.status,
+      usageEffect,
+      userId: userObjectId ? String(userObjectId) : rawUserId,
+      userName,
+      method,
+      action,
+      accessTime,
+      accessLogId: new Types.ObjectId(String(created._id)),
+      metadata,
     });
 
     return {
@@ -364,9 +581,9 @@ export class LockerService {
       }
     }
 
-    const rows = await this.lockerAccessLogModel
+    const rows = await this.accessLogModel
       .find({ $or: accessLogConditions })
-      .sort({ createdAt: -1 })
+      .sort({ accessTime: -1, createdAt: -1 })
       .limit(parsedLimit)
       .lean();
 
@@ -376,6 +593,11 @@ export class LockerService {
         ...row,
         _id: String(row._id),
         lockerId: row.lockerId ? String(row.lockerId) : null,
+        roomId: row.roomId ? String(row.roomId) : null,
+        userId: row.userId ? String(row.userId) : null,
+        campusId: row.campusId ? String(row.campusId) : null,
+        scheduleId: row.scheduleId ? String(row.scheduleId) : null,
+        bookingId: row.bookingId ? String(row.bookingId) : null,
       })),
     };
   }
@@ -669,7 +891,7 @@ export class LockerService {
 
     const locker = await this.lockerModel
       .findById(id)
-      .select('deviceId controlPin lockerNumber')
+      .select('deviceId controlPin lockerNumber roomId')
       .lean();
 
     if (!locker) throw new NotFoundException('Locker not found');
@@ -685,8 +907,17 @@ export class LockerService {
       });
     }
 
-    const cleanupResult = await this.lockerAccessLogModel.deleteMany({
+    const cleanupResult = await this.accessLogModel.deleteMany({
       $or: cleanupConditions,
+    });
+
+    const usageStateCleanupConditions: any[] = [{ lockerId: new Types.ObjectId(id) }];
+    if (locker.roomId) {
+      usageStateCleanupConditions.push({ roomId: new Types.ObjectId(String(locker.roomId)) });
+    }
+
+    const usageStateCleanup = await this.roomUsageStateModel.deleteMany({
+      $or: usageStateCleanupConditions,
     });
 
     const removed = await this.lockerModel.findByIdAndDelete(id);
@@ -698,6 +929,7 @@ export class LockerService {
       data: {
         deletedLockerId: id,
         deletedAccessLogs: cleanupResult.deletedCount || 0,
+        deletedRoomUsageStates: usageStateCleanup.deletedCount || 0,
       },
     };
   }
