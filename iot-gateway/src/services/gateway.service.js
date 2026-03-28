@@ -33,6 +33,7 @@ class GatewayService {
     const deviceId = String(data.deviceId || this.defaultDeviceId || '').trim();
     const pin = Number(data.pin);
     const action = data.action === 'off' ? 'off' : 'on';
+    const durationMs = Number.isFinite(Number(data.durationMs)) ? Number(data.durationMs) : undefined;
 
     if (!deviceId || !Number.isFinite(pin)) {
       return null;
@@ -43,6 +44,7 @@ class GatewayService {
       correlationId: String(data.correlationId || ''),
       deviceId,
       pin,
+      durationMs,
       action,
       queuedAt: new Date().toISOString(),
     };
@@ -429,6 +431,7 @@ class GatewayService {
     const deviceId = String(data.deviceId || this.defaultDeviceId || '').trim();
     const pin = Number(data.pin);
     const action = data.action === 'off' ? 'off' : 'on';
+    const durationMs = Number.isFinite(Number(data.durationMs)) ? Number(data.durationMs) : undefined;
 
     const queuedCommand = this.enqueueCommand({
       ...data,
@@ -436,6 +439,7 @@ class GatewayService {
       deviceId,
       pin,
       action,
+      durationMs,
     });
 
     const dispatchedRealtime = this.realtimeBridge?.sendCommand?.(deviceId, {
@@ -444,6 +448,7 @@ class GatewayService {
       deviceId,
       pin,
       action,
+      durationMs,
       requestedAt: new Date().toISOString(),
     }) || false;
 

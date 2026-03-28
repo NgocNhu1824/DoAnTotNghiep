@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from '../ui/select';
 import { toast } from 'react-toastify';
-import { scheduleService, CreateScheduleDto } from '../../services/schedule.service';
+import { scheduleService } from '../../services/schedule.service';
 import roomService from '../../services/room.service';
 import { timeSlotService } from '../../services/time-slot.service';
 import { userService } from '../../services/user.service';
@@ -32,6 +32,22 @@ interface Props {
   selectedDate: Date;
 }
 
+interface CreateScheduleFormState {
+  roomId: string;
+  lecturerId: string;
+  dateStart: string;
+  dayOfWeek: number;
+  slotType: 'OLDSLOT' | 'NEWSLOT';
+  slotNumber: number;
+  timeSlotId?: string;
+  startTime: string;
+  endTime: string;
+  classCode?: string;
+  subjectCode?: string;
+  subjectName?: string;
+  semester?: string;
+}
+
 const CreateScheduleModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -44,7 +60,7 @@ const CreateScheduleModal: React.FC<Props> = ({
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [lecturers, setLecturers] = useState<UserListItem[]>([]);
   
-  const [form, setForm] = useState<CreateScheduleDto>({
+  const [form, setForm] = useState<CreateScheduleFormState>({
     roomId: '',
     lecturerId: '',
     dateStart: selectedDate.toISOString().split('T')[0],

@@ -25,6 +25,7 @@ import { Room } from '../../types/room.types';
 import { TimeSlot } from '../../types/time-slot.types';
 import { Schedule } from '../../types/schedule.types';
 import { UserListItem } from '../../types/models.types';
+import { resolveScheduleSlotInfo } from '../../utils/schedule-slot';
 
 interface Props {
   isOpen: boolean;
@@ -33,18 +34,26 @@ interface Props {
   schedule: Schedule | null;
 }
 
+interface EditScheduleFormState extends UpdateScheduleDto {
+  slotTypeFilter: 'OLDSLOT' | 'NEWSLOT';
+  slotNumber?: number;
+  startTime?: string;
+  endTime?: string;
+}
+
 const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedule }) => {
   const [loading, setLoading] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [lecturers, setLecturers] = useState<UserListItem[]>([]);
   
-  const [form, setForm] = useState<UpdateScheduleDto>({
+  const [form, setForm] = useState<EditScheduleFormState>({
     roomId: '',
     lecturerId: '',
     dateStart: '',
     dayOfWeek: undefined,
-    slotType: undefined,
+    timeSlotId: '',
+    slotTypeFilter: 'NEWSLOT',
     slotNumber: undefined,
     startTime: '',
     endTime: '',
@@ -60,6 +69,7 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
   useEffect(() => {
     if (isOpen && schedule) {
       fetchData();
+      const slotInfo = resolveScheduleSlotInfo(schedule);
       const roomId = typeof schedule.roomId === 'string' ? schedule.roomId : schedule.roomId?._id || '';
       const lecturerId = typeof schedule.lecturerId === 'string' ? schedule.lecturerId : schedule.lecturerId?._id || '';
       const dateStart = typeof schedule.dateStart === 'string' 
@@ -71,10 +81,11 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
         lecturerId,
         dateStart,
         dayOfWeek: schedule.dayOfWeek,
-        slotType: schedule.slotType,
-        slotNumber: schedule.slotNumber,
-        startTime: schedule.startTime,
-        endTime: schedule.endTime,
+        timeSlotId: slotInfo.timeSlotId || '',
+        slotTypeFilter: slotInfo.slotType || 'NEWSLOT',
+        slotNumber: slotInfo.slotNumber || undefined,
+        startTime: slotInfo.startTime || '',
+        endTime: slotInfo.endTime || '',
         classCode: schedule.classCode || '',
         subjectCode: schedule.subjectCode || '',
         subjectName: schedule.subjectName || '',
@@ -122,8 +133,9 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
     if (slot) {
       setForm((prev) => ({
         ...prev,
+        timeSlotId: slot._id || slot.id || '',
+        slotTypeFilter: slot.slotType,
         slotNumber: slot.slotNumber,
-        slotType: slot.slotType,
         startTime: slot.startTime,
         endTime: slot.endTime,
       }));
@@ -136,21 +148,9 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
     if (!form.roomId) errs.roomId = 'Please select a classroom';
     if (!form.lecturerId) errs.lecturerId = 'Please select a lecturer';
     if (!form.dateStart) errs.dateStart = 'Please select a date';
-    if (!form.startTime) errs.startTime = 'Please enter start time';
-    if (!form.endTime) errs.endTime = 'Please enter end time';
+    if (!form.timeSlotId) errs.timeSlotId = 'Please select a time slot';
     if (!form.classCode?.trim()) errs.classCode = 'Please enter class code';
     if (!form.subjectName?.trim()) errs.subjectName = 'Please enter subject name';
-
-    // start < end
-    if (form.startTime && form.endTime) {
-      const [sh, sm] = form.startTime.split(':').map(Number);
-      const [eh, em] = form.endTime.split(':').map(Number);
-      const startMinutes = sh * 60 + sm;
-      const endMinutes = eh * 60 + em;
-      if (startMinutes >= endMinutes) {
-        errs.endTime = 'End time must be after start time';
-      }
-    }
 
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -170,10 +170,7 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
       const updatePayload: any = {
         dateStart: form.dateStart,
         dayOfWeek: form.dayOfWeek,
-        slotType: form.slotType,
-        slotNumber: form.slotNumber,
-        startTime: form.startTime,
-        endTime: form.endTime,
+        timeSlotId: form.timeSlotId,
         classCode: form.classCode,
         subjectCode: form.subjectCode,
         subjectName: form.subjectName,
@@ -204,12 +201,10 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
   };
 
   const selectedSlot = timeSlots.find(
-    (s) => s.slotNumber === form.slotNumber && s.slotType === form.slotType
+    (s) => (s._id || s.id) === form.timeSlotId
   );
 
-  const filteredSlots = form.slotType
-    ? timeSlots.filter((s) => s.slotType === form.slotType)
-    : timeSlots;
+  const filteredSlots = timeSlots.filter((s) => s.slotType === form.slotTypeFilter);
 
   if (!schedule) return null;
 
@@ -287,12 +282,15 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
           <div>
             <Label htmlFor="slotType">Slot type *</Label>
             <Select
-              value={form.slotType}
+              value={form.slotTypeFilter}
               onValueChange={(value) => {
                 setForm((prev) => ({
                   ...prev,
-                  slotType: value as 'OLDSLOT' | 'NEWSLOT',
+                  slotTypeFilter: value as 'OLDSLOT' | 'NEWSLOT',
+                  timeSlotId: '',
                   slotNumber: undefined,
+                  startTime: '',
+                  endTime: '',
                 }));
               }}
             >
@@ -307,54 +305,26 @@ const EditScheduleModal: React.FC<Props> = ({ isOpen, onClose, onUpdate, schedul
           </div>
 
           {/* Slot Number */}
-          {form.slotType && (
-            <div>
-              <Label htmlFor="slotNumber">Slot number *</Label>
-              <Select
-                value={timeSlots.find((s) => s.slotNumber === form.slotNumber && s.slotType === form.slotType)?._id || ''}
-                onValueChange={handleSlotChange}
-              >
-                <SelectTrigger id="slotNumber">
-                  <SelectValue placeholder="Select time slot" />
-                </SelectTrigger>
-                <SelectContent>
-                  {filteredSlots.map((slot) => (
-                    <SelectItem key={slot._id || slot.id} value={slot._id || slot.id || ''}>
-                      {slot.slotName} ({slot.startTime} - {slot.endTime})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedSlot && (
-                <p className="text-sm text-gray-500 mt-1">
-                  Slot {selectedSlot.slotNumber}: {selectedSlot.startTime} - {selectedSlot.endTime}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Time Range */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="startTime">Start time *</Label>
-              <Input
-                id="startTime"
-                type="time"
-                value={form.startTime}
-                onChange={(e) => setForm((prev) => ({ ...prev, startTime: e.target.value }))}
-              />
-              {errors.startTime && <p className="text-sm text-red-500 mt-1">{errors.startTime}</p>}
-            </div>
-            <div>
-              <Label htmlFor="endTime">End time *</Label>
-              <Input
-                id="endTime"
-                type="time"
-                value={form.endTime}
-                onChange={(e) => setForm((prev) => ({ ...prev, endTime: e.target.value }))}
-              />
-              {errors.endTime && <p className="text-sm text-red-500 mt-1">{errors.endTime}</p>}
-            </div>
+          <div>
+            <Label htmlFor="slotNumber">Slot number *</Label>
+            <Select value={form.timeSlotId || ''} onValueChange={handleSlotChange}>
+              <SelectTrigger id="slotNumber">
+                <SelectValue placeholder="Select time slot" />
+              </SelectTrigger>
+              <SelectContent>
+                {filteredSlots.map((slot) => (
+                  <SelectItem key={slot._id || slot.id} value={slot._id || slot.id || ''}>
+                    {slot.slotName} ({slot.startTime} - {slot.endTime})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.timeSlotId && <p className="text-sm text-red-500 mt-1">{errors.timeSlotId}</p>}
+            {selectedSlot && (
+              <p className="text-sm text-gray-500 mt-1">
+                Slot {selectedSlot.slotNumber}: {selectedSlot.startTime} - {selectedSlot.endTime}
+              </p>
+            )}
           </div>
 
           {/* Class Code */}

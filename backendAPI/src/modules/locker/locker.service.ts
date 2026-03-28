@@ -21,6 +21,10 @@ import { UpdateLockerDto } from './dto/update-locker.dto';
 @Injectable()
 export class LockerService {
   private readonly logger = new Logger(LockerService.name);
+  // In-memory dedupe for resync requests to avoid flooding devices
+  private lastResyncAt: Map<string, number> = new Map();
+  private lastResyncAllAt: number = 0;
+  private readonly RESYNC_DEDUPE_MS = 8000; // ignore repeated resyncs within 8s
 
   constructor(
     @InjectModel(Locker.name)
@@ -231,6 +235,7 @@ export class LockerService {
     deviceId: string;
     pin: number;
     action: 'on' | 'off';
+    durationMs?: number;
   }) {
     const { baseUrl, username, password, timeoutMs } = this.getIotGatewayConfig();
     if (!baseUrl) {
@@ -897,6 +902,17 @@ export class LockerService {
       throw new BadRequestException('deviceId is required');
     }
 
+    const now = Date.now();
+    const last = this.lastResyncAt.get(deviceId) || 0;
+    if (now - last < this.RESYNC_DEDUPE_MS) {
+      return {
+        success: true,
+        message: 'duplicate_resync_ignored',
+        data: { deviceId, correlationId: null },
+      };
+    }
+
+    this.lastResyncAt.set(deviceId, now);
     const { correlationId } = this.eventsGateway.requestHardwareResync(deviceId);
 
     return {
@@ -910,6 +926,16 @@ export class LockerService {
   }
 
   async requestResyncAll() {
+    const now = Date.now();
+    if (now - this.lastResyncAllAt < this.RESYNC_DEDUPE_MS) {
+      return {
+        success: true,
+        message: 'duplicate_resync_all_ignored',
+        data: { correlationId: null },
+      };
+    }
+
+    this.lastResyncAllAt = now;
     const { correlationId } = this.eventsGateway.requestHardwareResyncAll();
 
     return {
@@ -992,11 +1018,16 @@ export class LockerService {
 
     const correlationId = `unlock-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
+    // Business rule: default unlock pulse duration (ms)
+    const DEFAULT_UNLOCK_MS = 1500;
+    const durationMs = DEFAULT_UNLOCK_MS;
+
     this.eventsGateway.sendHardwareCommand({
       deviceId,
       pin,
       action: 'on',
       correlationId,
+      durationMs,
     });
 
     const gatewayDispatch = await this.pushCommandToIotGateway({
@@ -1004,6 +1035,7 @@ export class LockerService {
       deviceId,
       pin,
       action: 'on',
+      durationMs,
     });
 
     await this.createAccessLogEntry({
@@ -1017,6 +1049,7 @@ export class LockerService {
         action: 'on',
         correlationId,
         iotGatewayDispatch: gatewayDispatch,
+        durationMs,
       },
       pin,
     });

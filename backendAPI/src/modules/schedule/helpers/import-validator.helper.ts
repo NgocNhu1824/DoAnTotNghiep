@@ -57,23 +57,8 @@ export class ImportValidatorHelper {
         });
       }
 
-      if (!row.starttime) {
-        errors.push({
-          rowIndex,
-          field: 'startTime',
-          code: 'REQUIRED_FIELD',
-          message: 'Missing start time',
-        });
-      }
-
-      if (!row.endtime) {
-        errors.push({
-          rowIndex,
-          field: 'endTime',
-          code: 'REQUIRED_FIELD',
-          message: 'Missing end time',
-        });
-      }
+      // startTime/endTime are optional in import rows.
+      // Canonical values are resolved from time-slot by slotType + slotNumber.
 
       if (row.datestart) {
         const dateRegex = /^\d{4}-\d{2}-\d{2}$/;

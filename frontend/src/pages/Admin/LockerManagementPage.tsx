@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactPaginate from 'react-paginate';
 import { AxiosError } from 'axios';
-import { Eye, Loader2, Pencil, RefreshCcw, Search, Trash2 } from 'lucide-react';
+import { Eye, Loader2, LockOpen, Pencil, RefreshCcw, Search, Trash2 } from 'lucide-react';
 
 import { lockerService } from '../../services/locker.service';
 import { campusService } from '../../services/campus.service';
@@ -109,7 +109,10 @@ const LockerManagementPage: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(0);
   const [syncJobs, setSyncJobs] = useState<SyncJob[]>([]);
   const [syncingLockerIds, setSyncingLockerIds] = useState<Record<string, boolean>>({});
+  const [unlockingLockerIds, setUnlockingLockerIds] = useState<Record<string, boolean>>({});
   const syncJobsRef = useRef<SyncJob[]>([]);
+  // Track correlationIds initiated by user actions so UI ignores external/automatic syncs
+  const userInitiatedSyncsRef = useRef<Set<string>>(new Set());
 
   const fetchData = async () => {
     try {
@@ -153,6 +156,11 @@ const LockerManagementPage: React.FC = () => {
       const payload = event.payload || {};
       const correlationId = String(payload.correlationId || '');
       if (!correlationId) {
+        return;
+      }
+
+      // Ignore sync_ack that were not initiated by the user (prevent automatic loads)
+      if (!userInitiatedSyncsRef.current.has(correlationId)) {
         return;
       }
 
@@ -209,6 +217,8 @@ const LockerManagementPage: React.FC = () => {
         if (status === 'completed') {
           fetchData();
         }
+        // cleanup tracking for this user-initiated correlationId
+        userInitiatedSyncsRef.current.delete(correlationId);
       }
     };
 
@@ -365,6 +375,9 @@ const LockerManagementPage: React.FC = () => {
       const correlationId =
         result?.correlationId || `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
+      // mark as user-initiated so UI will respond only to this
+      if (correlationId) userInitiatedSyncsRef.current.add(correlationId);
+
       const queuedJob: SyncJob = {
         correlationId,
         deviceId: '*',
@@ -414,6 +427,9 @@ const LockerManagementPage: React.FC = () => {
       const correlationId =
         result?.correlationId || `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
+      // mark as user-initiated so UI will respond only to this
+      if (correlationId) userInitiatedSyncsRef.current.add(correlationId);
+
       const queuedJob: SyncJob = {
         correlationId,
         deviceId,
@@ -444,6 +460,67 @@ const LockerManagementPage: React.FC = () => {
         description: axiosError.response?.data?.message || 'Failed to request resync',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleUnlockLocker = async (locker: LockerEntity) => {
+    const lockerId = String(locker.id || locker._id || '');
+    const lockerNumber = Number(locker.lockerNumber);
+
+    if (!lockerId) {
+      toast({
+        title: 'Cannot unlock',
+        description: 'Locker id is missing',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!locker.isActive) {
+      toast({
+        title: 'Cannot unlock',
+        description: `Locker #${lockerNumber} is inactive`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!locker.deviceId || !Number.isFinite(Number(locker.controlPin))) {
+      toast({
+        title: 'Cannot unlock',
+        description: `Locker #${lockerNumber} is not mapped to ESP32 pin`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setUnlockingLockerIds((prev) => ({
+        ...prev,
+        [lockerId]: true,
+      }));
+
+      const result = await lockerService.unlock(lockerId);
+
+      toast({
+        title: 'Unlock command sent',
+        description:
+          result?.data?.correlationId
+            ? `Locker #${lockerNumber} is opening (${result.data.correlationId})`
+            : `Locker #${lockerNumber} is opening`,
+      });
+    } catch (err) {
+      const axiosError = err as AxiosError<any>;
+      toast({
+        title: 'Unlock failed',
+        description: axiosError.response?.data?.message || 'Failed to send unlock command',
+        variant: 'destructive',
+      });
+    } finally {
+      setUnlockingLockerIds((prev) => ({
+        ...prev,
+        [lockerId]: false,
+      }));
     }
   };
 
@@ -715,6 +792,29 @@ const LockerManagementPage: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleUnlockLocker(locker)}
+                            disabled={
+                              unlockingLockerIds[String(locker.id)] ||
+                              !locker.isActive ||
+                              !locker.deviceId ||
+                              !Number.isFinite(Number(locker.controlPin))
+                            }
+                          >
+                            {unlockingLockerIds[String(locker.id)] ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Opening...
+                              </>
+                            ) : (
+                              <>
+                                <LockOpen className="mr-2 h-4 w-4" />
+                                Open
+                              </>
+                            )}
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"

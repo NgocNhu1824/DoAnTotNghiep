@@ -9,6 +9,7 @@ export interface QueryScheduleParams {
   semester?: string;
   status?: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
   slotType?: 'OLDSLOT' | 'NEWSLOT';
+  timeSlotId?: string;
   classCode?: string;
   isOnline?: 'true' | 'false';
   viewAllActivities?: 'true' | 'false';
@@ -19,11 +20,7 @@ export interface CreateScheduleDto {
   lecturerId: string;
   dateStart: string;
   dayOfWeek: number;
-  slotType: 'OLDSLOT' | 'NEWSLOT';
-  slotNumber: number;
-  timeSlotId?: string;
-  startTime: string;
-  endTime: string;
+  timeSlotId: string;
   classCode?: string;
   subjectCode?: string;
   subjectName?: string;
@@ -36,11 +33,7 @@ export interface UpdateScheduleDto {
   lecturerId?: string;
   dateStart?: string;
   dayOfWeek?: number;
-  slotType?: 'OLDSLOT' | 'NEWSLOT';
-  slotNumber?: number;
   timeSlotId?: string;
-  startTime?: string;
-  endTime?: string;
   classCode?: string;
   subjectCode?: string;
   subjectName?: string;
@@ -95,6 +88,7 @@ export const scheduleService = {
     if (params?.semester) queryParams.append('semester', params.semester);
     if (params?.status) queryParams.append('status', params.status);
     if (params?.slotType) queryParams.append('slotType', params.slotType);
+    if (params?.timeSlotId) queryParams.append('timeSlotId', params.timeSlotId);
     if (params?.classCode) queryParams.append('classCode', params.classCode);
     if (params?.isOnline !== undefined) queryParams.append('isOnline', params.isOnline);
     if (params?.viewAllActivities) queryParams.append('viewAllActivities', params.viewAllActivities);

@@ -10,6 +10,7 @@ import { Button } from '../ui/button';
 import { Schedule } from '../../types/schedule.types';
 import PermissionGuard from '../PermissionGuard';
 import { PERMISSIONS } from '../../utils/permissions';
+import { resolveScheduleSlotInfo } from '../../utils/schedule-slot';
 
 interface Props {
   isOpen: boolean;
@@ -24,6 +25,7 @@ const ViewScheduleModal: React.FC<Props> = ({ isOpen, onClose, onEdit, schedule 
   const room = typeof schedule.roomId === 'object' ? schedule.roomId : null;
   const lecturer = typeof schedule.lecturerId === 'object' ? schedule.lecturerId : null;
   const createdBy = typeof schedule.createdBy === 'object' ? schedule.createdBy : null;
+  const slotInfo = resolveScheduleSlotInfo(schedule);
   const isBookingGenerated = schedule.classCode === 'BOOKING';
   const bookingPurpose = (schedule.subjectName || '').trim();
 
@@ -170,25 +172,25 @@ const ViewScheduleModal: React.FC<Props> = ({ isOpen, onClose, onEdit, schedule 
               <div>
                 <label className="text-sm font-medium text-gray-700">Slot Type</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
-                  {schedule.slotType === 'OLDSLOT' ? 'Old Slot' : 'New Slot'}
+                  {slotInfo.slotType === 'OLDSLOT' ? 'Old Slot' : slotInfo.slotType === 'NEWSLOT' ? 'New Slot' : 'N/A'}
                 </div>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Slot Number</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
-                  {schedule.slotNumber}
+                  {slotInfo.slotNumber ?? 'N/A'}
                 </div>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Start Time</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
-                  {schedule.startTime}
+                  {slotInfo.startTime || 'N/A'}
                 </div>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">End Time</label>
                 <div className="mt-1 px-3 py-2 bg-gray-50 rounded border">
-                  {schedule.endTime}
+                  {slotInfo.endTime || 'N/A'}
                 </div>
               </div>
               {!isBookingGenerated && (

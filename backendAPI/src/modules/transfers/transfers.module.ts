@@ -9,6 +9,7 @@ import { Locker, LockerSchema } from '@/database/schemas/locker.schema';
 import { Room, RoomSchema } from '@/database/schemas/room.schema';
 import { User, UserSchema } from '@/database/schemas/user.schema';
 import { Role, RoleSchema } from '@/database/schemas/role.schema';
+import { TimeSlot, TimeSlotSchema } from '@/database/schemas/time-slot.schema';
 import { GatewaysModule } from '../../common/gateways/gateways.module';
 import { NotificationsModule } from '@/modules/notifications/notifications.module';
 
@@ -21,6 +22,7 @@ import { NotificationsModule } from '@/modules/notifications/notifications.modul
       { name: Room.name, schema: RoomSchema },
       { name: User.name, schema: UserSchema },
       { name: Role.name, schema: RoleSchema },
+      { name: TimeSlot.name, schema: TimeSlotSchema },
     ]),
     GatewaysModule,
     NotificationsModule,

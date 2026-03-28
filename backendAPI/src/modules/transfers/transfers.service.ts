@@ -57,9 +57,10 @@ export class TransfersService {
 
     const nearestCandidates = candidates
       .map((item: any) => {
+        const slot = this.getScheduleSlotInfo(item);
         const lecturer = item.lecturerId as any;
         const roleCode = lecturer?.roleId?.roleCode;
-        const candidateStartMinutes = this.parseTimeToMinutes(item.startTime);
+        const candidateStartMinutes = this.parseTimeToMinutes(slot.startTime);
         const reasons: string[] = [];
 
         if (
@@ -78,10 +79,11 @@ export class TransfersService {
 
         return {
           scheduleId: this.normalizeId(item._id),
-          startTime: item.startTime,
-          endTime: item.endTime,
-          slotType: item.slotType,
-          slotNumber: item.slotNumber,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          slotType: slot.slotType,
+          slotNumber: slot.slotNumber,
+          timeSlotId: slot.timeSlotId,
           lecturer: {
             id: lecturer?._id ? this.normalizeId(lecturer._id) : null,
             fullName: lecturer?.fullName,
@@ -139,6 +141,65 @@ export class TransfersService {
     return hours * 60 + minutes;
   }
 
+  private getScheduleSlotInfo(schedule: any): {
+    timeSlotId: string | null;
+    slotType: string | null;
+    slotNumber: number | null;
+    startTime: string | null;
+    endTime: string | null;
+  } {
+    const slot = schedule?.timeSlotId && typeof schedule.timeSlotId === 'object'
+      ? schedule.timeSlotId
+      : null;
+
+    return {
+      timeSlotId: slot?._id ? this.normalizeId(slot._id) : schedule?.timeSlotId ? this.normalizeId(schedule.timeSlotId) : null,
+      slotType: slot?.slotType || schedule?.slotType || null,
+      slotNumber:
+        Number.isFinite(Number(slot?.slotNumber))
+          ? Number(slot.slotNumber)
+          : Number.isFinite(Number(schedule?.slotNumber))
+            ? Number(schedule.slotNumber)
+            : null,
+      startTime: slot?.startTime || schedule?.startTime || null,
+      endTime: slot?.endTime || schedule?.endTime || null,
+    };
+  }
+
+  private mapScheduleProjection(row: any): any {
+    const slot = this.getScheduleSlotInfo(row);
+    const lecturer = row?.lecturerId as any;
+    const room = row?.roomId as any;
+
+    return {
+      id: this.normalizeId(row._id),
+      roomId: row?.roomId ? this.normalizeId(row.roomId) : null,
+      room: room
+        ? {
+            id: this.normalizeId(room._id),
+            roomCode: room.roomCode,
+            roomName: room.roomName,
+          }
+        : null,
+      dateStart: row?.dateStart,
+      timeSlotId: slot.timeSlotId,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      slotType: slot.slotType,
+      slotNumber: slot.slotNumber,
+      classCode: row?.classCode,
+      subjectCode: row?.subjectCode,
+      subjectName: row?.subjectName,
+      lecturer: lecturer
+        ? {
+            id: this.normalizeId(lecturer._id),
+            fullName: lecturer.fullName,
+            email: lecturer.email,
+          }
+        : null,
+    };
+  }
+
   private toDateOnlyString(value: Date): string {
     return new Date(value).toISOString().slice(0, 10);
   }
@@ -171,7 +232,8 @@ export class TransfersService {
   }
 
   private isWithinTransferRequestWindow(schedule: any, now = new Date()): boolean {
-    const sourceEndAt = this.buildUtcDateTime(schedule?.dateStart, schedule?.endTime);
+    const slot = this.getScheduleSlotInfo(schedule);
+    const sourceEndAt = this.buildUtcDateTime(schedule?.dateStart, slot.endTime || '');
     if (!sourceEndAt) {
       return false;
     }
@@ -228,7 +290,7 @@ export class TransfersService {
         status: { $in: ['scheduled', 'ongoing'] },
       })
       .populate('roomId', 'roomCode roomName building floor')
-      .sort({ dateStart: 1, startTime: 1 })
+      .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
       .lean()
       .exec();
 
@@ -236,23 +298,33 @@ export class TransfersService {
       ? rows.filter((item: any) => this.isWithinTransferRequestWindow(item))
       : rows;
 
-    return filteredRows.map((item: any) => ({
-      id: this.normalizeId(item._id),
-      dateStart: this.toDateOnlyString(item.dateStart),
-      startTime: item.startTime,
-      endTime: item.endTime,
-      slotType: item.slotType,
-      slotNumber: item.slotNumber,
-      room: item.roomId
-        ? {
-            id: this.normalizeId(item.roomId._id),
-            roomCode: item.roomId.roomCode,
-            roomName: item.roomId.roomName,
-            building: item.roomId.building,
-            floor: item.roomId.floor,
-          }
-        : null,
-    }));
+    return filteredRows
+      .map((item: any) => {
+        const slot = this.getScheduleSlotInfo(item);
+        return {
+          id: this.normalizeId(item._id),
+          dateStart: this.toDateOnlyString(item.dateStart),
+          timeSlotId: slot.timeSlotId,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          slotType: slot.slotType,
+          slotNumber: slot.slotNumber,
+          room: item.roomId
+            ? {
+                id: this.normalizeId(item.roomId._id),
+                roomCode: item.roomId.roomCode,
+                roomName: item.roomId.roomName,
+                building: item.roomId.building,
+                floor: item.roomId.floor,
+              }
+            : null,
+        };
+      })
+      .sort((a, b) => {
+        const dateDiff = new Date(a.dateStart).getTime() - new Date(b.dateStart).getTime();
+        if (dateDiff !== 0) return dateDiff;
+        return Number(a.slotNumber || 0) - Number(b.slotNumber || 0);
+      });
   }
 
   async getSelfTargetOptions(fromScheduleId: string | undefined, currentUser: any): Promise<any> {
@@ -270,6 +342,7 @@ export class TransfersService {
         lecturerId: this.toObjectId(userId, 'userId'),
         status: { $in: ['scheduled', 'ongoing'] },
       })
+      .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
       .lean()
       .exec();
 
@@ -283,7 +356,8 @@ export class TransfersService {
       );
     }
 
-    const sourceEndMinutes = this.parseTimeToMinutes(sourceSchedule.endTime);
+    const sourceSlot = this.getScheduleSlotInfo(sourceSchedule);
+    const sourceEndMinutes = this.parseTimeToMinutes(sourceSlot.endTime || '');
     const sourceDate = new Date(sourceSchedule.dateStart);
     const sourceDayStart = new Date(
       Date.UTC(sourceDate.getUTCFullYear(), sourceDate.getUTCMonth(), sourceDate.getUTCDate()),
@@ -299,20 +373,20 @@ export class TransfersService {
         lecturerId: { $ne: sourceSchedule.lecturerId },
         status: { $in: ['scheduled', 'ongoing'] },
       })
+      .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
       .populate({
         path: 'lecturerId',
         select: 'fullName email department isActive roleId',
         populate: { path: 'roleId', select: 'roleCode roleName' },
       })
-      .sort({ startTime: 1 })
       .lean()
       .exec();
 
     const validCandidates = candidates
       .map((item: any) => {
+        const slot = this.getScheduleSlotInfo(item);
         const lecturer = item.lecturerId as any;
-        const roleCode = lecturer?.roleId?.roleCode;
-        const candidateStartMinutes = this.parseTimeToMinutes(item.startTime);
+        const candidateStartMinutes = this.parseTimeToMinutes(slot.startTime || '');
         const gapMinutes = candidateStartMinutes - sourceEndMinutes;
 
         return {
@@ -337,12 +411,9 @@ export class TransfersService {
         .filter((row) => row.gapMinutes === minGap)
         .map((row) => row.item)
         .map((item: any) => ({
+          ...(this.getScheduleSlotInfo(item) || {}),
           scheduleId: this.normalizeId(item._id),
           dateStart: this.toDateOnlyString(item.dateStart),
-          startTime: item.startTime,
-          endTime: item.endTime,
-          slotType: item.slotType,
-          slotNumber: item.slotNumber,
           classCode: item.classCode,
           subjectCode: item.subjectCode,
           subjectName: item.subjectName,
@@ -468,9 +539,8 @@ export class TransfersService {
           })
           .populate('lecturerId', 'fullName email')
           .populate('roomId', 'roomCode roomName')
-          .select(
-            '_id roomId lecturerId dateStart startTime endTime slotType slotNumber classCode subjectCode subjectName',
-          )
+          .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
+          .select('_id roomId lecturerId dateStart timeSlotId classCode subjectCode subjectName')
           .lean()
           .exec()
       : [];
@@ -479,35 +549,7 @@ export class TransfersService {
 
     scheduleRows.forEach((row: any) => {
       const key = this.normalizeId(row._id);
-      const lecturer = row.lecturerId as any;
-      const room = row.roomId as any;
-
-      scheduleMap[key] = {
-        id: key,
-        roomId: this.normalizeId(row.roomId),
-        room: room
-          ? {
-              id: this.normalizeId(room._id),
-              roomCode: room.roomCode,
-              roomName: room.roomName,
-            }
-          : null,
-        dateStart: row.dateStart,
-        startTime: row.startTime,
-        endTime: row.endTime,
-        slotType: row.slotType,
-        slotNumber: row.slotNumber,
-        classCode: row.classCode,
-        subjectCode: row.subjectCode,
-        subjectName: row.subjectName,
-        lecturer: lecturer
-          ? {
-              id: this.normalizeId(lecturer._id),
-              fullName: lecturer.fullName,
-              email: lecturer.email,
-            }
-          : null,
-      };
+      scheduleMap[key] = this.mapScheduleProjection(row);
     });
 
     const result: Record<string, any> = {};
@@ -581,6 +623,7 @@ export class TransfersService {
           _id: this.toObjectId(createTransferDto.fromScheduleId, 'fromScheduleId'),
           campusId: this.toObjectId(campusId, 'campusId'),
         })
+        .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
         .lean()
         .exec(),
       this.scheduleModel
@@ -588,6 +631,7 @@ export class TransfersService {
           _id: this.toObjectId(createTransferDto.toScheduleId, 'toScheduleId'),
           campusId: this.toObjectId(campusId, 'campusId'),
         })
+        .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
         .lean()
         .exec(),
     ]);
@@ -666,8 +710,10 @@ export class TransfersService {
       throw new BadRequestException('Source and target schedules must be on the same date');
     }
 
-    const fromEndMinutes = this.parseTimeToMinutes(fromSchedule.endTime);
-    const toStartMinutes = this.parseTimeToMinutes(toSchedule.startTime);
+    const fromSlot = this.getScheduleSlotInfo(fromSchedule);
+    const toSlot = this.getScheduleSlotInfo(toSchedule);
+    const fromEndMinutes = this.parseTimeToMinutes(fromSlot.endTime || '');
+    const toStartMinutes = this.parseTimeToMinutes(toSlot.startTime || '');
     if (fromEndMinutes < 0 || toStartMinutes < 0 || toStartMinutes < fromEndMinutes) {
       throw new BadRequestException('Target schedule must start after source schedule ends');
     }
@@ -842,9 +888,8 @@ export class TransfersService {
           })
           .populate('lecturerId', 'fullName email')
           .populate('roomId', 'roomCode roomName')
-          .select(
-            '_id roomId lecturerId dateStart startTime endTime slotType slotNumber classCode subjectCode subjectName',
-          )
+          .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
+          .select('_id roomId lecturerId dateStart timeSlotId classCode subjectCode subjectName')
           .lean()
           .exec()
       : [];
@@ -910,34 +955,7 @@ export class TransfersService {
 
     scheduleRows.forEach((row: any) => {
       const key = this.normalizeId(row._id);
-      const lecturer = row.lecturerId as any;
-      const room = row.roomId as any;
-      scheduleMap[key] = {
-        id: key,
-        roomId: this.normalizeId(row.roomId),
-        room: room
-          ? {
-              id: this.normalizeId(room._id),
-              roomCode: room.roomCode,
-              roomName: room.roomName,
-            }
-          : null,
-        dateStart: row.dateStart,
-        startTime: row.startTime,
-        endTime: row.endTime,
-        slotType: row.slotType,
-        slotNumber: row.slotNumber,
-        classCode: row.classCode,
-        subjectCode: row.subjectCode,
-        subjectName: row.subjectName,
-        lecturer: lecturer
-          ? {
-              id: this.normalizeId(lecturer._id),
-              fullName: lecturer.fullName,
-              email: lecturer.email,
-            }
-          : null,
-      };
+      scheduleMap[key] = this.mapScheduleProjection(row);
     });
 
     return transfers.map((item: any) => ({
@@ -983,9 +1001,8 @@ export class TransfersService {
           })
           .populate('lecturerId', 'fullName email')
           .populate('roomId', 'roomCode roomName')
-          .select(
-            '_id roomId lecturerId dateStart startTime endTime slotType slotNumber classCode subjectCode subjectName',
-          )
+          .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
+          .select('_id roomId lecturerId dateStart timeSlotId classCode subjectCode subjectName')
           .lean()
           .exec()
       : [];
@@ -993,34 +1010,7 @@ export class TransfersService {
     const scheduleMap: Record<string, any> = {};
     scheduleRows.forEach((row: any) => {
       const key = this.normalizeId(row._id);
-      const lecturer = row.lecturerId as any;
-      const room = row.roomId as any;
-      scheduleMap[key] = {
-        id: key,
-        roomId: this.normalizeId(row.roomId),
-        room: room
-          ? {
-              id: this.normalizeId(room._id),
-              roomCode: room.roomCode,
-              roomName: room.roomName,
-            }
-          : null,
-        dateStart: row.dateStart,
-        startTime: row.startTime,
-        endTime: row.endTime,
-        slotType: row.slotType,
-        slotNumber: row.slotNumber,
-        classCode: row.classCode,
-        subjectCode: row.subjectCode,
-        subjectName: row.subjectName,
-        lecturer: lecturer
-          ? {
-              id: this.normalizeId(lecturer._id),
-              fullName: lecturer.fullName,
-              email: lecturer.email,
-            }
-          : null,
-      };
+      scheduleMap[key] = this.mapScheduleProjection(row);
     });
 
     return {

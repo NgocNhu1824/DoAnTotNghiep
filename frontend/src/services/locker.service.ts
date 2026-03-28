@@ -77,6 +77,22 @@ export const lockerService = {
     return await api.delete(`/lockers/${id}`);
   },
 
+  unlock: async (
+    id: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data?: {
+      lockerId: string;
+      lockerNumber: number;
+      deviceId: string;
+      pin: number;
+      correlationId: string;
+    };
+  }> => {
+    return await api.post(`/lockers/${id}/unlock`);
+  },
+
   getIoTStatus: async (lockerId: string): Promise<any> => {
     const res = await api.get(`/lockers/${lockerId}/iot-status`);
     return res;

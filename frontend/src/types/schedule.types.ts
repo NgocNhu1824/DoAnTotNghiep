@@ -1,3 +1,15 @@
+export type ScheduleSlotType = 'OLDSLOT' | 'NEWSLOT';
+
+export interface ScheduleTimeSlot {
+  id?: string;
+  _id?: string;
+  slotType?: ScheduleSlotType;
+  slotNumber?: number;
+  slotName?: string;
+  startTime?: string;
+  endTime?: string;
+}
+
 export interface Schedule {
   _id: string;
   id?: string; // For compatibility
@@ -15,11 +27,12 @@ export interface Schedule {
   };
   dateStart: string | Date;
   dayOfWeek: number; // 2-7 (Monday-Saturday)
-  slotType: 'OLDSLOT' | 'NEWSLOT';
-  slotNumber: number;
-  timeSlotId?: string;
-  startTime: string; // "HH:mm" format
-  endTime: string; // "HH:mm" format
+  slotType?: ScheduleSlotType;
+  slotNumber?: number;
+  timeSlotId?: string | ScheduleTimeSlot | null;
+  timeSlot?: ScheduleTimeSlot | null;
+  startTime?: string; // "HH:mm" format
+  endTime?: string; // "HH:mm" format
   classCode?: string;
   subjectCode?: string;
   subjectName?: string;
@@ -42,11 +55,7 @@ export interface CreateScheduleDto {
   lecturerId: string;
   dateStart: string;
   dayOfWeek: number;
-  slotType: 'OLDSLOT' | 'NEWSLOT';
-  slotNumber: number;
-  timeSlotId?: string;
-  startTime: string;
-  endTime: string;
+  timeSlotId: string;
   classCode?: string;
   subjectCode?: string;
   subjectName?: string;
@@ -61,11 +70,7 @@ export interface UpdateScheduleDto {
   lecturerId?: string;
   dateStart?: string;
   dayOfWeek?: number;
-  slotType?: 'OLDSLOT' | 'NEWSLOT';
-  slotNumber?: number;
   timeSlotId?: string;
-  startTime?: string;
-  endTime?: string;
   classCode?: string;
   subjectCode?: string;
   subjectName?: string;

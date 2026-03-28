@@ -5,6 +5,7 @@ const { createLogger } = require('./utils/logger');
 
 const { createWebsocketClient } = require('./gateways/websocket.client');
 const { createEsp32RealtimeGateway } = require('./gateways/esp32.realtime.gateway');
+const { createEsp32WsGateway } = require('./gateways/esp32.ws.gateway');
 const { GatewayService } = require('./services/gateway.service');
 const { FingerprintService } = require('./services/fingerprint.service');
 const { createHttpLockers } = require('./lockers/http.lockers');
@@ -89,13 +90,34 @@ async function bootstrap() {
     logger: createLogger('ESP32-WS'),
   });
 
-  gatewayService.setRealtimeBridge(esp32Realtime);
+  // Plain WebSocket bridge (accepts non-socket.io clients, e.g., ArduinoWebsockets)
+  const esp32Ws = createEsp32WsGateway({
+    server: httpServer,
+    path: config.esp32Realtime.namespace || '/esp32',
+    authToken: config.esp32Realtime.authToken,
+    logger: createLogger('ESP32-WS-PLAIN'),
+  });
+
+  // Prefer the realtime socket.io bridge for realtime outgoing commands, but the ws bridge
+  // will also be set as the realtimeBridge so queued/pulled commands work for plain ws devices.
+  gatewayService.setRealtimeBridge(esp32Ws);
+
+  // Wire both bridges to forward incomming events to gatewayService
   esp32Realtime.onSyncSnapshot((payload) => {
     gatewayService.handleRealtimeSyncSnapshot(payload).catch((error) => {
       logger.error('Failed to handle realtime sync snapshot', error.message);
     });
   });
   esp32Realtime.onCommandAck((payload) => {
+    gatewayService.handleRealtimeCommandAck(payload);
+  });
+
+  esp32Ws.onSyncSnapshot((payload) => {
+    gatewayService.handleRealtimeSyncSnapshot(payload).catch((error) => {
+      logger.error('Failed to handle ws sync snapshot', error.message);
+    });
+  });
+  esp32Ws.onCommandAck((payload) => {
     gatewayService.handleRealtimeCommandAck(payload);
   });
 

@@ -18,24 +18,8 @@ export class Schedule extends Document {
   @Prop({ required: true, min: 2, max: 7 })
   dayOfWeek: number; // 2=Monday, 7=Saturday
 
-  @Prop({
-    type: String,
-    enum: ['OLDSLOT', 'NEWSLOT'],
-    required: true,
-  })
-  slotType: string;
-
-  @Prop({ required: true })
-  slotNumber: number;
-
-  @Prop({ type: Types.ObjectId, ref: 'TimeSlot', required: false })
-  timeSlotId?: Types.ObjectId;
-
-  @Prop({ required: true })
-  startTime: string; // "HH:mm" format
-
-  @Prop({ required: true })
-  endTime: string; // "HH:mm" format
+  @Prop({ type: Types.ObjectId, ref: 'TimeSlot', required: true })
+  timeSlotId: Types.ObjectId;
 
   @Prop()
   classCode?: string;
@@ -73,12 +57,12 @@ export class Schedule extends Document {
 export const ScheduleSchema = SchemaFactory.createForClass(Schedule);
 
 ScheduleSchema.index(
-  { campusId: 1, roomId: 1, dateStart: 1, slotNumber: 1, dayOfWeek: 1 },
+  { campusId: 1, roomId: 1, dateStart: 1, timeSlotId: 1, dayOfWeek: 1 },
   { unique: true },
 );
 
 ScheduleSchema.index(
-  { campusId: 1, lecturerId: 1, dateStart: 1, slotNumber: 1, dayOfWeek: 1 },
+  { campusId: 1, lecturerId: 1, dateStart: 1, timeSlotId: 1, dayOfWeek: 1 },
   { unique: true },
 );
 

@@ -38,8 +38,8 @@ export class Locker extends Document {
   @Prop({ default: true })
   isActive: boolean;
 
-  @Prop({ default: null })
-  roomId?: string | null;
+  @Prop({ type: Types.ObjectId, ref: 'Room', default: null })
+  roomId?: Types.ObjectId | null;
 
   @Prop({ default: 'Unmapped' })
   roomName?: string;

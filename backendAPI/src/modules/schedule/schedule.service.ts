@@ -10,6 +10,7 @@ import { Model, Types } from 'mongoose';
 import { Schedule } from '@/database/schemas/schedule.schema';
 import { Room } from '@/database/schemas/room.schema';
 import { User } from '@/database/schemas/user.schema';
+import { TimeSlot } from '@/database/schemas/time-slot.schema';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { QueryScheduleDto } from './dto/query-schedule.dto';
 import { CsvParserHelper } from './helpers/csv-parser.helper';
@@ -27,7 +28,72 @@ export class ScheduleService {
 
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
+
+    @InjectModel(TimeSlot.name)
+    private readonly timeSlotModel: Model<TimeSlot>,
   ) {}
+
+  private normalizeId(value: any): string {
+    return value?.toString?.() || String(value || '');
+  }
+
+  private toUtcDateOnly(value: string | Date): Date {
+    if (value instanceof Date) {
+      return new Date(
+        Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 0, 0, 0, 0),
+      );
+    }
+
+    const parts = String(value || '')
+      .split('-')
+      .map((part) => Number(part));
+
+    if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) {
+      throw new BadRequestException('Invalid dateStart format, expected YYYY-MM-DD');
+    }
+
+    const [year, month, day] = parts;
+    return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+  }
+
+  private buildSlotKey(slotType?: string, slotNumber?: number): string {
+    return `${String(slotType || '').toUpperCase()}::${Number(slotNumber)}`;
+  }
+
+  private toComparableSchedule(item: any): any {
+    const slot = item?.timeSlotId && typeof item.timeSlotId === 'object' ? item.timeSlotId : null;
+    return {
+      ...item,
+      slotType: item?.slotType || slot?.slotType,
+      slotNumber: item?.slotNumber ?? slot?.slotNumber,
+      startTime: item?.startTime || slot?.startTime,
+      endTime: item?.endTime || slot?.endTime,
+    };
+  }
+
+  private normalizeScheduleOutput(item: any): any {
+    const slot = item?.timeSlotId && typeof item.timeSlotId === 'object' ? item.timeSlotId : null;
+    const timeSlotId = slot?._id || item?.timeSlotId;
+
+    return {
+      ...item,
+      timeSlotId: timeSlotId ? this.normalizeId(timeSlotId) : null,
+      timeSlot: slot
+        ? {
+            id: this.normalizeId(slot._id),
+            slotType: slot.slotType,
+            slotNumber: slot.slotNumber,
+            slotName: slot.slotName,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+          }
+        : null,
+      slotType: slot?.slotType || null,
+      slotNumber: slot?.slotNumber || null,
+      startTime: slot?.startTime || null,
+      endTime: slot?.endTime || null,
+    };
+  }
 
   async importSchedules(file: any, mode: 'dryRun' | 'strict' | 'lenient', user: any): Promise<any> {
     const rawRows = await CsvParserHelper.parse(file);
@@ -36,7 +102,32 @@ export class ScheduleService {
     const roomCodes = [...new Set(rawRows.map((r) => r.roomcode).filter(Boolean))];
     const emails = [...new Set(rawRows.map((r) => r.lectureremail).filter(Boolean))];
 
-    const [rooms, lecturers] = await Promise.all([
+    const requestedSlotPairs = Array.from(
+      new Set(
+        rawRows
+          .map((r) => {
+            const slotType = String(r.slottype || '')
+              .trim()
+              .toUpperCase();
+            const slotNumber = Number(r.slotnumber);
+            if (!slotType || !Number.isFinite(slotNumber)) return null;
+            return this.buildSlotKey(slotType, slotNumber);
+          })
+          .filter(Boolean),
+      ),
+    ) as string[];
+
+    const requestedSlots = requestedSlotPairs
+      .map((key) => {
+        const [slotType, slotNumberRaw] = key.split('::');
+        return {
+          slotType,
+          slotNumber: Number(slotNumberRaw),
+        };
+      })
+      .filter((item) => item.slotType && Number.isFinite(item.slotNumber));
+
+    const [rooms, lecturers, timeSlots] = await Promise.all([
       this.roomModel
         .find({
           roomCode: { $in: roomCodes },
@@ -52,14 +143,29 @@ export class ScheduleService {
         })
         .lean()
         .exec(),
+
+      requestedSlots.length
+        ? this.timeSlotModel
+            .find({
+              $or: requestedSlots,
+              isActive: true,
+            })
+            .select('_id slotType slotNumber startTime endTime')
+            .lean()
+            .exec()
+        : Promise.resolve([]),
     ]);
+
+    const timeSlotMap = new Map<string, any>();
+    timeSlots.forEach((slot: any) => {
+      timeSlotMap.set(this.buildSlotKey(slot.slotType, slot.slotNumber), slot);
+    });
 
     const errors = [...formatErrors];
     const mappedRows = rawRows.map((row, index) => {
       const rowIndex = index + 1;
 
       const room = rooms.find((r) => r.roomCode.toLowerCase() === row.roomcode?.toLowerCase());
-
       if (!room && row.roomcode) {
         errors.push({
           rowIndex,
@@ -72,7 +178,6 @@ export class ScheduleService {
       const lecturer = lecturers.find(
         (l) => l.email.toLowerCase() === row.lectureremail?.toLowerCase(),
       );
-
       if (!lecturer && row.lectureremail) {
         errors.push({
           rowIndex,
@@ -82,13 +187,52 @@ export class ScheduleService {
         });
       }
 
+      const normalizedSlotType = String(row.slottype || '')
+        .trim()
+        .toUpperCase();
+      const normalizedSlotNumber = Number(row.slotnumber);
+      const slotKey = this.buildSlotKey(normalizedSlotType, normalizedSlotNumber);
+      const resolvedSlot = timeSlotMap.get(slotKey);
+
+      if (normalizedSlotType && Number.isFinite(normalizedSlotNumber) && !resolvedSlot) {
+        errors.push({
+          rowIndex,
+          field: 'timeSlotId',
+          code: 'NOT_FOUND',
+          message: `Time slot ${normalizedSlotType}-${normalizedSlotNumber} was not found or inactive`,
+        });
+      }
+
+      const normalizedCsvStart = row.starttime
+        ? ImportValidatorHelper.normalizeTime(row.starttime)
+        : undefined;
+      const normalizedCsvEnd = row.endtime ? ImportValidatorHelper.normalizeTime(row.endtime) : undefined;
+
+      if (resolvedSlot && normalizedCsvStart && normalizedCsvStart !== resolvedSlot.startTime) {
+        errors.push({
+          rowIndex,
+          field: 'startTime',
+          code: 'TIME_SLOT_MISMATCH',
+          message: `startTime ${normalizedCsvStart} does not match time-slot ${resolvedSlot.startTime}`,
+        });
+      }
+
+      if (resolvedSlot && normalizedCsvEnd && normalizedCsvEnd !== resolvedSlot.endTime) {
+        errors.push({
+          rowIndex,
+          field: 'endTime',
+          code: 'TIME_SLOT_MISMATCH',
+          message: `endTime ${normalizedCsvEnd} does not match time-slot ${resolvedSlot.endTime}`,
+        });
+      }
+
       let dateStart: Date | null = null;
       if (row.datestart) {
         try {
           const parts = row.datestart.split('-').map(Number);
           const [year, month, day] = parts;
           dateStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
-        } catch (err) {
+        } catch {
           errors.push({
             rowIndex,
             field: 'dateStart',
@@ -114,7 +258,7 @@ export class ScheduleService {
               });
             }
           }
-        } catch (err) {
+        } catch (err: any) {
           errors.push({
             rowIndex,
             field: 'dayOfWeek',
@@ -132,10 +276,11 @@ export class ScheduleService {
         lecturerId: lecturer?._id,
         dateStart,
         dayOfWeek,
-        slotType: row.slottype?.toUpperCase(),
-        slotNumber: Number(row.slotnumber),
-        startTime: ImportValidatorHelper.normalizeTime(row.starttime),
-        endTime: ImportValidatorHelper.normalizeTime(row.endtime),
+        timeSlotId: resolvedSlot?._id,
+        slotType: resolvedSlot?.slotType,
+        slotNumber: resolvedSlot?.slotNumber,
+        startTime: resolvedSlot?.startTime,
+        endTime: resolvedSlot?.endTime,
         classCode: row.classcode || null,
         subjectCode: row.subjectcode || null,
         subjectName: row.subjectname || null,
@@ -162,11 +307,16 @@ export class ScheduleService {
                 $lte: new Date(Math.max(...validDates.map((d) => d.getTime()))),
               },
             })
+            .populate('timeSlotId', 'slotType slotNumber startTime endTime')
             .lean()
             .exec()
         : [];
 
-    const conflictErrors = ConflictDetectorHelper.detectConflicts(mappedRows, existingSchedules);
+    const comparableExistingSchedules = existingSchedules.map((row) => this.toComparableSchedule(row));
+    const conflictErrors = ConflictDetectorHelper.detectConflicts(
+      mappedRows,
+      comparableExistingSchedules,
+    );
     errors.push(...conflictErrors);
 
     if (mode === 'dryRun') {
@@ -206,11 +356,28 @@ export class ScheduleService {
       });
     }
 
-    const validRows = mappedRows.filter((row, index) => {
-      const rowIndex = index + 1;
-      const hasError = errors.find((e) => e.rowIndex === rowIndex);
-      return !hasError && row.roomId && row.lecturerId && row.dateStart;
-    });
+    const validRows = mappedRows
+      .filter((row, index) => {
+        const rowIndex = index + 1;
+        const hasError = errors.find((e) => e.rowIndex === rowIndex);
+        return !hasError && row.roomId && row.lecturerId && row.dateStart && row.timeSlotId;
+      })
+      .map((row) => ({
+        campusId: row.campusId,
+        roomId: row.roomId,
+        lecturerId: row.lecturerId,
+        dateStart: row.dateStart,
+        dayOfWeek: row.dayOfWeek,
+        timeSlotId: row.timeSlotId,
+        classCode: row.classCode,
+        subjectCode: row.subjectCode,
+        subjectName: row.subjectName,
+        semester: row.semester,
+        status: row.status,
+        source: row.source,
+        isOnline: row.isOnline,
+        createdBy: row.createdBy,
+      }));
 
     if (validRows.length === 0) {
       const failedCount = new Set(errors.map((e) => e.rowIndex)).size;
@@ -247,7 +414,7 @@ export class ScheduleService {
           failed: failedCount,
         },
       };
-    } catch (error) {
+    } catch (error: any) {
       if (error.code === 11000) {
         throw new ConflictException({
           message: 'Some schedules are duplicated',
@@ -262,48 +429,70 @@ export class ScheduleService {
     }
   }
 
-  async update(id: string, dto: UpdateScheduleDto, user: any): Promise<Schedule> {
+  async update(id: string, dto: UpdateScheduleDto, user: any): Promise<any> {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid schedule ID');
     }
 
-    const schedule = await this.scheduleModel.findOne({
-      _id: id,
-      campusId: user.campusId,
-    });
+    const schedule = await this.scheduleModel
+      .findOne({
+        _id: id,
+        campusId: user.campusId,
+      })
+      .populate('timeSlotId', 'slotType slotNumber startTime endTime');
 
     if (!schedule) {
       throw new NotFoundException('Schedule not found in your campus');
     }
 
+    let targetTimeSlot: any = schedule.timeSlotId as any;
+    if (dto.timeSlotId !== undefined) {
+      if (!Types.ObjectId.isValid(dto.timeSlotId)) {
+        throw new BadRequestException('Invalid timeSlotId');
+      }
+
+      targetTimeSlot = await this.timeSlotModel
+        .findOne({ _id: dto.timeSlotId, isActive: true })
+        .select('_id slotType slotNumber startTime endTime')
+        .lean()
+        .exec();
+
+      if (!targetTimeSlot) {
+        throw new BadRequestException('timeSlotId not found or inactive');
+      }
+    }
+
     const isCriticalChange =
       dto.dateStart ||
-      dto.slotNumber !== undefined ||
       dto.dayOfWeek !== undefined ||
-      dto.slotType !== undefined;
+      dto.timeSlotId !== undefined ||
+      dto.roomId !== undefined ||
+      dto.lecturerId !== undefined;
 
     if (isCriticalChange) {
+      const nextRoomId = dto.roomId ? new Types.ObjectId(dto.roomId) : schedule.roomId;
+      const nextLecturerId = dto.lecturerId
+        ? new Types.ObjectId(dto.lecturerId)
+        : schedule.lecturerId;
+
       const [room, lecturer] = await Promise.all([
-        this.roomModel.findById(schedule.roomId).lean().exec(),
-        this.userModel.findById(schedule.lecturerId).lean().exec(),
+        this.roomModel.findById(nextRoomId).lean().exec(),
+        this.userModel.findById(nextLecturerId).lean().exec(),
       ]);
 
       const testSchedule = {
         ...schedule.toObject(),
-        roomCode: room?.roomCode || schedule.roomId.toString(),
-        lecturerEmail: lecturer?.email || schedule.lecturerId.toString(),
-        dateStart: dto.dateStart
-          ? (() => {
-              const parts = dto.dateStart.split('-');
-              const year = Number(parts[0]);
-              const month = Number(parts[1]) - 1;
-              const day = Number(parts[2]);
-              return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
-            })()
-          : schedule.dateStart,
-        slotNumber: dto.slotNumber ?? schedule.slotNumber,
+        roomId: nextRoomId,
+        lecturerId: nextLecturerId,
+        roomCode: room?.roomCode || nextRoomId?.toString(),
+        lecturerEmail: lecturer?.email || nextLecturerId?.toString(),
+        dateStart: dto.dateStart ? this.toUtcDateOnly(dto.dateStart) : schedule.dateStart,
+        timeSlotId: targetTimeSlot?._id || schedule.timeSlotId,
+        slotNumber: targetTimeSlot?.slotNumber,
+        slotType: targetTimeSlot?.slotType,
+        startTime: targetTimeSlot?.startTime,
+        endTime: targetTimeSlot?.endTime,
         dayOfWeek: dto.dayOfWeek ?? schedule.dayOfWeek,
-        slotType: dto.slotType ?? schedule.slotType,
       };
 
       const existingSchedules = await this.scheduleModel
@@ -312,10 +501,15 @@ export class ScheduleService {
           _id: { $ne: id },
           dateStart: testSchedule.dateStart,
         })
+        .populate('timeSlotId', 'slotType slotNumber startTime endTime')
         .lean()
         .exec();
 
-      const conflicts = ConflictDetectorHelper.detectConflicts([testSchedule], existingSchedules);
+      const comparableExistingSchedules = existingSchedules.map((row) => this.toComparableSchedule(row));
+      const conflicts = ConflictDetectorHelper.detectConflicts(
+        [testSchedule],
+        comparableExistingSchedules,
+      );
 
       if (conflicts.length > 0) {
         throw new ConflictException({
@@ -325,10 +519,48 @@ export class ScheduleService {
       }
     }
 
-    Object.assign(schedule, dto);
+    if (dto.roomId !== undefined) {
+      if (!Types.ObjectId.isValid(dto.roomId)) {
+        throw new BadRequestException('Invalid roomId');
+      }
+      schedule.roomId = new Types.ObjectId(dto.roomId);
+    }
+
+    if (dto.lecturerId !== undefined) {
+      if (!Types.ObjectId.isValid(dto.lecturerId)) {
+        throw new BadRequestException('Invalid lecturerId');
+      }
+      schedule.lecturerId = new Types.ObjectId(dto.lecturerId);
+    }
+
+    if (dto.timeSlotId !== undefined) {
+      schedule.timeSlotId = new Types.ObjectId(dto.timeSlotId);
+    }
+
+    if (dto.dateStart !== undefined) {
+      schedule.dateStart = this.toUtcDateOnly(dto.dateStart);
+    }
+
+    if (dto.dayOfWeek !== undefined) schedule.dayOfWeek = dto.dayOfWeek;
+    if (dto.classCode !== undefined) schedule.classCode = dto.classCode;
+    if (dto.subjectCode !== undefined) schedule.subjectCode = dto.subjectCode;
+    if (dto.subjectName !== undefined) schedule.subjectName = dto.subjectName;
+    if (dto.semester !== undefined) schedule.semester = dto.semester;
+    if (dto.status !== undefined) schedule.status = dto.status;
+    if (dto.isOnline !== undefined) schedule.isOnline = dto.isOnline;
+
     await schedule.save();
 
-    return schedule;
+    const updated = await this.scheduleModel
+      .findById(schedule._id)
+      .populate('roomId', 'roomCode roomName building')
+      .populate('lecturerId', 'fullName email')
+      .populate('createdBy', 'fullName email')
+      .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
+      .lean()
+      .exec();
+
+    return this.normalizeScheduleOutput(updated);
   }
 
   async findAll(query: QueryScheduleDto, user: any): Promise<any[]> {
@@ -354,9 +586,39 @@ export class ScheduleService {
     if (query.lecturerId && (user.roleScope !== 'SELF' || viewAllActivities)) {
       filter.lecturerId = query.lecturerId;
     }
+
     if (query.semester) filter.semester = query.semester;
     if (query.status) filter.status = query.status;
-    if (query.slotType) filter.slotType = query.slotType;
+
+    if (query.timeSlotId) {
+      if (!Types.ObjectId.isValid(query.timeSlotId)) {
+        throw new BadRequestException('Invalid timeSlotId');
+      }
+      filter.timeSlotId = new Types.ObjectId(query.timeSlotId);
+    }
+
+    if (query.slotType) {
+      const slotRows = await this.timeSlotModel
+        .find({ slotType: query.slotType, isActive: true })
+        .select('_id')
+        .lean()
+        .exec();
+
+      if (slotRows.length === 0) {
+        return [];
+      }
+
+      const slotIds = slotRows.map((row: any) => row._id);
+      if (filter.timeSlotId) {
+        const existing = this.normalizeId(filter.timeSlotId);
+        if (!slotIds.find((id: any) => this.normalizeId(id) === existing)) {
+          return [];
+        }
+      } else {
+        filter.timeSlotId = { $in: slotIds };
+      }
+    }
+
     if (query.classCode) filter.classCode = query.classCode;
     if (query.isOnline !== undefined) {
       const isOnline = ImportValidatorHelper.parseBooleanValue(query.isOnline);
@@ -367,18 +629,26 @@ export class ScheduleService {
       }
     }
 
-    return this.scheduleModel
+    const rows = await this.scheduleModel
       .find(filter)
       .populate('roomId', 'roomCode roomName building')
       .populate('lecturerId', 'fullName email')
       .populate('timeSlotId', 'slotType slotNumber startTime endTime slotName')
       .populate('createdBy', 'fullName email')
-      .sort({ dateStart: 1, slotNumber: 1 })
+      .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
       .lean()
       .exec();
+
+    return rows
+      .map((item: any) => this.normalizeScheduleOutput(item))
+      .sort((a: any, b: any) => {
+        const dateDiff = new Date(a.dateStart).getTime() - new Date(b.dateStart).getTime();
+        if (dateDiff !== 0) return dateDiff;
+        return Number(a.slotNumber || 0) - Number(b.slotNumber || 0);
+      });
   }
 
-  async findOne(id: string, user: any): Promise<Schedule> {
+  async findOne(id: string, user: any): Promise<any> {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid schedule ID');
     }
@@ -393,13 +663,15 @@ export class ScheduleService {
       .populate('lecturerId', 'fullName email')
       .populate('timeSlotId', 'slotType slotNumber startTime endTime slotName')
       .populate('createdBy', 'fullName email')
+      .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
+      .lean()
       .exec();
 
     if (!schedule) {
       throw new NotFoundException('Schedule not found');
     }
 
-    return schedule;
+    return this.normalizeScheduleOutput(schedule);
   }
 
   async remove(id: string, user: any): Promise<void> {
