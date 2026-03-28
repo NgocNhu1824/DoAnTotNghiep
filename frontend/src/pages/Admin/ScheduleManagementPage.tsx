@@ -27,7 +27,6 @@ import { Booking } from '../../types/booking.types';
 import { cn } from '../../lib/utils';
 import ViewScheduleModal from '../../components/modals/ViewScheduleModal';
 import EditScheduleModal from '../../components/modals/EditScheduleModal';
-import { buildTimeSlotMapById, resolveScheduleSlotInfo } from '../../utils/schedule-slot';
 
 interface ScheduleCell {
   schedule: Schedule | null;
@@ -234,8 +233,6 @@ const ScheduleManagementPage: React.FC = () => {
       return a.slotNumber - b.slotNumber;
     });
   }, [timeSlots, slotTypeFilter]);
-
-  const timeSlotMapById = useMemo(() => buildTimeSlotMapById(timeSlots), [timeSlots]);
 
   const scheduleMap = useMemo(() => {
     const map = new Map<string, Schedule>();
@@ -510,7 +507,6 @@ const ScheduleManagementPage: React.FC = () => {
 
   // Get schedule display info
   const getScheduleInfo = (schedule: Schedule) => {
-    const slotInfo = resolveScheduleSlotInfo(schedule, timeSlotMapById);
     const room = typeof schedule.roomId === 'object' && schedule.roomId !== null ? schedule.roomId : null;
     const lecturer = typeof schedule.lecturerId === 'object' && schedule.lecturerId !== null ? schedule.lecturerId : null;
     const isBookingSchedule = isVirtualBookingSchedule(schedule);
@@ -519,7 +515,7 @@ const ScheduleManagementPage: React.FC = () => {
       classCode: isBookingSchedule ? 'BOOKING' : schedule.classCode || 'N/A',
       subjectName: schedule.subjectName || 'N/A',
       lecturerName: lecturer?.fullName || 'N/A',
-      timeRange: `${slotInfo.startTime || '--:--'} - ${slotInfo.endTime || '--:--'}`,
+      timeRange: `${schedule.startTime} - ${schedule.endTime}`,
       roomCode: room?.roomCode || 'N/A',
     };
   };

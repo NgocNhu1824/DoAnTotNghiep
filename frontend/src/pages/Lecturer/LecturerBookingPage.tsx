@@ -25,7 +25,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { resolveScheduleSlotInfo } from '@/utils/schedule-slot';
 
 const toDateInputValue = (date = new Date()): string => {
   return date.toISOString().slice(0, 10);
