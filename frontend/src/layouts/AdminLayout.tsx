@@ -100,7 +100,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     },
     {
       id: 'schedule',
-      label: 'Schedule',
+      label: 'View all activities',
       icon: Calendar,
       path: '/schedules',
       requiredPermissions: [PERMISSIONS.SCHEDULES_READ],
@@ -138,7 +138,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const lecturerScheduleMenuItem = {
     id: 'lecturer-schedule',
-    label: 'My Schedule',
+    label: 'Weekly schedule',
     icon: Calendar,
     path: '/lecturer/schedule',
   };
@@ -154,10 +154,10 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   if (userScope === 'SELF' && userRole === 'LECTURER') {
     menuItems = [
+      baseMenuItems.find(item => item.id === 'schedule')!,
+      lecturerScheduleMenuItem,
       lecturerBookingMenuItem,
       lecturerHistoryMenuItem,
-      lecturerScheduleMenuItem,
-      baseMenuItems.find(item => item.id === 'schedule')!, // Add transfer menu for lecturers
     ];
   } else if (userScope === 'SELF') {
     menuItems = [

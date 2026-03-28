@@ -14,10 +14,14 @@ import { wsService } from '@/services/websocket.service';
 import { Schedule } from '@/types/schedule.types';
 import { TimeSlot } from '@/types/time-slot.types';
 import { Booking } from '@/types/booking.types';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TransferRecord, TransferTargetOption } from '@/types/transfer.types';
 
 type WeekRange = { label: string; start: Date; end: Date };
+const FIXED_SLOT_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8];
 const WEEKDAYS = [
   { key: 1, label: 'Monday' },
   { key: 2, label: 'Tuesday' },
@@ -64,7 +68,18 @@ function getWeeksOfYear(year: number): WeekRange[] {
 }
 
 function findWeekIndex(weeks: WeekRange[], date: Date): number {
-  return weeks.findIndex((w) => date >= w.start && date <= w.end);
+  const targetDateOnly = new Date(date);
+  targetDateOnly.setHours(0, 0, 0, 0);
+
+  return weeks.findIndex((w) => {
+    const startDateOnly = new Date(w.start);
+    startDateOnly.setHours(0, 0, 0, 0);
+
+    const endDateOnly = new Date(w.end);
+    endDateOnly.setHours(23, 59, 59, 999);
+
+    return targetDateOnly >= startDateOnly && targetDateOnly <= endDateOnly;
+  });
 }
 
 function formatDateOnly(date: Date): string {
@@ -160,6 +175,41 @@ function getStatusLabel(status?: string): string {
   }
 }
 
+function resolveScheduleSlotMeta(schedule: Schedule, timeSlots: TimeSlot[]) {
+  const rawTimeSlot = (schedule as any).timeSlotId;
+  const timeSlotId =
+    typeof rawTimeSlot === 'string'
+      ? rawTimeSlot
+      : rawTimeSlot && typeof rawTimeSlot === 'object'
+        ? String(rawTimeSlot._id || rawTimeSlot.id || '')
+        : '';
+
+  const matched =
+    (timeSlotId
+      ? timeSlots.find((slot) => String(slot._id || slot.id) === timeSlotId)
+      : undefined) ||
+    (rawTimeSlot && typeof rawTimeSlot === 'object'
+      ? {
+          slotType: rawTimeSlot.slotType,
+          slotNumber: rawTimeSlot.slotNumber,
+          startTime: rawTimeSlot.startTime,
+          endTime: rawTimeSlot.endTime,
+        }
+      : undefined);
+
+  const slotType = schedule.slotType || (matched as any)?.slotType;
+  const slotNumber = Number(schedule.slotNumber ?? (matched as any)?.slotNumber);
+  const startTime = schedule.startTime || (matched as any)?.startTime || '';
+  const endTime = schedule.endTime || (matched as any)?.endTime || '';
+
+  return {
+    slotType: (slotType as 'OLDSLOT' | 'NEWSLOT' | undefined) || undefined,
+    slotNumber: Number.isFinite(slotNumber) ? slotNumber : undefined,
+    startTime,
+    endTime,
+  };
+}
+
 const LecturerSchedulePage: React.FC = () => {
   // Locker cache for transfer detail
   const [lockerMap, setLockerMap] = useState<Record<string, any>>({});
@@ -195,7 +245,6 @@ const LecturerSchedulePage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(initialWeeks[initialWeekIdx]?.start || new Date());
 
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
-  const [slotTypeFilter, setSlotTypeFilter] = useState<'OLDSLOT' | 'NEWSLOT'>('NEWSLOT');
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [approvedBookings, setApprovedBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -265,7 +314,7 @@ const LecturerSchedulePage: React.FC = () => {
 
     try {
       const [weekSchedules, weekApprovedBookings] = await Promise.all([
-        scheduleService.getAll({ lecturerId, startDate, endDate, slotType: slotTypeFilter }),
+        scheduleService.getAll({ lecturerId, startDate, endDate }),
         bookingService.getSelfBookings({ fromDate: startDate, toDate: endDate, status: 'approved' }),
       ]);
 
@@ -285,7 +334,7 @@ const LecturerSchedulePage: React.FC = () => {
         setLoading(false);
       }
     }
-  }, [user?._id, selectedDate, slotTypeFilter]);
+  }, [user?._id, selectedDate]);
 
   useEffect(() => {
     fetchWeekSchedules();
@@ -309,7 +358,6 @@ const LecturerSchedulePage: React.FC = () => {
           lecturerId,
           startDate,
           endDate,
-          slotType: slotTypeFilter,
         }),
         bookingService.getSelfBookings({
           fromDate: startDate,
@@ -320,28 +368,28 @@ const LecturerSchedulePage: React.FC = () => {
 
       const virtualUpcoming: DisplaySchedule[] = [];
       (upcomingApprovedBookings || []).forEach((booking) => {
-        const matchedSlots = timeSlots.filter(
-          (slot) =>
-            slot.slotType === slotTypeFilter &&
-            slot.startTime === booking.startTime &&
-            slot.endTime === booking.endTime,
-        );
+        const matchedSlots = timeSlots
+          .filter(
+            (slot) => slot.startTime === booking.startTime && slot.endTime === booking.endTime,
+          )
+          .sort((a, b) => a.slotNumber - b.slotNumber);
+        const matchedSlot = matchedSlots.find((slot) => FIXED_SLOT_NUMBERS.includes(slot.slotNumber));
 
-        matchedSlots.forEach((slot) => {
+        if (matchedSlot) {
           const bookingDateText = formatDateFromScheduleInput(booking.bookingDate);
           if (!bookingDateText) return;
 
           const date = new Date(`${bookingDateText}T00:00:00`);
 
           virtualUpcoming.push({
-            _id: `booking-${booking._id}-${slot.slotType}-${slot.slotNumber}`,
+            _id: `booking-${booking._id}-${matchedSlot.slotType}-${matchedSlot.slotNumber}`,
             campusId: booking.campusId,
             roomId: booking.roomId as any,
             lecturerId: booking.lecturerId as any,
             dateStart: bookingDateText,
             dayOfWeek: date.getDay() + 1,
-            slotType: slot.slotType,
-            slotNumber: slot.slotNumber,
+            slotType: matchedSlot.slotType,
+            slotNumber: matchedSlot.slotNumber,
             startTime: booking.startTime,
             endTime: booking.endTime,
             classCode: 'BOOKING',
@@ -350,23 +398,35 @@ const LecturerSchedulePage: React.FC = () => {
             source: 'api',
             _virtualBooking: true,
           });
-        });
+        }
       });
 
+      const normalizedUpcoming = (upcomingData || [])
+        .map((item) => {
+          const meta = resolveScheduleSlotMeta(item, timeSlots);
+          if (!meta.slotType || meta.slotNumber === undefined) return null;
+          return {
+            ...item,
+            slotType: meta.slotType,
+            slotNumber: meta.slotNumber,
+            startTime: meta.startTime || item.startTime,
+            endTime: meta.endTime || item.endTime,
+          } as DisplaySchedule;
+        })
+        .filter((item): item is DisplaySchedule => Boolean(item));
+
       const existingKeys = new Set(
-        (upcomingData || []).map((item) => {
+        normalizedUpcoming.map((item) => {
           const dateText = formatDateFromScheduleInput(item.dateStart);
-          const roomText = typeof item.roomId === 'string' ? item.roomId : item.roomId?._id;
-          return `${roomText}_${dateText}_${item.slotNumber}_${item.slotType}`;
+          return `${dateText}_${item.slotNumber}`;
         }),
       );
 
       const mergedUpcoming = [
-        ...(upcomingData || []),
+        ...normalizedUpcoming.filter((item) => FIXED_SLOT_NUMBERS.includes(item.slotNumber)),
         ...virtualUpcoming.filter((item) => {
           const dateText = formatDateFromScheduleInput(item.dateStart);
-          const roomText = typeof item.roomId === 'string' ? item.roomId : item.roomId?._id;
-          const key = `${roomText}_${dateText}_${item.slotNumber}_${item.slotType}`;
+          const key = `${dateText}_${item.slotNumber}`;
           return !existingKeys.has(key);
         }),
       ];
@@ -390,7 +450,7 @@ const LecturerSchedulePage: React.FC = () => {
         setUpcomingLoading(false);
       }
     }
-  }, [user?._id, timeSlots, slotTypeFilter]);
+  }, [user?._id, timeSlots]);
 
   useEffect(() => {
     if (timeSlots.length === 0) return;
@@ -403,16 +463,40 @@ const LecturerSchedulePage: React.FC = () => {
   const weekDates = getWeekDates(selectedDate);
   const selectedWeekLabel = weeksOfYear[selectedWeekIdx]?.label || '-';
 
-  const filteredTimeSlots = useMemo(() => {
-    return timeSlots
-      .filter((slot) => slot.slotType === slotTypeFilter)
-      .sort((a, b) => a.slotNumber - b.slotNumber);
-  }, [timeSlots, slotTypeFilter]);
+  const displaySlots = useMemo(() => {
+    return FIXED_SLOT_NUMBERS.map((slotNumber) => {
+      const matched = timeSlots
+        .filter((slot) => slot.slotNumber === slotNumber)
+        .sort((a, b) => a.startTime.localeCompare(b.startTime))[0];
+
+      return {
+        slotNumber,
+        slotName: matched?.slotName || `Slot ${slotNumber}`,
+      };
+    });
+  }, [timeSlots]);
+
+  const normalizedSchedules = useMemo(() => {
+    return (schedules || [])
+      .map((item) => {
+        const meta = resolveScheduleSlotMeta(item, timeSlots);
+        if (!meta.slotType || meta.slotNumber === undefined) return null;
+
+        return {
+          ...item,
+          slotType: meta.slotType,
+          slotNumber: meta.slotNumber,
+          startTime: meta.startTime || item.startTime,
+          endTime: meta.endTime || item.endTime,
+        } as DisplaySchedule;
+      })
+      .filter((item): item is DisplaySchedule => Boolean(item));
+  }, [schedules, timeSlots]);
 
   const mergedSchedules = useMemo(() => {
-    const base: DisplaySchedule[] = [...schedules];
+    const base: DisplaySchedule[] = [...normalizedSchedules];
     const existingKeys = new Set(
-      schedules.map((item) => {
+      normalizedSchedules.map((item) => {
         const dateText = formatDateFromScheduleInput(item.dateStart);
         const roomText = typeof item.roomId === 'string' ? item.roomId : item.roomId?._id;
         return `${roomText}_${dateText}_${item.slotNumber}_${item.slotType}`;
@@ -420,32 +504,29 @@ const LecturerSchedulePage: React.FC = () => {
     );
 
     approvedBookings.forEach((booking) => {
-      const matchedSlots = timeSlots.filter(
-        (slot) =>
-          slot.slotType === slotTypeFilter &&
-          slot.startTime === booking.startTime &&
-          slot.endTime === booking.endTime,
-      );
+      const matchedSlots = timeSlots
+        .filter((slot) => slot.startTime === booking.startTime && slot.endTime === booking.endTime)
+        .sort((a, b) => a.slotNumber - b.slotNumber);
+      const matchedSlot = matchedSlots.find((slot) => FIXED_SLOT_NUMBERS.includes(slot.slotNumber));
 
-      matchedSlots.forEach((slot) => {
+      if (matchedSlot) {
         const bookingDateText = formatDateFromScheduleInput(booking.bookingDate);
         if (!bookingDateText) return;
 
-        const roomText = typeof booking.roomId === 'string' ? booking.roomId : booking.roomId?._id;
-        const key = `${roomText}_${bookingDateText}_${slot.slotNumber}_${slot.slotType}`;
+        const key = `${bookingDateText}_${matchedSlot.slotNumber}`;
         if (existingKeys.has(key)) return;
 
         const day = new Date(`${bookingDateText}T00:00:00`);
 
         base.push({
-          _id: `booking-${booking._id}-${slot.slotType}-${slot.slotNumber}`,
+          _id: `booking-${booking._id}-${matchedSlot.slotType}-${matchedSlot.slotNumber}`,
           campusId: booking.campusId,
           roomId: booking.roomId as any,
           lecturerId: booking.lecturerId as any,
           dateStart: bookingDateText,
           dayOfWeek: day.getDay() + 1,
-          slotType: slot.slotType,
-          slotNumber: slot.slotNumber,
+          slotType: matchedSlot.slotType,
+          slotNumber: matchedSlot.slotNumber,
           startTime: booking.startTime,
           endTime: booking.endTime,
           classCode: 'BOOKING',
@@ -454,11 +535,11 @@ const LecturerSchedulePage: React.FC = () => {
           source: 'api',
           _virtualBooking: true,
         });
-      });
+      }
     });
 
-    return base;
-  }, [schedules, approvedBookings, timeSlots, slotTypeFilter]);
+    return base.filter((item) => FIXED_SLOT_NUMBERS.includes(item.slotNumber));
+  }, [normalizedSchedules, approvedBookings, timeSlots]);
 
   const refreshTransferMappings = useCallback(async (explicitScheduleIds?: string[]) => {
     const sourceScheduleIds =
@@ -542,12 +623,6 @@ const LecturerSchedulePage: React.FC = () => {
     setWeeksOfYear(targetWeeks);
     setSelectedWeekIdx(idx);
     setSelectedDate(targetWeeks[idx]?.start || targetDate);
-  };
-
-  const handleViewNextSchedule = () => {
-    if (!nextSchedule) return;
-    jumpToDate(toScheduleDate(nextSchedule.dateStart));
-    setHighlightScheduleId(nextSchedule._id);
   };
 
   useEffect(() => {
@@ -707,12 +782,12 @@ const LecturerSchedulePage: React.FC = () => {
     timeSlots.length,
   ]);
 
-  const getCell = (slot: TimeSlot, weekdayIdx: number) => {
+  const getCell = (slotNumber: number, weekdayIdx: number) => {
     const dateStr = formatDateOnly(weekDates[weekdayIdx]);
     return mergedSchedules.find((sch) => {
       const schDate = sch.dateStart instanceof Date ? sch.dateStart : new Date(sch.dateStart);
       const schDateStr = formatDateOnly(schDate);
-      return sch.slotNumber === slot.slotNumber && sch.slotType === slot.slotType && schDateStr === dateStr;
+      return sch.slotNumber === slotNumber && schDateStr === dateStr;
     });
   };
 
@@ -889,86 +964,83 @@ const LecturerSchedulePage: React.FC = () => {
     };
   };
 
-  const getSlotTypeLabel = (slotType?: string) => {
-    if (slotType === 'NEWSLOT') return 'New slot';
-    if (slotType === 'OLDSLOT') return 'Old slot';
-    return '-';
-  };
-
   return (
     <LecturerLayout>
       <div className="space-y-6">
-      <Card className="p-5 border border-gray-200 rounded-lg">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          <div>
-            <p className="text-sm text-gray-500">Viewing week</p>
-            <p className="text-base font-semibold text-gray-900">{selectedWeekLabel}</p>
-            <p className="text-sm text-gray-600 mt-1">Total lessons this week: {currentWeekLessons}</p>
-          </div>
+        <Card>
+          <CardContent className="space-y-4 p-4 md:p-6">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div>
+                <p className="text-sm text-muted-foreground">Viewing week</p>
+                <p className="text-base font-semibold">{selectedWeekLabel}</p>
+                <p className="text-sm text-muted-foreground mt-1">Total lessons this week: {currentWeekLessons}</p>
+              </div>
 
-          <div className="lg:text-right">
-            <p className="text-sm text-gray-500">Next schedule</p>
-            {upcomingLoading ? (
-              <p className="text-sm text-gray-600">Looking for upcoming schedules...</p>
-            ) : nextSchedule ? (
-              <>
-                <p className="text-sm text-gray-900 font-medium">
-                  {nextSchedule.subjectName || nextSchedule.classCode || 'Class session'}
-                </p>
-                <p className="text-sm text-gray-600">
-                  {toScheduleDate(nextSchedule.dateStart).toLocaleDateString('en-GB')} | {nextSchedule.startTime} - {nextSchedule.endTime}
-                </p>
-                <button
-                  type="button"
-                  onClick={handleViewNextSchedule}
-                  className="mt-2 px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700"
+              <div className="lg:text-right">
+                <p className="text-sm text-muted-foreground">Next schedule</p>
+                {upcomingLoading ? (
+                  <p className="text-sm text-muted-foreground">Looking for upcoming schedules...</p>
+                ) : nextSchedule ? (
+                  <>
+                    <p className="text-base font-semibold">
+                      {nextSchedule.subjectName || nextSchedule.classCode || 'Class session'}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {toScheduleDate(nextSchedule.dateStart).toLocaleDateString('en-GB')} | {nextSchedule.startTime} - {nextSchedule.endTime}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No schedules in the next 90 days.</p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-4 p-4 md:p-6">
+            <div className="flex flex-col items-end gap-3 md:flex-row md:items-end md:gap-4">
+              <div className="w-full md:max-w-[340px] space-y-2">
+                <Label>Week</Label>
+                <Select
+                  value={String(selectedWeekIdx)}
+                  onValueChange={(value) => setSelectedWeekIdx(Number(value))}
                 >
-                  View now
-                </button>
-              </>
-            ) : (
-              <p className="text-sm text-gray-600">No schedules in the next 90 days.</p>
-            )}
-          </div>
-        </div>
-      </Card>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select week" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64 overflow-y-auto" position="popper" side="bottom" align="start">
+                    {weeksOfYear.map((week, idx) => (
+                      <SelectItem key={idx} value={String(idx)}>
+                        {week.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-      <Card className="p-6 border border-gray-300 rounded-lg">
-
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-2">
-          <div className="flex items-center gap-4">
-            <span className="font-semibold">Week:</span>
-            <select
-              className="border border-gray-400 rounded px-2 py-1 bg-white"
-              value={selectedWeekIdx}
-              onChange={(e) => setSelectedWeekIdx(Number(e.target.value))}
-            >
-              {weeksOfYear.map((w, idx) => (
-                <option key={idx} value={idx}>{w.label}</option>
-              ))}
-            </select>
-            <span className="font-semibold">Year:</span>
-            <select
-              className="border border-gray-400 rounded px-2 py-1 bg-white"
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-            >
-              {Array.from({ length: 6 }).map((_, i) => {
-                const year = 2023 + i;
-                return <option key={year} value={year}>{year}</option>;
-              })}
-            </select>
-            <span className="font-semibold">Slot type:</span>
-            <select
-              className="border border-gray-400 rounded px-2 py-1 bg-white"
-              value={slotTypeFilter}
-              onChange={(e) => setSlotTypeFilter(e.target.value as 'OLDSLOT' | 'NEWSLOT')}
-            >
-              <option value="OLDSLOT">Old slot (1.5h)</option>
-              <option value="NEWSLOT">New slot (2.25h)</option>
-            </select>
-          </div>
-        </div>
+              <div className="w-full md:max-w-[160px] space-y-2">
+                <Label>Year</Label>
+                <Select
+                  value={String(selectedYear)}
+                  onValueChange={(value) => setSelectedYear(Number(value))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select year" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-56 overflow-y-auto" position="popper" side="bottom" align="start">
+                    {Array.from({ length: 6 }).map((_, i) => {
+                      const year = 2023 + i;
+                      return (
+                        <SelectItem key={year} value={String(year)}>
+                          {year}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
         {loading && <p className="text-sm text-gray-500 mb-3">Loading weekly schedule...</p>}
 
@@ -993,16 +1065,13 @@ const LecturerSchedulePage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredTimeSlots.map(slot => (
-                    <tr key={`${slot.slotType}-${slot.slotNumber}`} className="border-b border-gray-300">
+                  {displaySlots.map(slot => (
+                    <tr key={`slot-${slot.slotNumber}`} className="border-b border-gray-300">
                       <td className="py-2 px-4 font-semibold whitespace-nowrap text-center align-middle border border-gray-300">
                         <div>{slot.slotName || `Slot ${slot.slotNumber}`}</div>
-                        <div className="text-xs text-muted-foreground" style={{ fontSize: '12px' }}>
-                          ({slot.startTime} - {slot.endTime})
-                        </div>
                       </td>
                       {weekDates.map((date, idx) => {
-                        const cell = getCell(slot, idx);
+                        const cell = getCell(slot.slotNumber, idx);
                         const outgoingTransfer = cell ? existingTransfersBySource[cell._id] : null;
                         const incomingTransfer = cell ? incomingTransfersByTarget[cell._id] : null;
                         const activeOutgoingTransfer =
@@ -1038,24 +1107,25 @@ const LecturerSchedulePage: React.FC = () => {
                                   <div className="text-xs text-muted-foreground">{cell.startTime} - {cell.endTime}</div>
 
                                   <div className="mt-2 flex items-center justify-center gap-2 flex-nowrap">
-                                    <button
+                                    <Button
                                       type="button"
-                                      className="inline-flex min-w-[96px] items-center justify-center rounded px-2 py-1 text-xs font-medium border border-slate-200 bg-slate-50 text-slate-700 transition-colors hover:bg-slate-100 whitespace-nowrap"
+                                      variant="outline"
+                                      className="h-7 min-w-[96px] px-2 text-xs whitespace-nowrap"
                                       onClick={() => {
                                         setDetailSchedule(cell);
                                         setShowDetailModal(true);
                                       }}
                                     >
                                       Details
-                                    </button>
+                                    </Button>
 
                                     {(
                                       existingTransfer ||
                                       canCreateTransferFromSchedule(cell)
                                     ) && (
-                                      <button
+                                      <Button
                                         type="button"
-                                        className={`inline-flex min-w-[96px] items-center justify-center rounded px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-80 ${
+                                        className={`h-7 min-w-[96px] px-2 text-xs whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-80 ${
                                           existingTransfer
                                             ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                                             : 'bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:bg-blue-300'
@@ -1068,7 +1138,7 @@ const LecturerSchedulePage: React.FC = () => {
                                           : existingTransfer
                                             ? 'View Transfer'
                                             : 'Transfer'}
-                                      </button>
+                                      </Button>
                                     )}
                                   </div>
                                 </div>
@@ -1086,7 +1156,8 @@ const LecturerSchedulePage: React.FC = () => {
             </div>
           </>
         )}
-      </Card>
+          </CardContent>
+        </Card>
       {showDetailModal && detailSchedule && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           {(() => {
@@ -1180,7 +1251,7 @@ const LecturerSchedulePage: React.FC = () => {
                     <p className="text-gray-700">Lecturer: {selectedTransferTargetOption.lecturer.fullName || '-'}</p>
                     <p className="text-gray-700">Email: {selectedTransferTargetOption.lecturer.email || '-'}</p>
                     <p className="text-gray-700">
-                      Slot: {getSlotTypeLabel(selectedTransferTargetOption.slotType)} #{selectedTransferTargetOption.slotNumber} ({selectedTransferTargetOption.startTime} - {selectedTransferTargetOption.endTime})
+                      Slot #{selectedTransferTargetOption.slotNumber} ({selectedTransferTargetOption.startTime} - {selectedTransferTargetOption.endTime})
                     </p>
                   </>
                 ) : (

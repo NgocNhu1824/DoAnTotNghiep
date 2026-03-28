@@ -336,7 +336,10 @@ export class ScheduleService {
       campusId: user.campusId,
     };
 
-    if (user.roleScope === 'SELF') {
+    const viewAllActivities =
+      query.viewAllActivities === 'true' || query.viewAllActivities === '1';
+
+    if (user.roleScope === 'SELF' && !viewAllActivities) {
       filter.lecturerId = user._id;
     }
 
@@ -348,7 +351,7 @@ export class ScheduleService {
     }
 
     if (query.roomId) filter.roomId = query.roomId;
-    if (query.lecturerId && user.roleScope !== 'SELF') {
+    if (query.lecturerId && (user.roleScope !== 'SELF' || viewAllActivities)) {
       filter.lecturerId = query.lecturerId;
     }
     if (query.semester) filter.semester = query.semester;
@@ -368,6 +371,7 @@ export class ScheduleService {
       .find(filter)
       .populate('roomId', 'roomCode roomName building')
       .populate('lecturerId', 'fullName email')
+      .populate('timeSlotId', 'slotType slotNumber startTime endTime slotName')
       .populate('createdBy', 'fullName email')
       .sort({ dateStart: 1, slotNumber: 1 })
       .lean()
@@ -387,6 +391,7 @@ export class ScheduleService {
       })
       .populate('roomId', 'roomCode roomName building capacity')
       .populate('lecturerId', 'fullName email')
+      .populate('timeSlotId', 'slotType slotNumber startTime endTime slotName')
       .populate('createdBy', 'fullName email')
       .exec();
 

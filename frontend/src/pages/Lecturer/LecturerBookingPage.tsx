@@ -34,10 +34,6 @@ const timeOverlaps = (startA: string, endA: string, startB: string, endB: string
   return startA < endB && endA > startB;
 };
 
-const isExactSlotTime = (slotStart: string, slotEnd: string, itemStart: string, itemEnd: string): boolean => {
-  return slotStart === itemStart && slotEnd === itemEnd;
-};
-
 const getRoomBlockedMessage = (room: LecturerGridRoomRow): string => {
   if (room.isActive === false) {
     return 'Room is inactive';
@@ -256,15 +252,11 @@ const LecturerBookingPage: React.FC = () => {
           };
         }
 
-        const scheduleConflict = roomSchedules.find((item) => {
-          const sameSlotType = item.slotType === selectedSlotType;
-          if (sameSlotType) {
-            return item.slotNumber === slot.slotNumber;
-          }
-
-          // Legacy/imported rows may miss slot metadata, fallback to exact time match.
-          return isExactSlotTime(slot.startTime, slot.endTime, item.startTime, item.endTime);
-        });
+        const scheduleConflict = roomSchedules.find(
+          (item) =>
+            item.slotNumber === slot.slotNumber ||
+            timeOverlaps(slot.startTime, slot.endTime, item.startTime, item.endTime),
+        );
 
         if (scheduleConflict) {
           return {
@@ -278,26 +270,9 @@ const LecturerBookingPage: React.FC = () => {
           };
         }
 
-        const conflict = roomBookings.find((booking) => {
-          if (isExactSlotTime(slot.startTime, slot.endTime, booking.startTime, booking.endTime)) {
-            return true;
-          }
-
-          const hasExactSlotInCurrentView = displaySlots.some((displaySlot) =>
-            isExactSlotTime(
-              displaySlot.startTime,
-              displaySlot.endTime,
-              booking.startTime,
-              booking.endTime,
-            ),
-          );
-
-          if (hasExactSlotInCurrentView) {
-            return false;
-          }
-
-          return timeOverlaps(slot.startTime, slot.endTime, booking.startTime, booking.endTime);
-        });
+        const conflict = roomBookings.find((booking) =>
+          timeOverlaps(slot.startTime, slot.endTime, booking.startTime, booking.endTime),
+        );
 
         if (conflict) {
           return {

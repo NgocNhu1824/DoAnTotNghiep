@@ -11,6 +11,7 @@ export interface QueryScheduleParams {
   slotType?: 'OLDSLOT' | 'NEWSLOT';
   classCode?: string;
   isOnline?: 'true' | 'false';
+  viewAllActivities?: 'true' | 'false';
 }
 
 export interface CreateScheduleDto {
@@ -96,6 +97,7 @@ export const scheduleService = {
     if (params?.slotType) queryParams.append('slotType', params.slotType);
     if (params?.classCode) queryParams.append('classCode', params.classCode);
     if (params?.isOnline !== undefined) queryParams.append('isOnline', params.isOnline);
+    if (params?.viewAllActivities) queryParams.append('viewAllActivities', params.viewAllActivities);
 
     const res = await api.get<{ success: boolean; data: Schedule[]; total?: number }>(
       `/schedules?${queryParams.toString()}`
