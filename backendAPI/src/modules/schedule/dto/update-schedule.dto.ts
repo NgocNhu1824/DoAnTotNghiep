@@ -30,20 +30,8 @@ export class UpdateScheduleDto {
   dayOfWeek?: number;
 
   @IsOptional()
-  @IsEnum(['OLDSLOT', 'NEWSLOT'])
-  slotType?: string;
-
-  @IsOptional()
-  @IsNumber()
-  slotNumber?: number;
-
-  @IsOptional()
-  @IsString()
-  startTime?: string;
-
-  @IsOptional()
-  @IsString()
-  endTime?: string;
+  @IsMongoId()
+  timeSlotId?: string;
 
   @IsOptional()
   @IsString()

@@ -25,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { resolveScheduleSlotInfo } from '@/utils/schedule-slot';
 
 const toDateInputValue = (date = new Date()): string => {
   return date.toISOString().slice(0, 10);
@@ -257,13 +258,19 @@ const LecturerBookingPage: React.FC = () => {
         }
 
         const scheduleConflict = roomSchedules.find((item) => {
-          const sameSlotType = item.slotType === selectedSlotType;
-          if (sameSlotType) {
-            return item.slotNumber === slot.slotNumber;
+          const slotInfo = resolveScheduleSlotInfo(item);
+          const sameSlotType = slotInfo.slotType === selectedSlotType;
+          if (sameSlotType && slotInfo.slotNumber !== null) {
+            return slotInfo.slotNumber === slot.slotNumber;
           }
 
           // Legacy/imported rows may miss slot metadata, fallback to exact time match.
-          return isExactSlotTime(slot.startTime, slot.endTime, item.startTime, item.endTime);
+          return isExactSlotTime(
+            slot.startTime,
+            slot.endTime,
+            slotInfo.startTime || '',
+            slotInfo.endTime || '',
+          );
         });
 
         if (scheduleConflict) {

@@ -16,6 +16,7 @@ import { TimeSlot } from '@/types/time-slot.types';
 import { Booking } from '@/types/booking.types';
 import { Card } from '@/components/ui/card';
 import { TransferRecord, TransferTargetOption } from '@/types/transfer.types';
+import { buildTimeSlotMapById, resolveScheduleSlotInfo } from '@/utils/schedule-slot';
 
 type WeekRange = { label: string; start: Date; end: Date };
 const WEEKDAYS = [
@@ -78,9 +79,9 @@ function toScheduleDate(dateInput: string | Date): Date {
   return dateInput instanceof Date ? new Date(dateInput) : new Date(dateInput);
 }
 
-function toScheduleDateTime(schedule: Schedule): Date {
+function toScheduleDateTime(schedule: Schedule, fallbackStartTime?: string | null): Date {
   const date = toScheduleDate(schedule.dateStart);
-  const [h, m] = (schedule.startTime || '00:00').split(':').map(Number);
+  const [h, m] = (schedule.startTime || fallbackStartTime || '00:00').split(':').map(Number);
   date.setHours(h || 0, m || 0, 0, 0);
   return date;
 }
@@ -319,6 +320,7 @@ const LecturerSchedulePage: React.FC = () => {
       ]);
 
       const virtualUpcoming: DisplaySchedule[] = [];
+      const slotMapById = buildTimeSlotMapById(timeSlots);
       (upcomingApprovedBookings || []).forEach((booking) => {
         const matchedSlots = timeSlots.filter(
           (slot) =>
@@ -355,25 +357,34 @@ const LecturerSchedulePage: React.FC = () => {
 
       const existingKeys = new Set(
         (upcomingData || []).map((item) => {
+          const slotInfo = resolveScheduleSlotInfo(item, slotMapById);
           const dateText = formatDateFromScheduleInput(item.dateStart);
           const roomText = typeof item.roomId === 'string' ? item.roomId : item.roomId?._id;
-          return `${roomText}_${dateText}_${item.slotNumber}_${item.slotType}`;
+          return `${roomText}_${dateText}_${slotInfo.slotNumber}_${slotInfo.slotType}`;
         }),
       );
 
       const mergedUpcoming = [
         ...(upcomingData || []),
         ...virtualUpcoming.filter((item) => {
+          const slotInfo = resolveScheduleSlotInfo(item, slotMapById);
           const dateText = formatDateFromScheduleInput(item.dateStart);
           const roomText = typeof item.roomId === 'string' ? item.roomId : item.roomId?._id;
-          const key = `${roomText}_${dateText}_${item.slotNumber}_${item.slotType}`;
+          const key = `${roomText}_${dateText}_${slotInfo.slotNumber}_${slotInfo.slotType}`;
           return !existingKeys.has(key);
         }),
       ];
 
       const sorted = mergedUpcoming
         .slice()
-        .sort((a, b) => toScheduleDateTime(a).getTime() - toScheduleDateTime(b).getTime());
+        .sort((a, b) => {
+          const aSlot = resolveScheduleSlotInfo(a, slotMapById);
+          const bSlot = resolveScheduleSlotInfo(b, slotMapById);
+          return (
+            toScheduleDateTime(a, aSlot.startTime).getTime() -
+            toScheduleDateTime(b, bSlot.startTime).getTime()
+          );
+        });
 
       if (fetchSeq !== upcomingFetchSeqRef.current) {
         return;
@@ -402,6 +413,7 @@ const LecturerSchedulePage: React.FC = () => {
 
   const weekDates = getWeekDates(selectedDate);
   const selectedWeekLabel = weeksOfYear[selectedWeekIdx]?.label || '-';
+  const timeSlotMapById = useMemo(() => buildTimeSlotMapById(timeSlots), [timeSlots]);
 
   const filteredTimeSlots = useMemo(() => {
     return timeSlots
@@ -413,9 +425,10 @@ const LecturerSchedulePage: React.FC = () => {
     const base: DisplaySchedule[] = [...schedules];
     const existingKeys = new Set(
       schedules.map((item) => {
+        const slotInfo = resolveScheduleSlotInfo(item, timeSlotMapById);
         const dateText = formatDateFromScheduleInput(item.dateStart);
         const roomText = typeof item.roomId === 'string' ? item.roomId : item.roomId?._id;
-        return `${roomText}_${dateText}_${item.slotNumber}_${item.slotType}`;
+        return `${roomText}_${dateText}_${slotInfo.slotNumber}_${slotInfo.slotType}`;
       }),
     );
 
@@ -458,7 +471,7 @@ const LecturerSchedulePage: React.FC = () => {
     });
 
     return base;
-  }, [schedules, approvedBookings, timeSlots, slotTypeFilter]);
+  }, [schedules, approvedBookings, timeSlots, slotTypeFilter, timeSlotMapById]);
 
   const refreshTransferMappings = useCallback(async (explicitScheduleIds?: string[]) => {
     const sourceScheduleIds =
@@ -518,6 +531,7 @@ const LecturerSchedulePage: React.FC = () => {
 
     return (
       upcomingSchedules.find((schedule) => {
+        const slotInfo = resolveScheduleSlotInfo(schedule, timeSlotMapById);
         const scheduleDate = toScheduleDate(schedule.dateStart);
         const scheduleDateStr = formatDateOnly(scheduleDate);
 
@@ -526,10 +540,10 @@ const LecturerSchedulePage: React.FC = () => {
           return false;
         }
 
-        return toScheduleDateTime(schedule).getTime() > now.getTime();
+        return toScheduleDateTime(schedule, slotInfo.startTime).getTime() > now.getTime();
       }) || null
     );
-  }, [upcomingSchedules]);
+  }, [upcomingSchedules, timeSlotMapById]);
 
   const currentWeekLessons = useMemo(() => mergedSchedules.length, [mergedSchedules]);
 
@@ -710,9 +724,14 @@ const LecturerSchedulePage: React.FC = () => {
   const getCell = (slot: TimeSlot, weekdayIdx: number) => {
     const dateStr = formatDateOnly(weekDates[weekdayIdx]);
     return mergedSchedules.find((sch) => {
+      const slotInfo = resolveScheduleSlotInfo(sch, timeSlotMapById);
       const schDate = sch.dateStart instanceof Date ? sch.dateStart : new Date(sch.dateStart);
       const schDateStr = formatDateOnly(schDate);
-      return sch.slotNumber === slot.slotNumber && sch.slotType === slot.slotType && schDateStr === dateStr;
+      return (
+        slotInfo.slotNumber === slot.slotNumber &&
+        slotInfo.slotType === slot.slotType &&
+        schDateStr === dateStr
+      );
     });
   };
 
@@ -796,13 +815,14 @@ const LecturerSchedulePage: React.FC = () => {
             },
           });
         } else if (incomingPendingTransfer) {
+          const incomingSlotInfo = resolveScheduleSlotInfo(schedule, timeSlotMapById);
           setSelectedTransferTargetOption({
             scheduleId: schedule._id,
             dateStart: typeof schedule.dateStart === 'string' ? schedule.dateStart : undefined,
-            startTime: schedule.startTime,
-            endTime: schedule.endTime,
-            slotType: schedule.slotType,
-            slotNumber: schedule.slotNumber,
+            startTime: incomingSlotInfo.startTime || '--:--',
+            endTime: incomingSlotInfo.endTime || '--:--',
+            slotType: incomingSlotInfo.slotType || slotTypeFilter,
+            slotNumber: incomingSlotInfo.slotNumber || 0,
             classCode: schedule.classCode,
             subjectCode: schedule.subjectCode,
             subjectName: schedule.subjectName,
@@ -916,7 +936,10 @@ const LecturerSchedulePage: React.FC = () => {
                   {nextSchedule.subjectName || nextSchedule.classCode || 'Class session'}
                 </p>
                 <p className="text-sm text-gray-600">
-                  {toScheduleDate(nextSchedule.dateStart).toLocaleDateString('en-GB')} | {nextSchedule.startTime} - {nextSchedule.endTime}
+                  {(() => {
+                    const slotInfo = resolveScheduleSlotInfo(nextSchedule, timeSlotMapById);
+                    return `${toScheduleDate(nextSchedule.dateStart).toLocaleDateString('en-GB')} | ${slotInfo.startTime || '--:--'} - ${slotInfo.endTime || '--:--'}`;
+                  })()}
                 </p>
                 <button
                   type="button"
@@ -1005,6 +1028,7 @@ const LecturerSchedulePage: React.FC = () => {
                         const cell = getCell(slot, idx);
                         const outgoingTransfer = cell ? existingTransfersBySource[cell._id] : null;
                         const incomingTransfer = cell ? incomingTransfersByTarget[cell._id] : null;
+                        const cellSlotInfo = cell ? resolveScheduleSlotInfo(cell, timeSlotMapById) : null;
                         const activeOutgoingTransfer =
                           outgoingTransfer && ['pending', 'approved'].includes(String(outgoingTransfer.status || '').toLowerCase())
                             ? outgoingTransfer
@@ -1035,7 +1059,9 @@ const LecturerSchedulePage: React.FC = () => {
                                     {cell.isOnline ? 'Online' : 'Offline'}
                                   </div>
                                   <div className="text-xs text-muted-foreground">at {roomInfo?.code || '-'}</div>
-                                  <div className="text-xs text-muted-foreground">{cell.startTime} - {cell.endTime}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {cellSlotInfo?.startTime || '--:--'} - {cellSlotInfo?.endTime || '--:--'}
+                                  </div>
 
                                   <div className="mt-2 flex items-center justify-center gap-2 flex-nowrap">
                                     <button
@@ -1092,6 +1118,7 @@ const LecturerSchedulePage: React.FC = () => {
           {(() => {
             const bookingSchedule = isBookingSchedule(detailSchedule);
             const roomDetail = getRoomInfo(detailSchedule.roomId);
+            const detailSlotInfo = resolveScheduleSlotInfo(detailSchedule, timeSlotMapById);
 
             return (
           <div className="bg-white rounded-2xl shadow-2xl p-5 w-[620px] h-[430px] max-w-[90vw] max-h-[80vh] overflow-y-auto relative border border-blue-200">
@@ -1120,9 +1147,9 @@ const LecturerSchedulePage: React.FC = () => {
                 <div className="font-semibold text-blue-700 mt-2 mb-1">Schedule Information</div>
                 <div className="ml-2">Start Date: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.dateStart ? new Date(detailSchedule.dateStart).toLocaleDateString('en-GB') : '-'}</span></div>
                 <div className="ml-2">Day of Week: <span className="text-gray-900 whitespace-normal break-words">{getWeekdayLabel(detailSchedule.dateStart)}</span></div>
-                <div className="ml-2">Slot Number: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.slotNumber || '-'}</span></div>
-                <div className="ml-2">Start Time: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.startTime || '-'}</span></div>
-                <div className="ml-2">End Time: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.endTime || '-'}</span></div>
+                <div className="ml-2">Slot Number: <span className="text-gray-900 whitespace-normal break-words">{detailSlotInfo.slotNumber || '-'}</span></div>
+                <div className="ml-2">Start Time: <span className="text-gray-900 whitespace-normal break-words">{detailSlotInfo.startTime || '-'}</span></div>
+                <div className="ml-2">End Time: <span className="text-gray-900 whitespace-normal break-words">{detailSlotInfo.endTime || '-'}</span></div>
                 {!bookingSchedule && (
                   <div className="ml-2">Semester: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.semester || '-'}</span></div>
                 )}

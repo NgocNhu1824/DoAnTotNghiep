@@ -30,6 +30,7 @@ import { Booking } from '../../types/booking.types';
 import { cn } from '../../lib/utils';
 import ViewScheduleModal from '../../components/modals/ViewScheduleModal';
 import EditScheduleModal from '../../components/modals/EditScheduleModal';
+import { buildTimeSlotMapById, resolveScheduleSlotInfo } from '../../utils/schedule-slot';
 
 interface ScheduleCell {
   schedule: Schedule | null;
@@ -191,25 +192,27 @@ const ScheduleManagementPage: React.FC = () => {
     });
   }, [timeSlots, slotTypeFilter]);
 
+  const timeSlotMapById = useMemo(() => buildTimeSlotMapById(timeSlots), [timeSlots]);
+
   const scheduleMap = useMemo(() => {
     const map = new Map<string, Schedule>();
 
     schedules.forEach((schedule) => {
       const roomId = typeof schedule.roomId === 'string' ? schedule.roomId : schedule.roomId?._id;
-      const slotNumber = schedule.slotNumber;
+      const slotInfo = resolveScheduleSlotInfo(schedule, timeSlotMapById);
 
       // Skip malformed schedules that lack required identifiers to avoid runtime errors
-      if (!roomId || slotNumber === undefined || schedule.slotType === undefined) return;
+      if (!roomId || slotInfo.slotNumber === null || slotInfo.slotType === null) return;
 
       const scheduleDate = new Date(schedule.dateStart);
       const dateStr = format(scheduleDate, 'yyyy-MM-dd');
 
-      const key = `${roomId}_${dateStr}_${slotNumber}_${schedule.slotType}`;
+      const key = `${roomId}_${dateStr}_${slotInfo.slotNumber}_${slotInfo.slotType}`;
       map.set(key, schedule);
     });
 
     return map;
-  }, [schedules]);
+  }, [schedules, timeSlotMapById]);
 
   const approvedBookingMap = useMemo(() => {
     const map = new Map<string, DisplaySchedule>();
@@ -476,6 +479,7 @@ const ScheduleManagementPage: React.FC = () => {
 
   // Get schedule display info
   const getScheduleInfo = (schedule: Schedule) => {
+    const slotInfo = resolveScheduleSlotInfo(schedule, timeSlotMapById);
     const room = typeof schedule.roomId === 'object' && schedule.roomId !== null ? schedule.roomId : null;
     const lecturer = typeof schedule.lecturerId === 'object' && schedule.lecturerId !== null ? schedule.lecturerId : null;
     const isBookingSchedule = isVirtualBookingSchedule(schedule);
@@ -484,7 +488,7 @@ const ScheduleManagementPage: React.FC = () => {
       classCode: isBookingSchedule ? 'BOOKING' : schedule.classCode || 'N/A',
       subjectName: schedule.subjectName || 'N/A',
       lecturerName: lecturer?.fullName || 'N/A',
-      timeRange: `${schedule.startTime} - ${schedule.endTime}`,
+      timeRange: `${slotInfo.startTime || '--:--'} - ${slotInfo.endTime || '--:--'}`,
       roomCode: room?.roomCode || 'N/A',
     };
   };

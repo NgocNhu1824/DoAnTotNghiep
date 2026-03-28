@@ -1052,7 +1052,7 @@ const accessLogsResult = db.access_logs.insertMany([
     userId: ObjectId("693ad44526d23ee0a8bf090a"),
     campusId: ObjectId("693ad44426d23ee0a8bf08f5"),
     scheduleId: ObjectId("693ad44526d23ee0a8bf090f"),
-    action: "lock",
+    action: "return",
     method: "mobile_app",
     success: true,
     accessTime: new Date("2025-01-13T09:15:00.000Z"),

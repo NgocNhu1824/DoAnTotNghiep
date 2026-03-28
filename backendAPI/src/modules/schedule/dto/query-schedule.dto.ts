@@ -1,4 +1,4 @@
-import { IsOptional, IsDateString, IsString, IsEnum, IsBooleanString } from 'class-validator';
+import { IsOptional, IsDateString, IsString, IsEnum, IsBooleanString, IsMongoId } from 'class-validator';
 
 export class QueryScheduleDto {
   @IsOptional()
@@ -28,6 +28,10 @@ export class QueryScheduleDto {
   @IsOptional()
   @IsEnum(['OLDSLOT', 'NEWSLOT'])
   slotType?: string;
+
+  @IsOptional()
+  @IsMongoId()
+  timeSlotId?: string;
 
   @IsOptional()
   @IsString()
