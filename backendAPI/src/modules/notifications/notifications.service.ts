@@ -20,7 +20,8 @@ export class NotificationsService {
     roomId: string;
     lockerId: string;
     fromScheduleId: string;
-    toScheduleId: string;
+    toScheduleId?: string | null;
+    toBookingId?: string | null;
     reason?: string | null;
     approvedBy: string;
   }): Promise<void> {
@@ -45,7 +46,8 @@ export class NotificationsService {
         roomId: payload.roomId,
         lockerId: payload.lockerId,
         fromScheduleId: payload.fromScheduleId,
-        toScheduleId: payload.toScheduleId,
+        toScheduleId: payload.toScheduleId || null,
+        toBookingId: payload.toBookingId || null,
         status: 'approved',
         approvedBy,
       },
@@ -66,7 +68,8 @@ export class NotificationsService {
           roomId: payload.roomId,
           lockerId: payload.lockerId,
           fromScheduleId: payload.fromScheduleId,
-          toScheduleId: payload.toScheduleId,
+          toScheduleId: payload.toScheduleId || null,
+          toBookingId: payload.toBookingId || null,
           status: 'approved',
           approvedBy,
         },
@@ -91,7 +94,8 @@ export class NotificationsService {
           roomId: payload.roomId,
           lockerId: payload.lockerId,
           fromScheduleId: payload.fromScheduleId,
-          toScheduleId: payload.toScheduleId,
+          toScheduleId: payload.toScheduleId || null,
+          toBookingId: payload.toBookingId || null,
           status: 'approved',
           approvedBy,
         },
@@ -109,7 +113,8 @@ export class NotificationsService {
     roomId: string;
     lockerId: string;
     fromScheduleId: string;
-    toScheduleId: string;
+    toScheduleId?: string | null;
+    toBookingId?: string | null;
     reason?: string | null;
     rejectedBy: string;
     rejectReason?: string;
@@ -137,7 +142,8 @@ export class NotificationsService {
         roomId: payload.roomId,
         lockerId: payload.lockerId,
         fromScheduleId: payload.fromScheduleId,
-        toScheduleId: payload.toScheduleId,
+        toScheduleId: payload.toScheduleId || null,
+        toBookingId: payload.toBookingId || null,
         status: 'rejected',
         rejectedBy,
         rejectReason: payload.rejectReason || null,
@@ -161,7 +167,8 @@ export class NotificationsService {
           roomId: payload.roomId,
           lockerId: payload.lockerId,
           fromScheduleId: payload.fromScheduleId,
-          toScheduleId: payload.toScheduleId,
+          toScheduleId: payload.toScheduleId || null,
+          toBookingId: payload.toBookingId || null,
           status: 'rejected',
           rejectedBy,
           rejectReason: payload.rejectReason || null,
@@ -189,7 +196,8 @@ export class NotificationsService {
           roomId: payload.roomId,
           lockerId: payload.lockerId,
           fromScheduleId: payload.fromScheduleId,
-          toScheduleId: payload.toScheduleId,
+          toScheduleId: payload.toScheduleId || null,
+          toBookingId: payload.toBookingId || null,
           status: 'rejected',
           rejectedBy,
           rejectReason: payload.rejectReason || null,
@@ -199,6 +207,102 @@ export class NotificationsService {
     });
     await this.createAndBroadcastMany(notificationItems);
   }
+
+  async notifyTransferActivated(payload: {
+    transferId: string;
+    campusId: string;
+    fromUserId: string;
+    toUserId: string;
+    roomId: string;
+    lockerId: string;
+    fromScheduleId: string;
+    toScheduleId?: string | null;
+    toBookingId?: string | null;
+    activatedAt: Date;
+  }): Promise<void> {
+    const senderId = this.extractObjectId(payload?.fromUserId);
+    const recipientId = this.extractObjectId(payload?.toUserId);
+    const campusId = this.extractObjectId(payload?.campusId);
+    const transferId = String(payload?.transferId || '').trim();
+    if (!campusId || !transferId) return;
+
+    const notificationItems: CreateNotificationInput[] = [];
+
+    if (senderId) {
+      notificationItems.push({
+        recipientId: senderId,
+        campusId,
+        senderId: recipientId,
+        type: 'transfer_activated',
+        title: 'Transfer handover activated',
+        message: 'The next slot has started and key handover is now active.',
+        priority: 'medium',
+        data: {
+          transferId,
+          roomId: payload.roomId,
+          lockerId: payload.lockerId,
+          fromScheduleId: payload.fromScheduleId,
+          toScheduleId: payload.toScheduleId || null,
+          toBookingId: payload.toBookingId || null,
+          status: 'activated',
+          activatedAt: payload.activatedAt,
+        },
+        dedupeKey: `transfer-activated:${transferId}:sender:${senderId}`,
+      });
+    }
+
+    if (recipientId && recipientId !== senderId) {
+      notificationItems.push({
+        recipientId,
+        campusId,
+        senderId,
+        type: 'transfer_activated',
+        title: 'You are now the active room holder',
+        message: 'The next slot has started. Room usage has been assigned to you.',
+        priority: 'high',
+        data: {
+          transferId,
+          roomId: payload.roomId,
+          lockerId: payload.lockerId,
+          fromScheduleId: payload.fromScheduleId,
+          toScheduleId: payload.toScheduleId || null,
+          toBookingId: payload.toBookingId || null,
+          status: 'activated',
+          activatedAt: payload.activatedAt,
+        },
+        dedupeKey: `transfer-activated:${transferId}:recipient:${recipientId}`,
+      });
+    }
+
+    const approverIds = await this.findBookingApproverIds(campusId);
+    const adminRecipients = approverIds.filter((id) => id !== senderId && id !== recipientId);
+
+    adminRecipients.forEach((adminId) => {
+      notificationItems.push({
+        recipientId: adminId,
+        campusId,
+        senderId: recipientId || senderId,
+        type: 'transfer_activated_admin',
+        title: 'Transfer handover is active',
+        message: 'A transfer handover has been activated at slot start.',
+        priority: 'low',
+        data: {
+          transferId,
+          roomId: payload.roomId,
+          lockerId: payload.lockerId,
+          fromScheduleId: payload.fromScheduleId,
+          toScheduleId: payload.toScheduleId || null,
+          toBookingId: payload.toBookingId || null,
+          status: 'activated',
+          activatedAt: payload.activatedAt,
+        },
+        dedupeKey: `transfer-activated:${transferId}:admin:${adminId}`,
+      });
+    });
+
+    await this.createAndBroadcastMany(notificationItems);
+  }
+
   async notifyTransferCancelled(payload: {
     transferId: string;
     campusId: string;
@@ -207,7 +311,8 @@ export class NotificationsService {
     roomId: string;
     lockerId: string;
     fromScheduleId: string;
-    toScheduleId: string;
+    toScheduleId?: string | null;
+    toBookingId?: string | null;
     reason?: string | null;
     cancelledBy: string;
   }): Promise<void> {
@@ -236,7 +341,8 @@ export class NotificationsService {
         roomId: payload.roomId,
         lockerId: payload.lockerId,
         fromScheduleId: payload.fromScheduleId,
-        toScheduleId: payload.toScheduleId,
+        toScheduleId: payload.toScheduleId || null,
+        toBookingId: payload.toBookingId || null,
         status: 'cancelled',
         cancelledBy,
         cancelReason: cancelReason || null,
@@ -259,7 +365,8 @@ export class NotificationsService {
           roomId: payload.roomId,
           lockerId: payload.lockerId,
           fromScheduleId: payload.fromScheduleId,
-          toScheduleId: payload.toScheduleId,
+          toScheduleId: payload.toScheduleId || null,
+          toBookingId: payload.toBookingId || null,
           status: 'cancelled',
           cancelledBy,
           cancelReason: cancelReason || null,
@@ -286,7 +393,8 @@ export class NotificationsService {
           roomId: payload.roomId,
           lockerId: payload.lockerId,
           fromScheduleId: payload.fromScheduleId,
-          toScheduleId: payload.toScheduleId,
+          toScheduleId: payload.toScheduleId || null,
+          toBookingId: payload.toBookingId || null,
           status: 'cancelled',
           cancelledBy,
           cancelReason: cancelReason || null,
@@ -572,7 +680,8 @@ export class NotificationsService {
     roomId: string;
     lockerId: string;
     fromScheduleId: string;
-    toScheduleId: string;
+    toScheduleId?: string | null;
+    toBookingId?: string | null;
     reason?: string | null;
   }): Promise<void> {
     const recipientId = this.extractObjectId(payload?.toUserId);
@@ -602,7 +711,8 @@ export class NotificationsService {
         roomId: payload.roomId,
         lockerId: payload.lockerId,
         fromScheduleId: payload.fromScheduleId,
-        toScheduleId: payload.toScheduleId,
+        toScheduleId: payload.toScheduleId || null,
+        toBookingId: payload.toBookingId || null,
         status: 'pending',
       },
       dedupeKey: `transfer-created:${transferId}:recipient:${recipientId}`,
@@ -624,7 +734,8 @@ export class NotificationsService {
           roomId: payload.roomId,
           lockerId: payload.lockerId,
           fromScheduleId: payload.fromScheduleId,
-          toScheduleId: payload.toScheduleId,
+          toScheduleId: payload.toScheduleId || null,
+          toBookingId: payload.toBookingId || null,
           status: 'pending',
         },
         dedupeKey: `transfer-created:${transferId}:sender:${senderId}`,
@@ -650,7 +761,8 @@ export class NotificationsService {
           roomId: payload.roomId,
           lockerId: payload.lockerId,
           fromScheduleId: payload.fromScheduleId,
-          toScheduleId: payload.toScheduleId,
+          toScheduleId: payload.toScheduleId || null,
+          toBookingId: payload.toBookingId || null,
           status: 'pending',
         },
         dedupeKey: `transfer-created:${transferId}:manager:${managerId}`,

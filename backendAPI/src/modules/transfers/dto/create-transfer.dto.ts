@@ -18,8 +18,12 @@ export class CreateTransferDto {
   fromScheduleId: string;
 
   @IsString()
-  @IsNotEmpty()
-  toScheduleId: string;
+  @IsOptional()
+  toScheduleId?: string;
+
+  @IsString()
+  @IsOptional()
+  toBookingId?: string;
 
   @IsOptional()
   @IsString()

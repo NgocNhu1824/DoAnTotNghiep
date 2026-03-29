@@ -171,6 +171,15 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     });
   }
 
+  // Broadcast access-log change so Access Logs page can update in realtime.
+  broadcastAccessLogUpdate(action: 'created' | 'updated', payload: any) {
+    this.server.emit('access-log:update', {
+      action,
+      payload,
+      timestamp: new Date(),
+    });
+  }
+
   // Broadcast hardware telemetry updates to dashboard clients.
   broadcastHardwareUpdate(type: string, payload: any) {
     this.server.emit('hardware:update', {

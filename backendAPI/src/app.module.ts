@@ -22,6 +22,7 @@ import { RedisModule } from './common/redis/redis.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { AccessLogsModule } from './modules/access-logs/access-logs.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     SettingsModule,
     IncidentsModule,
     NotificationsModule,
+    AccessLogsModule,
   ],
   controllers: [AppController],
   providers: [

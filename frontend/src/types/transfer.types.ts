@@ -15,12 +15,14 @@ export interface TransferSourceSchedule {
 }
 
 export interface TransferTargetOption {
+  targetType?: 'schedule' | 'booking';
   scheduleId: string;
+  bookingId?: string | null;
   dateStart?: string;
   startTime: string;
   endTime: string;
-  slotType: 'OLDSLOT' | 'NEWSLOT';
-  slotNumber: number;
+  slotType: 'OLDSLOT' | 'NEWSLOT' | 'BOOKING';
+  slotNumber: number | null;
   classCode?: string;
   subjectCode?: string;
   subjectName?: string;
@@ -36,6 +38,7 @@ export interface TransferTargetOption {
 
 export interface TransferTargetDiagnosticsCandidate {
   scheduleId: string;
+  targetType?: 'schedule' | 'booking';
   startTime: string;
   endTime: string;
   slotType: 'OLDSLOT' | 'NEWSLOT';
@@ -79,7 +82,8 @@ export interface CreateTransferRequestDto {
   lockerId: string;
   toUserId: string;
   fromScheduleId: string;
-  toScheduleId: string;
+  toScheduleId?: string;
+  toBookingId?: string;
   transferDate?: string;
   reason?: string;
   notes?: string;
@@ -96,8 +100,8 @@ export interface TransferScheduleSummary {
   dateStart?: string;
   startTime: string;
   endTime: string;
-  slotType: 'OLDSLOT' | 'NEWSLOT';
-  slotNumber: number;
+  slotType: 'OLDSLOT' | 'NEWSLOT' | 'BOOKING';
+  slotNumber: number | null;
   classCode?: string;
   subjectCode?: string;
   subjectName?: string;
@@ -117,11 +121,17 @@ export interface TransferRecord {
   campusId: string;
   fromScheduleId: string;
   toScheduleId: string;
+  toBookingId?: string | null;
+  targetType?: 'schedule' | 'booking';
   transferDate?: string;
   reason?: string;
   status: string;
   approvedAt?: string;
+  activatedAt?: string;
+  rejectedAt?: string;
+  rejectReason?: string;
   cancelledAt?: string;
+  cancelReason?: string;
   notes?: string;
   fromUser?: {
     id: string;
@@ -141,6 +151,7 @@ export interface TransferRecord {
   } | null;
   sourceSchedule?: TransferScheduleSummary | null;
   targetSchedule?: TransferScheduleSummary | null;
+  targetBooking?: TransferScheduleSummary | null;
   createdAt?: string;
   updatedAt?: string;
 }

@@ -140,7 +140,12 @@ const LecturerTransferRequestPage: React.FC = () => {
     const classLabel = selectedTargetOption.classCode || selectedTargetOption.subjectCode || 'No class code';
     const subjectLabel = selectedTargetOption.subjectName || 'No subject name';
 
-    return `${classLabel} | ${subjectLabel} | Slot ${selectedTargetOption.slotNumber} (${selectedTargetOption.startTime}-${selectedTargetOption.endTime})`;
+    const targetLabel =
+      selectedTargetOption.targetType === 'booking'
+        ? 'Approved booking'
+        : `Slot ${selectedTargetOption.slotNumber}`;
+
+    return `${classLabel} | ${subjectLabel} | ${targetLabel} (${selectedTargetOption.startTime}-${selectedTargetOption.endTime})`;
   }, [selectedTargetOption]);
 
   const autoSelectedLocker = useMemo(() => {
@@ -287,7 +292,9 @@ const LecturerTransferRequestPage: React.FC = () => {
         lockerId: selectedLockerId,
         toUserId: selectedTargetOption.lecturer.id,
         fromScheduleId: selectedSourceSchedule.id,
-        toScheduleId: selectedTargetOption.scheduleId,
+        ...(selectedTargetOption.targetType === 'booking'
+          ? { toBookingId: selectedTargetOption.bookingId || selectedTargetOption.scheduleId }
+          : { toScheduleId: selectedTargetOption.scheduleId }),
         transferDate: selectedSourceSchedule.dateStart,
         reason: reason.trim(),
         notes: notes.trim() || undefined,
@@ -395,7 +402,7 @@ const LecturerTransferRequestPage: React.FC = () => {
                   <div>
                     {targetDiagnostics.nearestCandidates.map((candidate) => (
                       <p key={candidate.scheduleId}>
-                        {`${candidate.lecturer.fullName || 'Unknown'} | Slot ${candidate.slotNumber} (${candidate.startTime}-${candidate.endTime}) | Reason: ${candidate.reasons.map((reason) => getReasonLabel(reason)).join(', ') || 'Unknown'}`}
+                        {`${candidate.lecturer.fullName || 'Unknown'} | ${candidate.targetType === 'booking' ? 'Booking' : `Slot ${candidate.slotNumber}`} (${candidate.startTime}-${candidate.endTime}) | Reason: ${candidate.reasons.map((reason) => getReasonLabel(reason)).join(', ') || 'Unknown'}`}
                       </p>
                     ))}
                   </div>

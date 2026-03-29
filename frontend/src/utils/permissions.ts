@@ -116,6 +116,10 @@ export const PERMISSIONS = {
 
   // System logs
   LOGS_READ: 'logs.read',
+
+  // Access logs
+  ACCESS_LOGS_READ: 'access_logs.read',
+  ACCESS_LOGS_MANAGE: 'access_logs.manage',
 } as const;
 
 /**
@@ -177,6 +181,8 @@ export const getPermissionDisplayName = (permissionName: string): string => {
     'reports.view': 'View reports',
     'reports.export': 'Export reports',
     'logs.read': 'View system audit logs',
+    'access_logs.read': 'View room access logs',
+    'access_logs.manage': 'Manage room access logs',
   };
   return names[permissionName] || permissionName;
 };

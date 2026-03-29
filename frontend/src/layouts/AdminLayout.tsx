@@ -71,6 +71,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       requiredPermissions: [PERMISSIONS.LOGS_READ],
     },
     {
+      id: 'access-logs',
+      label: 'Access Logs',
+      icon: FileText,
+      path: '/access-logs',
+      requiredPermissions: [PERMISSIONS.ACCESS_LOGS_READ, PERMISSIONS.ACCESS_LOGS_MANAGE],
+    },
+    {
       id: 'lockers',
       label: 'Lockers',
       icon: Lock,
@@ -150,20 +157,42 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     path: '/lecturer/booking-history',
   };
 
+  const lecturerIncomingTransferMenuItem = {
+    id: 'lecturer-transfer-incoming',
+    label: 'Incoming Transfers',
+    icon: ArrowLeftRight,
+    path: '/lecturer/transfers/incoming',
+  };
+
+  const accessLogMenuItem = {
+    id: 'access-logs',
+    label: 'Access Logs',
+    icon: FileText,
+    path: '/access-logs',
+  };
+
+  const canViewAccessLogs = hasAnyPermission([
+    PERMISSIONS.ACCESS_LOGS_READ,
+    PERMISSIONS.ACCESS_LOGS_MANAGE,
+  ]);
+
   let menuItems = baseMenuItems;
 
   if (userScope === 'SELF' && userRole === 'LECTURER') {
     menuItems = [
       baseMenuItems.find(item => item.id === 'schedule')!,
       lecturerScheduleMenuItem,
+      lecturerIncomingTransferMenuItem,
       lecturerBookingMenuItem,
       lecturerHistoryMenuItem,
+      ...(canViewAccessLogs ? [accessLogMenuItem] : []),
     ];
   } else if (userScope === 'SELF') {
     menuItems = [
       lecturerBookingMenuItem,
       lecturerHistoryMenuItem,
       lecturerScheduleMenuItem,
+      ...(canViewAccessLogs ? [accessLogMenuItem] : []),
     ];
   }
    else if (userScope === 'CAMPUS') {

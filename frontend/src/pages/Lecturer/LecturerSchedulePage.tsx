@@ -100,7 +100,11 @@ function toScheduleDateTime(schedule: Schedule): Date {
   return date;
 }
 
-type DisplaySchedule = Schedule & {
+type DisplaySchedule = Omit<Schedule, 'slotType' | 'slotNumber' | 'startTime' | 'endTime'> & {
+  slotType: 'OLDSLOT' | 'NEWSLOT';
+  slotNumber: number;
+  startTime: string;
+  endTime: string;
   _virtualBooking?: boolean;
 };
 
@@ -270,17 +274,7 @@ const LecturerSchedulePage: React.FC = () => {
   const processedReturnParamsRef = useRef<string>('');
   const weekFetchSeqRef = useRef(0);
   const upcomingFetchSeqRef = useRef(0);
-  const bookingRefreshTimerRef = useRef<number | null>(null);
-
-  const normalizeAnyId = (value: any): string => {
-    if (!value) return '';
-    if (typeof value === 'string') return value;
-    if (typeof value === 'object') {
-      if (value._id) return String(value._id);
-      if (value.id) return String(value.id);
-    }
-    return String(value);
-  };
+  const transferRealtimeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const weeks = getWeeksOfYear(selectedYear);
@@ -549,7 +543,11 @@ const LecturerSchedulePage: React.FC = () => {
         .map((item) => item._id)
         .filter(Boolean);
 
-    if (!sourceScheduleIds.length) {
+    const targetScheduleIds = mergedSchedules
+      .map((item) => item._id)
+      .filter(Boolean);
+
+    if (!sourceScheduleIds.length && !targetScheduleIds.length) {
       setExistingTransfersBySource({});
       setIncomingTransfersByTarget({});
       return;
@@ -557,8 +555,10 @@ const LecturerSchedulePage: React.FC = () => {
 
     try {
       const [outgoingResult, incomingResult] = await Promise.all([
-        transferService.getSelfExistingBySourceSchedules(sourceScheduleIds),
-        transferService.getSelfIncomingByTargetSchedules(sourceScheduleIds),
+        sourceScheduleIds.length
+          ? transferService.getSelfExistingBySourceSchedules(sourceScheduleIds)
+          : Promise.resolve({}),
+        transferService.getSelfIncomingByTargetSchedules(targetScheduleIds),
       ]);
       setExistingTransfersBySource(outgoingResult || {});
       setIncomingTransfersByTarget(incomingResult || {});
@@ -592,6 +592,62 @@ const LecturerSchedulePage: React.FC = () => {
   useEffect(() => {
     void refreshEligibleTransferSources();
   }, [refreshEligibleTransferSources]);
+
+  useEffect(() => {
+    const socket = wsService.connect();
+
+    const handleTransferRealtime = () => {
+      if (transferRealtimeTimerRef.current) {
+        window.clearTimeout(transferRealtimeTimerRef.current);
+      }
+
+      transferRealtimeTimerRef.current = window.setTimeout(() => {
+        void (async () => {
+          await fetchWeekSchedules();
+          if (timeSlots.length > 0) {
+            await fetchUpcomingSchedules();
+          }
+          await refreshTransferMappings();
+          await refreshEligibleTransferSources();
+
+          if (showTransferModal && selectedTransfer?._id) {
+            const latest = await transferService.detail(selectedTransfer._id).catch(() => null);
+            if (latest) {
+              setSelectedTransfer(latest as any);
+            }
+          }
+        })();
+      }, 400);
+    };
+
+    socket.on('transfer:created', handleTransferRealtime);
+    socket.on('transfer:approved', handleTransferRealtime);
+    socket.on('transfer:rejected', handleTransferRealtime);
+    socket.on('transfer:cancelled', handleTransferRealtime);
+    socket.on('transfer:activated', handleTransferRealtime);
+
+    return () => {
+      if (transferRealtimeTimerRef.current) {
+        window.clearTimeout(transferRealtimeTimerRef.current);
+        transferRealtimeTimerRef.current = null;
+      }
+
+      socket.off('transfer:created', handleTransferRealtime);
+      socket.off('transfer:approved', handleTransferRealtime);
+      socket.off('transfer:rejected', handleTransferRealtime);
+      socket.off('transfer:cancelled', handleTransferRealtime);
+      socket.off('transfer:activated', handleTransferRealtime);
+      wsService.disconnect();
+    };
+  }, [
+    fetchWeekSchedules,
+    fetchUpcomingSchedules,
+    refreshTransferMappings,
+    refreshEligibleTransferSources,
+    showTransferModal,
+    selectedTransfer?._id,
+    timeSlots.length,
+  ]);
 
   const nextSchedule = useMemo(() => {
     const now = new Date();
@@ -694,7 +750,10 @@ const LecturerSchedulePage: React.FC = () => {
 
       if (createdTransferId && lastNotifiedTransferIdRef.current !== createdTransferId) {
         lastNotifiedTransferIdRef.current = createdTransferId;
-        window.alert('Transfer request created successfully');
+        toast({
+          title: 'Transfer created',
+          description: 'Transfer request created successfully.',
+        });
 
         // Refresh immediately so transfer badges/state appear without manual reload.
         await fetchWeekSchedules();
@@ -735,21 +794,24 @@ const LecturerSchedulePage: React.FC = () => {
             setSelectedTransferSourceSchedule(null);
           }
 
-          if (transferPayload?.targetSchedule?.lecturer) {
+          if (transferPayload?.targetSchedule?.lecturer || transferPayload?.targetBooking?.lecturer) {
+            const targetInfo = transferPayload?.targetSchedule || transferPayload?.targetBooking;
             setSelectedTransferTargetOption({
-              scheduleId: transferPayload.targetSchedule.id || transferPayload.toScheduleId,
-              dateStart: transferPayload.targetSchedule.dateStart,
-              startTime: transferPayload.targetSchedule.startTime,
-              endTime: transferPayload.targetSchedule.endTime,
-              slotType: transferPayload.targetSchedule.slotType,
-              slotNumber: transferPayload.targetSchedule.slotNumber,
-              classCode: transferPayload.targetSchedule.classCode,
-              subjectCode: transferPayload.targetSchedule.subjectCode,
-              subjectName: transferPayload.targetSchedule.subjectName,
+              targetType: transferPayload?.targetType === 'booking' ? 'booking' : 'schedule',
+              scheduleId: targetInfo.id || transferPayload.toScheduleId || transferPayload.toBookingId,
+              bookingId: transferPayload.toBookingId || null,
+              dateStart: targetInfo.dateStart,
+              startTime: targetInfo.startTime,
+              endTime: targetInfo.endTime,
+              slotType: targetInfo.slotType,
+              slotNumber: targetInfo.slotNumber,
+              classCode: targetInfo.classCode,
+              subjectCode: targetInfo.subjectCode,
+              subjectName: targetInfo.subjectName,
               lecturer: {
-                id: transferPayload.targetSchedule.lecturer.id,
-                fullName: transferPayload.targetSchedule.lecturer.fullName,
-                email: transferPayload.targetSchedule.lecturer.email,
+                id: targetInfo.lecturer.id,
+                fullName: targetInfo.lecturer.fullName,
+                email: targetInfo.lecturer.email,
               },
             });
           } else {
@@ -853,21 +915,24 @@ const LecturerSchedulePage: React.FC = () => {
           );
         }
 
-        if (transferPayload?.targetSchedule?.lecturer) {
+        if (transferPayload?.targetSchedule?.lecturer || transferPayload?.targetBooking?.lecturer) {
+          const targetInfo = transferPayload?.targetSchedule || transferPayload?.targetBooking;
           setSelectedTransferTargetOption({
-            scheduleId: transferPayload.targetSchedule.id || transferPayload.toScheduleId,
-            dateStart: transferPayload.targetSchedule.dateStart,
-            startTime: transferPayload.targetSchedule.startTime,
-            endTime: transferPayload.targetSchedule.endTime,
-            slotType: transferPayload.targetSchedule.slotType,
-            slotNumber: transferPayload.targetSchedule.slotNumber,
-            classCode: transferPayload.targetSchedule.classCode,
-            subjectCode: transferPayload.targetSchedule.subjectCode,
-            subjectName: transferPayload.targetSchedule.subjectName,
+            targetType: transferPayload?.targetType === 'booking' ? 'booking' : 'schedule',
+            scheduleId: targetInfo.id || transferPayload.toScheduleId || transferPayload.toBookingId,
+            bookingId: transferPayload.toBookingId || null,
+            dateStart: targetInfo.dateStart,
+            startTime: targetInfo.startTime,
+            endTime: targetInfo.endTime,
+            slotType: targetInfo.slotType,
+            slotNumber: targetInfo.slotNumber,
+            classCode: targetInfo.classCode,
+            subjectCode: targetInfo.subjectCode,
+            subjectName: targetInfo.subjectName,
             lecturer: {
-              id: transferPayload.targetSchedule.lecturer.id,
-              fullName: transferPayload.targetSchedule.lecturer.fullName,
-              email: transferPayload.targetSchedule.lecturer.email,
+              id: targetInfo.lecturer.id,
+              fullName: targetInfo.lecturer.fullName,
+              email: targetInfo.lecturer.email,
             },
           });
         } else if (incomingPendingTransfer) {
@@ -1251,7 +1316,9 @@ const LecturerSchedulePage: React.FC = () => {
                     <p className="text-gray-700">Lecturer: {selectedTransferTargetOption.lecturer.fullName || '-'}</p>
                     <p className="text-gray-700">Email: {selectedTransferTargetOption.lecturer.email || '-'}</p>
                     <p className="text-gray-700">
-                      Slot #{selectedTransferTargetOption.slotNumber} ({selectedTransferTargetOption.startTime} - {selectedTransferTargetOption.endTime})
+                      {selectedTransferTargetOption.targetType === 'booking'
+                        ? `Booking (${selectedTransferTargetOption.startTime} - ${selectedTransferTargetOption.endTime})`
+                        : `Slot #${selectedTransferTargetOption.slotNumber} (${selectedTransferTargetOption.startTime} - ${selectedTransferTargetOption.endTime})`}
                     </p>
                   </>
                 ) : (
@@ -1288,7 +1355,7 @@ const LecturerSchedulePage: React.FC = () => {
                         className="px-4 py-2 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-60"
                         onClick={async () => {
                           try {
-                            await transferService.approveTransfer(selectedTransfer._id);
+                            await transferService.acceptSelfTransfer(selectedTransfer._id);
                             toast({ title: 'Transfer approved', description: 'You have approved the transfer.' });
                             setShowTransferModal(false);
                             await fetchWeekSchedules();
@@ -1315,7 +1382,7 @@ const LecturerSchedulePage: React.FC = () => {
                             return;
                           }
                           try {
-                            await transferService.rejectTransfer(selectedTransfer._id, reason);
+                            await transferService.rejectSelfTransfer(selectedTransfer._id, reason);
                             toast({ title: 'Transfer rejected', description: 'You have rejected the transfer.' });
                             setShowTransferModal(false);
                             await fetchWeekSchedules();

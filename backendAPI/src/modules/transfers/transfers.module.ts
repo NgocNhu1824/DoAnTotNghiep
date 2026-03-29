@@ -10,6 +10,12 @@ import { Room, RoomSchema } from '@/database/schemas/room.schema';
 import { User, UserSchema } from '@/database/schemas/user.schema';
 import { Role, RoleSchema } from '@/database/schemas/role.schema';
 import { TimeSlot, TimeSlotSchema } from '@/database/schemas/time-slot.schema';
+import { Booking, BookingSchema } from '@/database/schemas/booking.schema';
+import { AccessLog, AccessLogSchema } from '@/database/schemas/access-log.schema';
+import {
+  RoomUsageState,
+  RoomUsageStateSchema,
+} from '@/database/schemas/room-usage-state.schema';
 import { GatewaysModule } from '../../common/gateways/gateways.module';
 import { NotificationsModule } from '@/modules/notifications/notifications.module';
 
@@ -23,6 +29,9 @@ import { NotificationsModule } from '@/modules/notifications/notifications.modul
       { name: User.name, schema: UserSchema },
       { name: Role.name, schema: RoleSchema },
       { name: TimeSlot.name, schema: TimeSlotSchema },
+      { name: Booking.name, schema: BookingSchema },
+      { name: AccessLog.name, schema: AccessLogSchema },
+      { name: RoomUsageState.name, schema: RoomUsageStateSchema },
     ]),
     GatewaysModule,
     NotificationsModule,

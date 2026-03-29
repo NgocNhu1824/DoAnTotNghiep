@@ -90,6 +90,12 @@ class WebSocketService {
     this.socket?.on('incident:updated', callback);
   }
 
+  onAccessLogUpdate(
+    callback: (data: { action: 'created' | 'updated'; payload: any; timestamp: string }) => void,
+  ): void {
+    this.socket?.on('access-log:update', callback);
+  }
+
   // Custom event listener
   on(event: string, callback: (data: any) => void): void {
     this.socket?.on(event, callback);

@@ -1,8 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { LockerService } from './locker.service';
 import { CreateLockerDto } from './dto/create-locker.dto';
 import { UpdateLockerDto } from './dto/update-locker.dto';
 import { InternalServerErrorException } from '@nestjs/common';
+import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
+import { CampusScopeGuard } from '@/common/guards/campus-scope.guard';
+import { PermissionsGuard } from '@/common/guards/permissions.guard';
+import { ScopeGuard } from '@/common/guards/scope.guard';
+import { RequirePermissions } from '@/common/decorators/permissions.decorator';
+import { RequireScopes } from '@/common/decorators/scopes.decorator';
+import { CurrentUser } from '@/common/decorators/current-user.decorator';
 
 @Controller('lockers')
 export class LockerController {
@@ -64,8 +71,11 @@ export class LockerController {
   }
 
   @Post(':id/unlock')
-  unlock(@Param('id') id: string) {
-    return this.lockerService.unlockLocker(id);
+  @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard, ScopeGuard)
+  @RequirePermissions('lockers.unlock', 'lockers.update', 'lockers.manage')
+  @RequireScopes('SELF', 'CAMPUS', 'GLOBAL')
+  unlock(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.lockerService.unlockLocker(id, user);
   }
 
   // ===== ID ROUTES (ALWAYS LAST) =====

@@ -3,6 +3,9 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -13,13 +16,21 @@ import { Schedule } from '@/database/schemas/schedule.schema';
 import { Locker } from '@/database/schemas/locker.schema';
 import { Room } from '@/database/schemas/room.schema';
 import { User } from '@/database/schemas/user.schema';
+import { Booking } from '@/database/schemas/booking.schema';
+import { AccessLog } from '@/database/schemas/access-log.schema';
+import { RoomUsageState } from '@/database/schemas/room-usage-state.schema';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
 
 @Injectable()
-export class TransfersService {
+export class TransfersService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(TransfersService.name);
   // Business rule: transfer request is only allowed near source schedule end time.
-  private static readonly TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END = 30;
+  private static readonly TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END = 15;
   private static readonly TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END = 15;
+  private static readonly ACTIVATION_POLL_INTERVAL_MS = 30_000;
+
+  private activationTimer: NodeJS.Timeout | null = null;
+  private isActivatingTransfers = false;
 
   private parseBooleanEnv(value: string | undefined, defaultValue = false): boolean {
     if (typeof value !== 'string') {
@@ -57,10 +68,7 @@ export class TransfersService {
 
     const nearestCandidates = candidates
       .map((item: any) => {
-        const slot = this.getScheduleSlotInfo(item);
-        const lecturer = item.lecturerId as any;
-        const roleCode = lecturer?.roleId?.roleCode;
-        const candidateStartMinutes = this.parseTimeToMinutes(slot.startTime);
+        const candidateStartMinutes = this.parseTimeToMinutes(String(item.startTime || ''));
         const reasons: string[] = [];
 
         if (
@@ -72,24 +80,25 @@ export class TransfersService {
           summary.invalidCounts.beforeSourceEnd += 1;
         }
 
-        if (!lecturer?.isActive) {
+        if (!item.lecturer?.isActive) {
           reasons.push('LECTURER_INACTIVE');
           summary.invalidCounts.inactiveLecturer += 1;
         }
 
         return {
-          scheduleId: this.normalizeId(item._id),
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          slotType: slot.slotType,
-          slotNumber: slot.slotNumber,
-          timeSlotId: slot.timeSlotId,
+          scheduleId: this.normalizeId(item.scheduleId || item._id),
+          targetType: item.targetType || 'schedule',
+          startTime: item.startTime || null,
+          endTime: item.endTime || null,
+          slotType: item.slotType || null,
+          slotNumber: item.slotNumber || null,
+          timeSlotId: item.timeSlotId || null,
           lecturer: {
-            id: lecturer?._id ? this.normalizeId(lecturer._id) : null,
-            fullName: lecturer?.fullName,
-            email: lecturer?.email,
-            roleCode,
-            isActive: !!lecturer?.isActive,
+            id: item.lecturer?.id || null,
+            fullName: item.lecturer?.fullName,
+            email: item.lecturer?.email,
+            roleCode: item.lecturer?.roleCode,
+            isActive: !!item.lecturer?.isActive,
           },
           reasons,
           gapMinutes: candidateStartMinutes - sourceEndMinutes,
@@ -110,11 +119,273 @@ export class TransfersService {
     @InjectModel(Locker.name) private lockerModel: Model<Locker>,
     @InjectModel(Room.name) private roomModel: Model<Room>,
     @InjectModel(User.name) private userModel: Model<User>,
+    @InjectModel(Booking.name) private bookingModel: Model<Booking>,
+    @InjectModel(AccessLog.name) private accessLogModel: Model<AccessLog>,
+    @InjectModel(RoomUsageState.name)
+    private roomUsageStateModel: Model<RoomUsageState>,
     private readonly eventsGateway: EventsGateway,
     private readonly notificationsService: NotificationsService,
   ) {}
 
+  onModuleInit() {
+    this.activationTimer = setInterval(() => {
+      void this.activateDueApprovedTransfers();
+    }, TransfersService.ACTIVATION_POLL_INTERVAL_MS);
+
+    setTimeout(() => {
+      void this.activateDueApprovedTransfers();
+    }, 2500);
+  }
+
+  onModuleDestroy() {
+    if (this.activationTimer) {
+      clearInterval(this.activationTimer);
+      this.activationTimer = null;
+    }
+  }
+
+  private toObjectIdOrNull(value: any): Types.ObjectId | null {
+    const normalized = this.normalizeId(value);
+    if (!normalized || !Types.ObjectId.isValid(normalized)) {
+      return null;
+    }
+
+    return new Types.ObjectId(normalized);
+  }
+
+  private mapBookingProjection(row: any): any {
+    const lecturer = row?.lecturerId as any;
+    const room = row?.roomId as any;
+
+    return {
+      id: this.normalizeId(row?._id),
+      roomId: row?.roomId ? this.normalizeId(row.roomId) : null,
+      room: room
+        ? {
+            id: this.normalizeId(room._id),
+            roomCode: room.roomCode,
+            roomName: room.roomName,
+          }
+        : null,
+      dateStart: row?.bookingDate || row?.dateStart || null,
+      startTime: row?.startTime || null,
+      endTime: row?.endTime || null,
+      slotType: 'BOOKING',
+      slotNumber: null,
+      classCode: 'BOOKING',
+      subjectCode: 'BOOKING',
+      subjectName: row?.purpose || 'Approved booking',
+      lecturer: lecturer
+        ? {
+            id: this.normalizeId(lecturer._id),
+            fullName: lecturer.fullName,
+            email: lecturer.email,
+          }
+        : null,
+    };
+  }
+
+  private resolveTransferTargetType(transfer: any): 'schedule' | 'booking' {
+    const raw = String((transfer as any)?.targetType || '').trim().toLowerCase();
+    if (raw === 'booking') return 'booking';
+
+    if (this.toObjectIdOrNull((transfer as any)?.toBookingId)) {
+      return 'booking';
+    }
+
+    return 'schedule';
+  }
+
+  private async resolveTransferTargetStartAt(transfer: any): Promise<Date | null> {
+    const targetType = this.resolveTransferTargetType(transfer);
+
+    if (targetType === 'booking') {
+      const bookingId = this.toObjectIdOrNull((transfer as any)?.toBookingId);
+      if (!bookingId) return null;
+
+      const booking = await this.bookingModel
+        .findById(bookingId)
+        .select('bookingDate dateStart startTime')
+        .lean()
+        .exec();
+
+      if (!booking) return null;
+
+      const dateValue = (booking as any).bookingDate || (booking as any).dateStart;
+      return this.buildUtcDateTime(dateValue, (booking as any).startTime || '');
+    }
+
+    const scheduleId = this.toObjectIdOrNull((transfer as any)?.toScheduleId);
+    if (!scheduleId) return null;
+
+    const schedule = await this.scheduleModel
+      .findById(scheduleId)
+      .populate('timeSlotId', 'startTime')
+      .select('dateStart timeSlotId startTime')
+      .lean()
+      .exec();
+
+    if (!schedule) return null;
+
+    const slot = this.getScheduleSlotInfo(schedule);
+    return this.buildUtcDateTime((schedule as any).dateStart, slot.startTime || '');
+  }
+
+  private async activateTransferHandover(transfer: any, activationTime: Date): Promise<void> {
+    const roomId = this.toObjectIdOrNull((transfer as any).roomId);
+    const lockerId = this.toObjectIdOrNull((transfer as any).lockerId);
+    const campusId = this.toObjectIdOrNull((transfer as any).campusId);
+    const toUserId = this.toObjectIdOrNull((transfer as any).toUserId);
+
+    if (!roomId || !lockerId || !campusId || !toUserId) {
+      return;
+    }
+
+    const targetType = this.resolveTransferTargetType(transfer);
+    const toScheduleId =
+      targetType === 'schedule' ? this.toObjectIdOrNull((transfer as any).toScheduleId) : null;
+    const toBookingId =
+      targetType === 'booking' ? this.toObjectIdOrNull((transfer as any).toBookingId) : null;
+
+    const receiver = await this.userModel
+      .findById(toUserId)
+      .select('fullName email')
+      .lean()
+      .exec();
+
+    const receiverName = String((receiver as any)?.fullName || (receiver as any)?.email || '').trim() || null;
+
+    await this.roomUsageStateModel.updateOne(
+      { roomId },
+      {
+        $setOnInsert: { roomId },
+        $set: {
+          lockerId,
+          campusId,
+          currentUserId: this.normalizeId(toUserId),
+          currentUserName: receiverName,
+          currentUsageType: 'transfer_handover',
+          scheduleId: toScheduleId || null,
+          bookingId: toBookingId || null,
+          status: 'occupied',
+          startedAt: activationTime,
+          lastAction: 'transfer_activate',
+          lastMethod: 'transfer_handover',
+          lastReason: String((transfer as any).reason || '').trim() || null,
+          updatedByUserId: this.normalizeId(toUserId),
+          metadata: {
+            transferId: this.normalizeId((transfer as any)._id),
+            targetType,
+            fromScheduleId: this.normalizeId((transfer as any).fromScheduleId),
+            toScheduleId: toScheduleId ? this.normalizeId(toScheduleId) : null,
+            toBookingId: toBookingId ? this.normalizeId(toBookingId) : null,
+            autoActivated: true,
+            source: 'transfer_activation_worker',
+          },
+        },
+      },
+      { upsert: true },
+    );
+
+    await this.accessLogModel.create({
+      roomId,
+      lockerId,
+      userId: toUserId,
+      userName: receiverName,
+      campusId,
+      scheduleId: toScheduleId || null,
+      bookingId: toBookingId || null,
+      action: 'unlock',
+      method: 'transfer_handover',
+      success: true,
+      status: 'success',
+      accessTime: activationTime,
+      reason: 'Auto handover activated at target slot start',
+      usageEffect: 'assign',
+      metadata: {
+        transferId: this.normalizeId((transfer as any)._id),
+        targetType,
+        fromScheduleId: this.normalizeId((transfer as any).fromScheduleId),
+        toScheduleId: toScheduleId ? this.normalizeId(toScheduleId) : null,
+        toBookingId: toBookingId ? this.normalizeId(toBookingId) : null,
+        autoActivated: true,
+      },
+    });
+
+    (transfer as any).activatedAt = new Date();
+    await transfer.save();
+
+    this.eventsGateway.server.emit('transfer:activated', {
+      transferId: this.normalizeId((transfer as any)._id),
+      data: transfer,
+      targetType,
+    });
+
+    await this.notificationsService.notifyTransferActivated({
+      transferId: this.normalizeId((transfer as any)._id),
+      campusId: this.normalizeId(campusId),
+      fromUserId: this.normalizeId((transfer as any).fromUserId),
+      toUserId: this.normalizeId((transfer as any).toUserId),
+      roomId: this.normalizeId(roomId),
+      lockerId: this.normalizeId(lockerId),
+      fromScheduleId: this.normalizeId((transfer as any).fromScheduleId),
+      toScheduleId: toScheduleId ? this.normalizeId(toScheduleId) : null,
+      toBookingId: toBookingId ? this.normalizeId(toBookingId) : null,
+      activatedAt: (transfer as any).activatedAt,
+    });
+  }
+
+  private async activateDueApprovedTransfers(): Promise<void> {
+    if (this.isActivatingTransfers) {
+      return;
+    }
+
+    this.isActivatingTransfers = true;
+
+    try {
+      const approvedRows = await this.transferModel
+        .find({
+          status: 'approved',
+          $or: [{ activatedAt: null }, { activatedAt: { $exists: false } }],
+        })
+        .sort({ approvedAt: 1, createdAt: 1 })
+        .limit(50)
+        .exec();
+
+      if (!approvedRows.length) {
+        return;
+      }
+
+      const now = Date.now();
+
+      for (const transfer of approvedRows) {
+        const startAt = await this.resolveTransferTargetStartAt(transfer);
+        if (!startAt) {
+          continue;
+        }
+
+        if (startAt.getTime() > now) {
+          continue;
+        }
+
+        try {
+          await this.activateTransferHandover(transfer, startAt);
+        } catch (error: any) {
+          this.logger.warn(
+            `Failed to activate transfer ${this.normalizeId((transfer as any)._id)}: ${error?.message || 'unknown error'}`,
+          );
+        }
+      }
+    } finally {
+      this.isActivatingTransfers = false;
+    }
+  }
+
   private normalizeId(value: any): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+
     return value?.toString?.() || String(value);
   }
 
@@ -365,7 +636,7 @@ export class TransfersService {
     const sourceDayEnd = new Date(sourceDayStart);
     sourceDayEnd.setUTCDate(sourceDayEnd.getUTCDate() + 1);
 
-    const candidates = await this.scheduleModel
+    const scheduleCandidates = await this.scheduleModel
       .find({
         campusId: this.toObjectId(campusId, 'campusId'),
         roomId: sourceSchedule.roomId,
@@ -382,16 +653,84 @@ export class TransfersService {
       .lean()
       .exec();
 
-    const validCandidates = candidates
-      .map((item: any) => {
+    const bookingCandidates = await this.bookingModel
+      .find({
+        campusId: this.toObjectId(campusId, 'campusId'),
+        roomId: sourceSchedule.roomId,
+        status: 'approved',
+        lecturerId: { $ne: sourceSchedule.lecturerId },
+        bookingDate: { $gte: sourceDayStart, $lt: sourceDayEnd },
+      })
+      .populate('lecturerId', 'fullName email department isActive roleId')
+      .populate({ path: 'lecturerId.roleId', select: 'roleCode roleName' })
+      .lean()
+      .exec();
+
+    const normalizedCandidates = [
+      ...scheduleCandidates.map((item: any) => {
         const slot = this.getScheduleSlotInfo(item);
         const lecturer = item.lecturerId as any;
-        const candidateStartMinutes = this.parseTimeToMinutes(slot.startTime || '');
+
+        return {
+          targetType: 'schedule',
+          scheduleId: this.normalizeId(item._id),
+          bookingId: null,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          slotType: slot.slotType,
+          slotNumber: slot.slotNumber,
+          timeSlotId: slot.timeSlotId,
+          classCode: item.classCode,
+          subjectCode: item.subjectCode,
+          subjectName: item.subjectName,
+          dateStart: this.toDateOnlyString(item.dateStart),
+          lecturer: {
+            id: lecturer?._id ? this.normalizeId(lecturer._id) : null,
+            fullName: lecturer?.fullName,
+            email: lecturer?.email,
+            department: lecturer?.department,
+            roleCode: lecturer?.roleId?.roleCode,
+            roleName: lecturer?.roleId?.roleName,
+            isActive: !!lecturer?.isActive,
+          },
+        };
+      }),
+      ...bookingCandidates.map((item: any) => {
+        const lecturer = item.lecturerId as any;
+        return {
+          targetType: 'booking',
+          scheduleId: this.normalizeId(item._id),
+          bookingId: this.normalizeId(item._id),
+          startTime: item.startTime,
+          endTime: item.endTime,
+          slotType: 'BOOKING',
+          slotNumber: null,
+          timeSlotId: null,
+          classCode: 'BOOKING',
+          subjectCode: 'BOOKING',
+          subjectName: item.purpose || 'Approved booking',
+          dateStart: this.toDateOnlyString(item.bookingDate || item.dateStart),
+          lecturer: {
+            id: lecturer?._id ? this.normalizeId(lecturer._id) : null,
+            fullName: lecturer?.fullName,
+            email: lecturer?.email,
+            department: lecturer?.department,
+            roleCode: lecturer?.roleId?.roleCode,
+            roleName: lecturer?.roleId?.roleName,
+            isActive: !!lecturer?.isActive,
+          },
+        };
+      }),
+    ];
+
+    const validCandidates = normalizedCandidates
+      .map((item: any) => {
+        const candidateStartMinutes = this.parseTimeToMinutes(item.startTime || '');
         const gapMinutes = candidateStartMinutes - sourceEndMinutes;
 
         return {
           item,
-          isValid: gapMinutes >= 0 && lecturer?.isActive,
+          isValid: gapMinutes >= 0 && item.lecturer?.isActive,
           gapMinutes,
         };
       })
@@ -400,7 +739,7 @@ export class TransfersService {
     if (validCandidates.length === 0) {
       return {
         options: [],
-        diagnostics: this.buildTargetOptionDiagnostics(sourceEndMinutes, candidates),
+        diagnostics: this.buildTargetOptionDiagnostics(sourceEndMinutes, normalizedCandidates),
       };
     }
 
@@ -411,19 +750,25 @@ export class TransfersService {
         .filter((row) => row.gapMinutes === minGap)
         .map((row) => row.item)
         .map((item: any) => ({
-          ...(this.getScheduleSlotInfo(item) || {}),
-          scheduleId: this.normalizeId(item._id),
-          dateStart: this.toDateOnlyString(item.dateStart),
+          targetType: item.targetType,
+          scheduleId: item.scheduleId,
+          bookingId: item.bookingId,
+          startTime: item.startTime,
+          endTime: item.endTime,
+          slotType: item.slotType,
+          slotNumber: item.slotNumber,
+          timeSlotId: item.timeSlotId,
+          dateStart: item.dateStart,
           classCode: item.classCode,
           subjectCode: item.subjectCode,
           subjectName: item.subjectName,
           lecturer: {
-            id: this.normalizeId(item.lecturerId._id),
-            fullName: item.lecturerId.fullName,
-            email: item.lecturerId.email,
-            department: item.lecturerId.department,
-            roleCode: item.lecturerId.roleId?.roleCode,
-            roleName: item.lecturerId.roleId?.roleName,
+            id: item.lecturer.id,
+            fullName: item.lecturer.fullName,
+            email: item.lecturer.email,
+            department: item.lecturer.department,
+            roleCode: item.lecturer.roleCode,
+            roleName: item.lecturer.roleName,
           },
         })),
       diagnostics: null,
@@ -476,10 +821,13 @@ export class TransfersService {
         campusId: this.normalizeId(item.campusId),
         fromScheduleId: this.normalizeId(item.fromScheduleId),
         toScheduleId: this.normalizeId(item.toScheduleId),
+        toBookingId: item.toBookingId ? this.normalizeId(item.toBookingId) : null,
+        targetType: item.targetType || 'schedule',
         transferDate: item.transferDate,
         reason: item.reason,
         status: item.status,
         approvedAt: item.approvedAt,
+        activatedAt: item.activatedAt,
         cancelledAt: item.cancelledAt,
         notes: item.notes,
         createdAt: item.createdAt,
@@ -513,7 +861,7 @@ export class TransfersService {
       .find({
         campusId: this.toObjectId(campusId, 'campusId'),
         toUserId: this.toObjectId(userId, 'toUserId'),
-        toScheduleId: { $in: objectIds },
+        $or: [{ toScheduleId: { $in: objectIds } }, { toBookingId: { $in: objectIds } }],
         status: 'pending',
       })
       .sort({ createdAt: -1 })
@@ -545,17 +893,44 @@ export class TransfersService {
           .exec()
       : [];
 
+    const bookingObjectIds = Array.from(
+      new Set(
+        rows
+          .map((item: any) => this.normalizeId(item.toBookingId))
+          .filter((id) => Types.ObjectId.isValid(id)),
+      ),
+    ).map((id) => new Types.ObjectId(id));
+
+    const bookingRows = bookingObjectIds.length
+      ? await this.bookingModel
+          .find({
+            _id: { $in: bookingObjectIds },
+            campusId: this.toObjectId(campusId, 'campusId'),
+          })
+          .populate('lecturerId', 'fullName email')
+          .populate('roomId', 'roomCode roomName')
+          .select('_id roomId lecturerId bookingDate dateStart startTime endTime purpose')
+          .lean()
+          .exec()
+      : [];
+
     const scheduleMap: Record<string, any> = {};
+    const bookingMap: Record<string, any> = {};
 
     scheduleRows.forEach((row: any) => {
       const key = this.normalizeId(row._id);
       scheduleMap[key] = this.mapScheduleProjection(row);
     });
 
+    bookingRows.forEach((row: any) => {
+      const key = this.normalizeId(row._id);
+      bookingMap[key] = this.mapBookingProjection(row);
+    });
+
     const result: Record<string, any> = {};
 
     rows.forEach((item: any) => {
-      const key = this.normalizeId(item.toScheduleId);
+      const key = this.normalizeId(item.toScheduleId || item.toBookingId);
       if (result[key]) {
         return;
       }
@@ -569,14 +944,18 @@ export class TransfersService {
         campusId: this.normalizeId(item.campusId),
         fromScheduleId: this.normalizeId(item.fromScheduleId),
         toScheduleId: this.normalizeId(item.toScheduleId),
+        toBookingId: item.toBookingId ? this.normalizeId(item.toBookingId) : null,
+        targetType: item.targetType || 'schedule',
         transferDate: item.transferDate,
         reason: item.reason,
         status: item.status,
         approvedAt: item.approvedAt,
+        activatedAt: item.activatedAt,
         cancelledAt: item.cancelledAt,
         notes: item.notes,
         sourceSchedule: scheduleMap[this.normalizeId(item.fromScheduleId)] || null,
         targetSchedule: scheduleMap[this.normalizeId(item.toScheduleId)] || null,
+        targetBooking: bookingMap[this.normalizeId(item.toBookingId)] || null,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
       };
@@ -589,12 +968,18 @@ export class TransfersService {
     const userId = this.normalizeId(currentUser._id);
     const campusId = this.normalizeId(currentUser.campusId);
     const reasonText = String(createTransferDto.reason || '').trim();
+    const hasScheduleTarget = Boolean(String(createTransferDto.toScheduleId || '').trim());
+    const hasBookingTarget = Boolean(String(createTransferDto.toBookingId || '').trim());
 
     if (!reasonText) {
       throw new BadRequestException('reason is required');
     }
 
-    const [room, locker, toUser, fromSchedule, toSchedule] = await Promise.all([
+    if (hasScheduleTarget === hasBookingTarget) {
+      throw new BadRequestException('Provide exactly one target: toScheduleId or toBookingId');
+    }
+
+    const [room, locker, toUser, fromSchedule, toSchedule, toBooking] = await Promise.all([
       this.roomModel
         .findOne({
           _id: this.toObjectId(createTransferDto.roomId, 'roomId'),
@@ -626,14 +1011,26 @@ export class TransfersService {
         .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
         .lean()
         .exec(),
-      this.scheduleModel
-        .findOne({
-          _id: this.toObjectId(createTransferDto.toScheduleId, 'toScheduleId'),
-          campusId: this.toObjectId(campusId, 'campusId'),
-        })
-        .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
-        .lean()
-        .exec(),
+      hasScheduleTarget
+        ? this.scheduleModel
+            .findOne({
+              _id: this.toObjectId(String(createTransferDto.toScheduleId), 'toScheduleId'),
+              campusId: this.toObjectId(campusId, 'campusId'),
+            })
+            .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
+            .lean()
+            .exec()
+        : Promise.resolve(null),
+      hasBookingTarget
+        ? this.bookingModel
+            .findOne({
+              _id: this.toObjectId(String(createTransferDto.toBookingId), 'toBookingId'),
+              campusId: this.toObjectId(campusId, 'campusId'),
+              status: 'approved',
+            })
+            .lean()
+            .exec()
+        : Promise.resolve(null),
     ]);
 
     if (!room) {
@@ -664,10 +1061,6 @@ export class TransfersService {
       throw new BadRequestException('Source schedule not found');
     }
 
-    if (!toSchedule) {
-      throw new BadRequestException('Target schedule not found');
-    }
-
     if (this.normalizeId(fromSchedule.lecturerId) !== userId) {
       throw new ForbiddenException('You can only create transfer from your own schedule');
     }
@@ -680,42 +1073,69 @@ export class TransfersService {
       throw new BadRequestException('Cannot transfer to yourself');
     }
 
-    if (this.normalizeId(toSchedule.lecturerId) !== createTransferDto.toUserId) {
-      throw new BadRequestException('Recipient user must match target schedule lecturer');
-    }
-
     if (this.normalizeId(fromSchedule.roomId) !== createTransferDto.roomId) {
       throw new BadRequestException('Source schedule does not belong to selected room');
-    }
-
-    if (this.normalizeId(toSchedule.roomId) !== createTransferDto.roomId) {
-      throw new BadRequestException('Target schedule does not belong to selected room');
-    }
-
-    if (createTransferDto.fromScheduleId === createTransferDto.toScheduleId) {
-      throw new BadRequestException('Source and target schedule must be different');
     }
 
     if (fromSchedule.status === 'cancelled') {
       throw new BadRequestException('Source schedule is not eligible for transfer');
     }
 
-    if (toSchedule.status === 'cancelled') {
-      throw new BadRequestException('Target schedule is not eligible for transfer');
-    }
-
     const fromDateOnly = this.toDateOnlyString(fromSchedule.dateStart);
-    const toDateOnly = this.toDateOnlyString(toSchedule.dateStart);
-    if (fromDateOnly !== toDateOnly) {
-      throw new BadRequestException('Source and target schedules must be on the same date');
+    const fromSlot = this.getScheduleSlotInfo(fromSchedule);
+    const fromEndMinutes = this.parseTimeToMinutes(fromSlot.endTime || '');
+
+    let targetType: 'schedule' | 'booking' = 'schedule';
+    let targetScheduleId: string | null = null;
+    let targetBookingId: string | null = null;
+    let targetStartMinutes = -1;
+    let targetDateOnly = '';
+
+    if (toSchedule) {
+      if (this.normalizeId(toSchedule.lecturerId) !== createTransferDto.toUserId) {
+        throw new BadRequestException('Recipient user must match target schedule lecturer');
+      }
+
+      if (this.normalizeId(toSchedule.roomId) !== createTransferDto.roomId) {
+        throw new BadRequestException('Target schedule does not belong to selected room');
+      }
+
+      if (createTransferDto.fromScheduleId === this.normalizeId(toSchedule._id)) {
+        throw new BadRequestException('Source and target schedule must be different');
+      }
+
+      if ((toSchedule as any).status === 'cancelled') {
+        throw new BadRequestException('Target schedule is not eligible for transfer');
+      }
+
+      const toSlot = this.getScheduleSlotInfo(toSchedule);
+      targetStartMinutes = this.parseTimeToMinutes(toSlot.startTime || '');
+      targetDateOnly = this.toDateOnlyString((toSchedule as any).dateStart);
+      targetScheduleId = this.normalizeId((toSchedule as any)._id);
+      targetType = 'schedule';
     }
 
-    const fromSlot = this.getScheduleSlotInfo(fromSchedule);
-    const toSlot = this.getScheduleSlotInfo(toSchedule);
-    const fromEndMinutes = this.parseTimeToMinutes(fromSlot.endTime || '');
-    const toStartMinutes = this.parseTimeToMinutes(toSlot.startTime || '');
-    if (fromEndMinutes < 0 || toStartMinutes < 0 || toStartMinutes < fromEndMinutes) {
-      throw new BadRequestException('Target schedule must start after source schedule ends');
+    if (toBooking) {
+      if (this.normalizeId((toBooking as any).lecturerId) !== createTransferDto.toUserId) {
+        throw new BadRequestException('Recipient user must match target booking lecturer');
+      }
+
+      if (this.normalizeId((toBooking as any).roomId) !== createTransferDto.roomId) {
+        throw new BadRequestException('Target booking does not belong to selected room');
+      }
+
+      targetStartMinutes = this.parseTimeToMinutes(String((toBooking as any).startTime || ''));
+      targetDateOnly = this.toDateOnlyString((toBooking as any).bookingDate || (toBooking as any).dateStart);
+      targetBookingId = this.normalizeId((toBooking as any)._id);
+      targetType = 'booking';
+    }
+
+    if (fromDateOnly !== targetDateOnly) {
+      throw new BadRequestException('Source and target must be on the same date');
+    }
+
+    if (fromEndMinutes < 0 || targetStartMinutes < 0 || targetStartMinutes < fromEndMinutes) {
+      throw new BadRequestException('Target must start after source schedule ends');
     }
 
     if (this.isTransferWindowEnforced() && !this.isWithinTransferRequestWindow(fromSchedule)) {
@@ -743,7 +1163,12 @@ export class TransfersService {
         campusId: this.toObjectId(campusId, 'campusId'),
         lockerId: this.toObjectId(createTransferDto.lockerId, 'lockerId'),
         fromScheduleId: this.toObjectId(createTransferDto.fromScheduleId, 'fromScheduleId'),
-        toScheduleId: this.toObjectId(createTransferDto.toScheduleId, 'toScheduleId'),
+        ...(targetScheduleId
+          ? { toScheduleId: this.toObjectId(targetScheduleId, 'toScheduleId') }
+          : {}),
+        ...(targetBookingId
+          ? { toBookingId: this.toObjectId(targetBookingId, 'toBookingId') }
+          : {}),
         $or: [{ status: 'pending' }, { status: 'approved' }],
       })
       .select('_id status')
@@ -761,7 +1186,9 @@ export class TransfersService {
       lockerId: this.toObjectId(createTransferDto.lockerId, 'lockerId'),
       toUserId: this.toObjectId(createTransferDto.toUserId, 'toUserId'),
       fromScheduleId: this.toObjectId(createTransferDto.fromScheduleId, 'fromScheduleId'),
-      toScheduleId: this.toObjectId(createTransferDto.toScheduleId, 'toScheduleId'),
+      toScheduleId: targetScheduleId ? this.toObjectId(targetScheduleId, 'toScheduleId') : null,
+      toBookingId: targetBookingId ? this.toObjectId(targetBookingId, 'toBookingId') : null,
+      targetType,
       transferDate,
       reason: reasonText,
       notes: createTransferDto.notes?.trim() || undefined,
@@ -780,7 +1207,8 @@ export class TransfersService {
       roomId: createTransferDto.roomId,
       lockerId: createTransferDto.lockerId,
       fromScheduleId: createTransferDto.fromScheduleId,
-      toScheduleId: createTransferDto.toScheduleId,
+      toScheduleId: targetScheduleId,
+      toBookingId: targetBookingId,
       reason: reasonText,
     });
 
@@ -839,6 +1267,7 @@ export class TransfersService {
       lockerId: transfer.lockerId,
       fromScheduleId: transfer.fromScheduleId,
       toScheduleId: transfer.toScheduleId,
+      toBookingId: (transfer as any).toBookingId || null,
       reason: cancelReason,
       cancelledBy: currentUser._id,
     });
@@ -894,6 +1323,27 @@ export class TransfersService {
           .exec()
       : [];
 
+    const bookingIds = Array.from(
+      new Set(
+        transfers
+          .map((item: any) => this.normalizeId(item.toBookingId))
+          .filter((id) => Types.ObjectId.isValid(id)),
+      ),
+    ).map((id) => new Types.ObjectId(id));
+
+    const bookingRows = bookingIds.length
+      ? await this.bookingModel
+          .find({
+            _id: { $in: bookingIds },
+            campusId: this.toObjectId(campusId, 'campusId'),
+          })
+          .populate('lecturerId', 'fullName email')
+          .populate('roomId', 'roomCode roomName')
+          .select('_id roomId lecturerId bookingDate dateStart startTime endTime purpose')
+          .lean()
+          .exec()
+      : [];
+
     const userIds = Array.from(
       new Set(
         transfers
@@ -935,6 +1385,7 @@ export class TransfersService {
     const scheduleMap: Record<string, any> = {};
     const userMap: Record<string, any> = {};
     const lockerMap: Record<string, any> = {};
+    const bookingMap: Record<string, any> = {};
 
     userRows.forEach((row: any) => {
       userMap[this.normalizeId(row._id)] = {
@@ -958,6 +1409,11 @@ export class TransfersService {
       scheduleMap[key] = this.mapScheduleProjection(row);
     });
 
+    bookingRows.forEach((row: any) => {
+      const key = this.normalizeId(row._id);
+      bookingMap[key] = this.mapBookingProjection(row);
+    });
+
     return transfers.map((item: any) => ({
       ...item,
       fromUser: userMap[this.normalizeId(item.fromUserId)] || null,
@@ -965,6 +1421,7 @@ export class TransfersService {
       locker: lockerMap[this.normalizeId(item.lockerId)] || null,
       sourceSchedule: scheduleMap[this.normalizeId(item.fromScheduleId)] || null,
       targetSchedule: scheduleMap[this.normalizeId(item.toScheduleId)] || null,
+      targetBooking: bookingMap[this.normalizeId(item.toBookingId)] || null,
     }));
   }
 
@@ -1007,17 +1464,55 @@ export class TransfersService {
           .exec()
       : [];
 
+    const bookingId = this.normalizeId((transfer as any).toBookingId);
+    const bookingRows = Types.ObjectId.isValid(bookingId)
+      ? await this.bookingModel
+          .find({
+            _id: new Types.ObjectId(bookingId),
+            campusId: this.toObjectId(campusId, 'campusId'),
+          })
+          .populate('lecturerId', 'fullName email')
+          .populate('roomId', 'roomCode roomName')
+          .select('_id roomId lecturerId bookingDate dateStart startTime endTime purpose')
+          .lean()
+          .exec()
+      : [];
+
     const scheduleMap: Record<string, any> = {};
+    const bookingMap: Record<string, any> = {};
     scheduleRows.forEach((row: any) => {
       const key = this.normalizeId(row._id);
       scheduleMap[key] = this.mapScheduleProjection(row);
+    });
+
+    bookingRows.forEach((row: any) => {
+      const key = this.normalizeId(row._id);
+      bookingMap[key] = this.mapBookingProjection(row);
     });
 
     return {
       ...transfer,
       sourceSchedule: scheduleMap[this.normalizeId((transfer as any).fromScheduleId)] || null,
       targetSchedule: scheduleMap[this.normalizeId((transfer as any).toScheduleId)] || null,
+      targetBooking: bookingMap[this.normalizeId((transfer as any).toBookingId)] || null,
     };
+  }
+
+  async getSelfIncomingTransfers(currentUser: any, status?: string): Promise<any[]> {
+    const allVisibleTransfers = await this.list({ status }, currentUser);
+    const currentUserId = this.normalizeId(currentUser?._id);
+
+    return allVisibleTransfers.filter(
+      (item: any) => this.normalizeId(item?.toUserId) === currentUserId,
+    );
+  }
+
+  async acceptSelfTransfer(id: string, currentUser: any): Promise<Transfer> {
+    return this.approve(id, currentUser);
+  }
+
+  async rejectSelfTransfer(id: string, reason: string, currentUser: any): Promise<Transfer> {
+    return this.reject(id, reason, currentUser);
   }
 
   // Approve transfer
@@ -1039,6 +1534,9 @@ export class TransfersService {
       transferId: this.normalizeId(transfer._id),
       data: transfer,
     });
+
+    void this.activateDueApprovedTransfers();
+
     await this.notificationsService.notifyTransferApproved({
       transferId: this.normalizeId(transfer._id),
       campusId: transfer.campusId,
@@ -1048,6 +1546,7 @@ export class TransfersService {
       lockerId: transfer.lockerId,
       fromScheduleId: transfer.fromScheduleId,
       toScheduleId: transfer.toScheduleId,
+      toBookingId: (transfer as any).toBookingId || null,
       reason: transfer.reason,
       approvedBy: currentUser._id,
     });
@@ -1088,6 +1587,7 @@ export class TransfersService {
       lockerId: transfer.lockerId,
       fromScheduleId: transfer.fromScheduleId,
       toScheduleId: transfer.toScheduleId,
+      toBookingId: (transfer as any).toBookingId || null,
       reason: transfer.reason,
       rejectedBy: currentUser._id,
       rejectReason,

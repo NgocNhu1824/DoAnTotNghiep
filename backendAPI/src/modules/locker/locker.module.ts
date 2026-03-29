@@ -16,6 +16,7 @@ import {
   RoomUsageState,
   RoomUsageStateSchema,
 } from '@/database/schemas/room-usage-state.schema';
+import { Room, RoomSchema } from '@/database/schemas/room.schema';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import {
       { name: ESP32.name, schema: ESP32Schema },
       { name: AccessLog.name, schema: AccessLogSchema },
       { name: RoomUsageState.name, schema: RoomUsageStateSchema },
+      { name: Room.name, schema: RoomSchema },
     ]),
   ],
   controllers: [LockerController, Esp32Controller],

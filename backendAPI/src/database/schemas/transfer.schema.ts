@@ -25,6 +25,12 @@ export class Transfer extends Document {
   toScheduleId: string;
 
   @Prop()
+  toBookingId: string;
+
+  @Prop({ default: 'schedule' })
+  targetType: string;
+
+  @Prop()
   transferDate: Date;
 
   @Prop()
@@ -35,6 +41,9 @@ export class Transfer extends Document {
 
   @Prop()
   approvedAt: Date;
+
+  @Prop()
+  activatedAt: Date;
 
   @Prop()
   cancelledAt: Date;

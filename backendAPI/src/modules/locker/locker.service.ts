@@ -14,6 +14,7 @@ import { Campus } from '@/database/schemas/campus.schema';
 import { ESP32 } from '@/database/schemas/esp32.schema';
 import { AccessLog } from '@/database/schemas/access-log.schema';
 import { RoomUsageState } from '@/database/schemas/room-usage-state.schema';
+import { Room } from '@/database/schemas/room.schema';
 import { EventsGateway } from '@/common/gateways/events.gateway';
 
 import { CreateLockerDto } from './dto/create-locker.dto';
@@ -42,6 +43,9 @@ export class LockerService {
 
     @InjectModel(RoomUsageState.name)
     private readonly roomUsageStateModel: Model<RoomUsageState>,
+
+    @InjectModel(Room.name)
+    private readonly roomModel: Model<Room>,
 
     private readonly eventsGateway: EventsGateway,
     private readonly configService: ConfigService,
@@ -221,12 +225,29 @@ export class LockerService {
   }
 
   private toObjectId(value: unknown): Types.ObjectId | null {
-    if (!value) return null;
+    if (this.isNullLike(value)) return null;
     const normalized = String(value).trim();
     if (!Types.ObjectId.isValid(normalized)) {
       return null;
     }
     return new Types.ObjectId(normalized);
+  }
+
+  private isNullLike(value: unknown): boolean {
+    if (value === null || value === undefined) {
+      return true;
+    }
+
+    const normalized = String(value).trim().toLowerCase();
+    return normalized === '' || normalized === 'null' || normalized === 'undefined' || normalized === 'nan';
+  }
+
+  private normalizeNullableString(value: unknown): string | null {
+    if (this.isNullLike(value)) {
+      return null;
+    }
+
+    return String(value).trim();
   }
 
   private isTechnicalAccessMethod(method: string) {
@@ -474,7 +495,7 @@ export class LockerService {
     const action = this.normalizeAccessAction(method, metadata);
     const usageEffect = this.resolveUsageEffect(payload.status, method, action, metadata);
 
-    const rawAccessTime = metadata.accessTime;
+    const rawAccessTime = this.normalizeNullableString(metadata.accessTime);
     const parsedAccessTime = rawAccessTime ? new Date(rawAccessTime) : new Date();
     const accessTime = Number.isNaN(parsedAccessTime.getTime()) ? new Date() : parsedAccessTime;
 
@@ -485,19 +506,35 @@ export class LockerService {
           .lean()
       : null;
 
-    const roomId = locker?.roomId ? new Types.ObjectId(String(locker.roomId)) : this.toObjectId(metadata.roomId);
+    const lockerRoomId = locker?.roomId ? new Types.ObjectId(String(locker.roomId)) : null;
+    const resolvedRoom = lockerRoomId && !locker?.campusId
+      ? await this.roomModel
+          .findById(lockerRoomId)
+          .select('_id campusId')
+          .lean()
+      : null;
+
+    const roomId = lockerRoomId || this.toObjectId(metadata.roomId);
     const campusId = locker?.campusId
       ? new Types.ObjectId(String(locker.campusId))
-      : this.toObjectId(metadata.campusId);
+      : resolvedRoom?.campusId
+        ? new Types.ObjectId(String(resolvedRoom.campusId))
+        : this.toObjectId(metadata.campusId || metadata.executedByCampusId);
     const scheduleId = this.toObjectId(metadata.scheduleId);
     const bookingId = this.toObjectId(metadata.bookingId);
 
-    const rawUserId = payload.userId ?? (metadata.userId ? String(metadata.userId) : null);
+    const rawUserId =
+      this.normalizeNullableString(payload.userId) ||
+      this.normalizeNullableString(metadata.userId) ||
+      this.normalizeNullableString(metadata.executedByUserId);
     const userObjectId = this.toObjectId(rawUserId);
     if (rawUserId && !userObjectId && !metadata.rawUserId) {
       metadata.rawUserId = String(rawUserId);
     }
-    const userName = payload.userName ?? (metadata.userName ? String(metadata.userName) : null);
+    const userName =
+      this.normalizeNullableString(payload.userName) ||
+      this.normalizeNullableString(metadata.userName) ||
+      this.normalizeNullableString(metadata.executedByUserName);
 
     const created = await this.accessLogModel.create({
       roomId: roomId || null,
@@ -514,9 +551,9 @@ export class LockerService {
       success: payload.status === 'success',
       status: payload.status,
       accessTime,
-      ipAddress: metadata.ipAddress ? String(metadata.ipAddress) : null,
-      location: metadata.location ? String(metadata.location) : null,
-      reason: metadata.reason ? String(metadata.reason) : null,
+      ipAddress: this.normalizeNullableString(metadata.ipAddress),
+      location: this.normalizeNullableString(metadata.location),
+      reason: this.normalizeNullableString(metadata.reason),
       usageEffect,
       metadata,
     });
@@ -534,6 +571,22 @@ export class LockerService {
       accessTime,
       accessLogId: new Types.ObjectId(String(created._id)),
       metadata,
+    });
+
+    this.eventsGateway.broadcastAccessLogUpdate('created', {
+      id: String(created._id),
+      lockerId: lockerId ? String(lockerId) : null,
+      roomId: roomId ? String(roomId) : null,
+      campusId: campusId ? String(campusId) : null,
+      userId: userObjectId ? String(userObjectId) : rawUserId || null,
+      userName,
+      action,
+      method,
+      status: payload.status,
+      success: payload.status === 'success',
+      deviceId: payload.deviceId,
+      accessTime: accessTime.toISOString(),
+      correlationId: this.normalizeNullableString(metadata.correlationId),
     });
 
     return {
@@ -1224,14 +1277,14 @@ export class LockerService {
     };
   }
 
-  async unlockLocker(lockerId: string) {
+  async unlockLocker(lockerId: string, currentUser?: any) {
     if (!Types.ObjectId.isValid(lockerId)) {
       throw new BadRequestException('Invalid locker id');
     }
 
     const locker = await this.lockerModel
       .findById(lockerId)
-      .select('lockerNumber deviceId controlPin isActive')
+      .select('lockerNumber deviceId controlPin isActive roomId campusId')
       .lean();
 
     if (!locker) {
@@ -1270,13 +1323,28 @@ export class LockerService {
       durationMs,
     });
 
+    const currentUserId = this.normalizeNullableString(
+      currentUser?._id?.toString?.() || currentUser?._id,
+    );
+    const currentUserName = this.normalizeNullableString(currentUser?.fullName || currentUser?.email);
+    const currentUserCampusId = this.normalizeNullableString(
+      currentUser?.campusId?.toString?.() || currentUser?.campusId,
+    );
+
     await this.createAccessLogEntry({
       deviceId,
       method: 'remote_open',
       status: 'pending',
+      userId: currentUserId,
+      userName: currentUserName,
       metadata: {
         lockerId,
         lockerNumber: locker.lockerNumber,
+        roomId: locker.roomId ? String(locker.roomId) : null,
+        campusId: locker.campusId ? String(locker.campusId) : currentUserCampusId,
+        executedByUserId: currentUserId,
+        executedByUserName: currentUserName,
+        executedByCampusId: currentUserCampusId,
         pin,
         action: 'on',
         correlationId,

@@ -70,6 +70,13 @@ export class TransfersController {
     return { success: true, data: result };
   }
 
+  @Get('self/incoming')
+  @RequirePermissions('transfers.read')
+  async getSelfIncomingTransfers(@CurrentUser() user: any, @Query('status') status?: string) {
+    const result = await this.transfersService.getSelfIncomingTransfers(user, status);
+    return { success: true, data: result };
+  }
+
   @Post()
   @RequirePermissions('transfers.create')
   async create(@Body() dto: CreateTransferDto, @CurrentUser() user: any) {
@@ -108,11 +115,29 @@ export class TransfersController {
     return { success: true, data: result };
   }
 
+  @Patch('self/:id/accept')
+  @RequirePermissions('transfers.approve')
+  async acceptSelf(@Param('id') id: string, @CurrentUser() user: any) {
+    const result = await this.transfersService.acceptSelfTransfer(id, user);
+    return { success: true, data: result };
+  }
+
   // Từ chối transfer
   @Patch(':id/reject')
   @RequirePermissions('transfers.reject')
   async reject(@Param('id') id: string, @Body('reason') reason: string, @CurrentUser() user: any) {
     const result = await this.transfersService.reject(id, reason, user);
+    return { success: true, data: result };
+  }
+
+  @Patch('self/:id/reject')
+  @RequirePermissions('transfers.reject')
+  async rejectSelf(
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+    @CurrentUser() user: any,
+  ) {
+    const result = await this.transfersService.rejectSelfTransfer(id, reason, user);
     return { success: true, data: result };
   }
 }

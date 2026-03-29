@@ -253,9 +253,17 @@ const LecturerBookingPage: React.FC = () => {
         }
 
         const scheduleConflict = roomSchedules.find(
-          (item) =>
-            item.slotNumber === slot.slotNumber ||
-            timeOverlaps(slot.startTime, slot.endTime, item.startTime, item.endTime),
+          (item) => {
+            if (item.slotNumber === slot.slotNumber) {
+              return true;
+            }
+
+            if (!item.startTime || !item.endTime) {
+              return false;
+            }
+
+            return timeOverlaps(slot.startTime, slot.endTime, item.startTime, item.endTime);
+          },
         );
 
         if (scheduleConflict) {

@@ -16,6 +16,7 @@ import LockerManagementPage from '../pages/Admin/LockerManagementPage';
 import RoomManagementPage from '../pages/Admin/RoomManagementPage';
 import RoleManagementPage from '../pages/Admin/RoleManagementPage';
 import AuditLogPage from '../pages/Admin/AuditLogPage';
+import AccessLogPage from '../pages/Admin/AccessLogPage';
 import ScheduleManagementPage from '../pages/Admin/ScheduleManagementPage';
 import DeviceManagementPage from '../pages/Admin/DeviceManagementPage';
 import UserProfilePage from '../pages/Admin/UserProfilePage';
@@ -27,6 +28,7 @@ import LecturerBookingHistoryPage from '../pages/Lecturer/LecturerBookingHistory
 import LecturerSchedulePage from '@/pages/Lecturer/LecturerSchedulePage';
 import LecturerBookingRequestPage from '../pages/Lecturer/LecturerBookingRequestPage';
 import LecturerTransferRequestPage from '../pages/Lecturer/LecturerTransferRequestPage';
+import LecturerIncomingTransfersPage from '../pages/Lecturer/LecturerIncomingTransfersPage';
 import AdminTransferListPage from '../pages/Admin/AdminTransferListPage';
 
 
@@ -112,6 +114,20 @@ const AppRoutes: React.FC = () => {
               >
                 <AdminLayout>
                   <AuditLogPage />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/access-logs"
+            element={
+              <ProtectedRoute
+                requiredPermissions={[PERMISSIONS.ACCESS_LOGS_READ, PERMISSIONS.ACCESS_LOGS_MANAGE]}
+                requiredScopes={['SELF', 'CAMPUS', 'GLOBAL']}
+              >
+                <AdminLayout>
+                  <AccessLogPage />
                 </AdminLayout>
               </ProtectedRoute>
             }
@@ -237,6 +253,21 @@ const AppRoutes: React.FC = () => {
               >
                 <AdminLayout>
                   <LecturerTransferRequestPage />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/lecturer/transfers/incoming"
+            element={
+              <ProtectedRoute
+                allowedRoleCodes={['LECTURER']}
+                requiredScopes={['SELF']}
+                requiredPermissions={[PERMISSIONS.TRANSFERS_READ]}
+              >
+                <AdminLayout>
+                  <LecturerIncomingTransfersPage />
                 </AdminLayout>
               </ProtectedRoute>
             }
