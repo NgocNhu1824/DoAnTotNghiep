@@ -1,5 +1,4 @@
 import {
-  IsArray,
   IsBoolean,
   IsEnum,
   IsMongoId,
@@ -29,11 +28,6 @@ export class CreateRoomDto {
 
   @IsString()
   roomType: string;
-
-  @IsArray()
-  @IsString({ each: true })
-  @IsOptional()
-  facilities?: string[];
 
   @IsNumber()
   @Min(0)

@@ -430,33 +430,39 @@ class GatewayService {
     const correlationId = String(data.correlationId || `cmd-${Date.now()}`);
     const deviceId = String(data.deviceId || this.defaultDeviceId || '').trim();
     const pin = Number(data.pin);
-    const action = data.action === 'off' ? 'off' : 'on';
-    const durationMs = Number.isFinite(Number(data.durationMs)) ? Number(data.durationMs) : undefined;
+    const isPinCommand = Number.isFinite(pin);
+    const action = String(data.action || '').trim();
 
-    const queuedCommand = this.enqueueCommand({
-      ...data,
-      correlationId,
-      deviceId,
-      pin,
-      action,
-      durationMs,
-    });
+    let queuedCommand = null;
+    if (isPinCommand) {
+      const durationMs = Number.isFinite(Number(data.durationMs)) ? Number(data.durationMs) : undefined;
+      queuedCommand = this.enqueueCommand({
+        ...data,
+        correlationId,
+        deviceId,
+        pin,
+        action: action === 'off' ? 'off' : 'on',
+        durationMs,
+      });
+    }
 
-    const dispatchedRealtime = this.realtimeBridge?.sendCommand?.(deviceId, {
+    // Always attempt to dispatch the raw payload to the realtime bridge so
+    // non-pin commands (e.g. fingerprint actions) are forwarded unchanged.
+    const realtimePayload = {
       id: correlationId,
       correlationId,
       deviceId,
-      pin,
-      action,
-      durationMs,
       requestedAt: new Date().toISOString(),
-    }) || false;
+      ...(isPinCommand ? { pin, action: action === 'off' ? 'off' : 'on' } : { ...data, action }),
+    };
+
+    const dispatchedRealtime = this.realtimeBridge?.sendCommand?.(deviceId, realtimePayload) || false;
 
     this.wsClient.emit(this.events.HARDWARE_COMMAND_ACK, {
       correlationId,
       deviceId,
-      pin,
-      action,
+      pin: isPinCommand ? pin : undefined,
+      action: action || (isPinCommand ? 'on' : ''),
       status: 'accepted',
       message: dispatchedRealtime
         ? 'Gateway accepted command and pushed it to ESP32 via realtime channel.'
@@ -607,6 +613,8 @@ class GatewayService {
       metadata: {
         source: payload.source,
         matched: Boolean(payload.matched),
+        // forward raw fingerprint data if ESP32 provided it (registration flow)
+        fingerData: payload.fingerData !== undefined ? payload.fingerData : undefined,
       },
     });
   }

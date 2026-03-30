@@ -117,6 +117,14 @@ export const lockerService = {
     };
   },
 
+  adminTestRegister: async (data: { deviceId: string; userId?: string; fingerId?: number; fingerData?: string; delaySeconds?: number }) => {
+    return await api.post('/lockers/admin/test/fingerprint/register', data);
+  },
+
+  adminTestVerify: async (data: { deviceId: string; fingerId?: number; matched?: boolean }) => {
+    return await api.post('/lockers/admin/test/fingerprint/verify', data);
+  },
+
   getAccessLogs: async (lockerId: string, limit = 20): Promise<LockerAccessLogEntity[]> => {
     const res = await api.get(`/lockers/${lockerId}/access-logs`, {
       params: { limit },

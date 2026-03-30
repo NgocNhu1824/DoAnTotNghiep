@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { Locker } from '@/database/schemas/locker.schema';
 import { Campus } from '@/database/schemas/campus.schema';
 import { ESP32 } from '@/database/schemas/esp32.schema';
+import { User } from '@/database/schemas/user.schema';
 import { AccessLog } from '@/database/schemas/access-log.schema';
 import { RoomUsageState } from '@/database/schemas/room-usage-state.schema';
 import { Room } from '@/database/schemas/room.schema';
@@ -37,6 +38,9 @@ export class LockerService {
 
     @InjectModel(ESP32.name)
     private readonly esp32Model: Model<ESP32>,
+
+    @InjectModel(User.name)
+    private readonly userModel: Model<User>,
 
     @InjectModel(AccessLog.name)
     private readonly accessLogModel: Model<AccessLog>,
@@ -414,7 +418,7 @@ export class LockerService {
     };
   }
 
-  private async pushCommandToIotGateway(command: {
+  async pushCommandToIotGateway(command: {
     correlationId: string;
     deviceId: string;
     pin: number;
@@ -465,6 +469,58 @@ export class LockerService {
       };
     } catch (error: any) {
       this.logger.warn(`Failed to push command to iot-gateway: ${error?.message || 'unknown error'}`);
+      return {
+        enabled: true,
+        accepted: false,
+        message: error?.message || 'Request failed',
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async pushIngestToIotGateway(deviceId: string, payload: any) {
+    const { baseUrl, username, password, timeoutMs } = this.getIotGatewayConfig();
+    if (!baseUrl) {
+      return {
+        enabled: false,
+        accepted: false,
+        message: 'IOT gateway URL is not configured',
+      };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Number(timeoutMs) || 4000);
+
+    try {
+      const endpoint = `${baseUrl.replace(/\/$/, '')}/api/lockers/ingest`;
+      const authHeader = Buffer.from(`${username}:${password}`).toString('base64');
+
+      const body = {
+        deviceId,
+        ...payload,
+      };
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Basic ${authHeader}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      const resPayload = await response.json().catch(() => null);
+
+      return {
+        enabled: true,
+        accepted: response.ok,
+        statusCode: response.status,
+        payload: resPayload,
+      };
+    } catch (error: any) {
+      this.logger.warn(`Failed to push ingest to iot-gateway: ${error?.message || 'unknown error'}`);
       return {
         enabled: true,
         accepted: false,
@@ -588,6 +644,20 @@ export class LockerService {
       accessTime: accessTime.toISOString(),
       correlationId: this.normalizeNullableString(metadata.correlationId),
     });
+
+    // If fingerprint data was provided in metadata and a valid user id is available,
+    // save fingerprintData into the users collection for registration flows.
+    try {
+      const fingerDataCandidate = metadata?.fingerData ?? metadata?.fingerprintData ?? metadata?.fingerDataRaw;
+      if (fingerDataCandidate && userObjectId) {
+        await this.userModel.updateOne(
+          { _id: userObjectId },
+          { $set: { fingerprintData: String(fingerDataCandidate) } },
+        ).exec();
+      }
+    } catch (err) {
+      this.logger.warn('Failed to persist fingerprint data to user record', err?.message || err);
+    }
 
     return {
       success: true,
@@ -1277,7 +1347,17 @@ export class LockerService {
     };
   }
 
-  async unlockLocker(lockerId: string, currentUser?: any) {
+  async unlockLocker(
+    lockerId: string,
+    currentUser?: any,
+    unlockContext?: {
+      method?: string;
+      roomId?: string;
+      scheduleId?: string;
+      bookingId?: string;
+      metadata?: Record<string, any>;
+    },
+  ) {
     if (!Types.ObjectId.isValid(lockerId)) {
       throw new BadRequestException('Invalid locker id');
     }
@@ -1331,26 +1411,69 @@ export class LockerService {
       currentUser?.campusId?.toString?.() || currentUser?.campusId,
     );
 
+    const requestedMethod = this.normalizeNullableString(unlockContext?.method);
+    const normalizedRequestedMethod = String(requestedMethod || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]/g, '');
+    const isFaceIdUnlock = normalizedRequestedMethod === 'faceid';
+    const accessMethod = isFaceIdUnlock ? 'FaceID' : 'remote_open';
+    const dispatchAccepted = !gatewayDispatch.enabled || gatewayDispatch.accepted;
+    const accessStatus: 'success' | 'failed' | 'pending' = dispatchAccepted
+      ? isFaceIdUnlock
+        ? 'success'
+        : 'pending'
+      : 'failed';
+
+    const requestMetadata =
+      unlockContext?.metadata && typeof unlockContext.metadata === 'object'
+        ? unlockContext.metadata
+        : {};
+
+    const accessMetadata: Record<string, any> = {
+      ...requestMetadata,
+      lockerId,
+      lockerNumber: locker.lockerNumber,
+      roomId: locker.roomId ? String(locker.roomId) : null,
+      campusId: locker.campusId ? String(locker.campusId) : currentUserCampusId,
+      executedByUserId: currentUserId,
+      executedByUserName: currentUserName,
+      executedByCampusId: currentUserCampusId,
+      pin,
+      action: 'on',
+      correlationId,
+      iotGatewayDispatch: gatewayDispatch,
+      durationMs,
+      unlockMethod: accessMethod,
+    };
+
+    if (unlockContext?.roomId && !accessMetadata.roomId) {
+      accessMetadata.roomId = String(unlockContext.roomId);
+    }
+
+    if (unlockContext?.scheduleId) {
+      accessMetadata.scheduleId = String(unlockContext.scheduleId);
+    }
+
+    if (unlockContext?.bookingId) {
+      accessMetadata.bookingId = String(unlockContext.bookingId);
+    }
+
+    if (isFaceIdUnlock) {
+      accessMetadata.verification = 'faceid';
+    }
+
+    if (isFaceIdUnlock && dispatchAccepted) {
+      accessMetadata.usageEffect = 'assign';
+    }
+
     await this.createAccessLogEntry({
       deviceId,
-      method: 'remote_open',
-      status: 'pending',
+      method: accessMethod,
+      status: accessStatus,
       userId: currentUserId,
       userName: currentUserName,
-      metadata: {
-        lockerId,
-        lockerNumber: locker.lockerNumber,
-        roomId: locker.roomId ? String(locker.roomId) : null,
-        campusId: locker.campusId ? String(locker.campusId) : currentUserCampusId,
-        executedByUserId: currentUserId,
-        executedByUserName: currentUserName,
-        executedByCampusId: currentUserCampusId,
-        pin,
-        action: 'on',
-        correlationId,
-        iotGatewayDispatch: gatewayDispatch,
-        durationMs,
-      },
+      metadata: accessMetadata,
       pin,
     });
 

@@ -23,9 +23,6 @@ export class Room {
   @Prop({ required: true, index: true })
   roomType: string;
 
-  @Prop({ type: [String], default: [] })
-  facilities: string[];
-
   @Prop({ required: true })
   lockerNumber: number;
 

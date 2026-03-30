@@ -4,15 +4,22 @@
 #include <WiFi.h>
 #include <ArduinoWebsockets.h>
 #include <ArduinoJson.h>
+// Fingerprint + LCD
+#include <Wire.h>
+#include <Adafruit_Fingerprint.h>
+#include <LiquidCrystal_I2C.h>
 
 using namespace websockets;
 
+// Toggle verbose debug logging (per-attempt sensor logs, LCD helper logs)
+const bool VERBOSE_LOGS = false;
+
 // ======================== WIFI ========================
-const char* WIFI_SSID = "Nhu";
-const char* WIFI_PASS = "Ngocnhu*18";
+const char* WIFI_SSID = "Ky Tuc Xa DHFPT";
+const char* WIFI_PASS = "";
 
 // ======================== GATEWAY (WebSocket) ========================
-const char* WS_HOST = "10.68.120.216"; // gateway host or IP
+const char* WS_HOST = "172.16.2.24"; // gateway host or IP
 const uint16_t WS_PORT = 4010;
 const char* WS_NAMESPACE = "/esp32"; // path the gateway upgrade handler listens on
 const char* DEVICE_ID = "esp32-1";
@@ -32,14 +39,281 @@ String buildWsUrl() {
 }
 
 // ======================== HARDWARE ========================
-// Set to false if your relay module is active-LOW (LED logic inverted)
-static const bool RELAY_ACTIVE_HIGH = false;
+// Set to true if your relay module is active-HIGH (energize = HIGH).
+// Change this to invert the output logic without rewiring the relay.
+static const bool RELAY_ACTIVE_HIGH = true;
 const int RELAY_PIN = 23;
 int relayState = 0; // 0=off, 1=on
 
+// ========== FINGERPRINT & LCD CONFIG ==========
+// Adjust UART pins for your wiring
+#define FINGER_RX 16
+#define FINGER_TX 17
+HardwareSerial fingerSerial(1);
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&fingerSerial);
+
+// LCD I2C (common addresses: 0x27 or 0x3F)
+// We'll detect the I2C address at runtime and create the LCD instance accordingly
+LiquidCrystal_I2C *lcd = nullptr;
+// LCD dimensions (adjust if your display differs)
+const int LCD_COLS = 16;
+const int LCD_ROWS = 2;
+
+// Safe LCD helpers: perform action if lcd present, otherwise log to Serial
+void safeLcdBacklight(bool on) {
+  if (lcd) {
+    if (on) { lcd->backlight(); if (VERBOSE_LOGS) Serial.println("[LCD] backlight ON"); }
+    else { lcd->noBacklight(); if (VERBOSE_LOGS) Serial.println("[LCD] backlight OFF"); }
+  } else {
+    if (VERBOSE_LOGS) {
+      Serial.print("[LCD] backlight command skipped - LCD not initialized: ");
+      Serial.println(on ? "ON" : "OFF");
+    }
+  }
+}
+
+void safeLcdClear() {
+  if (lcd) { lcd->clear(); if (VERBOSE_LOGS) Serial.println("[LCD] clear"); }
+  else if (VERBOSE_LOGS) Serial.println("[LCD] clear skipped - LCD not initialized");
+}
+
+void safeLcdPrintAt(int col, int row, const String &text) {
+  if (!lcd) {
+    if (VERBOSE_LOGS) { Serial.print("[LCD] print skipped @"); Serial.print(col); Serial.print(","); Serial.print(row); Serial.print(": "); Serial.println(text); }
+    return;
+  }
+  if (col < 0) col = 0;
+  if (row < 0) row = 0;
+  if (row >= LCD_ROWS) return;
+
+  int pos = 0;
+  int curCol = col;
+  int curRow = row;
+  while (pos < text.length() && curRow < LCD_ROWS) {
+    int avail = LCD_COLS - curCol;
+    if (avail <= 0) break;
+    String remaining = text.substring(pos);
+    String chunk;
+    if (remaining.length() <= avail) {
+      chunk = remaining;
+    } else {
+      String candidate = remaining.substring(0, avail);
+      int lastSpace = candidate.lastIndexOf(' ');
+      if (lastSpace > 0) {
+        chunk = candidate.substring(0, lastSpace);
+      } else {
+        // no space found in candidate, hard-break
+        chunk = candidate;
+      }
+    }
+    // trim leading spaces on new line
+    while (chunk.length() > 0 && chunk.charAt(0) == ' ') {
+      chunk = chunk.substring(1);
+      pos++;
+    }
+    lcd->setCursor(curCol, curRow);
+    lcd->print(chunk);
+    // pad to end of line to clear old chars
+    for (int i = chunk.length(); i < avail; ++i) lcd->print(' ');
+    pos += chunk.length();
+    curRow++;
+    curCol = 0; // subsequent lines start at column 0
+  }
+  if (VERBOSE_LOGS) { Serial.print("[LCD] print @"); Serial.print(col); Serial.print(","); Serial.print(row); Serial.print(": "); Serial.println(text); }
+}
+
+void safeLcdPrintRaw(const String &text) {
+  if (!lcd) {
+    if (VERBOSE_LOGS) { Serial.print("[LCD] print skipped: "); Serial.println(text); }
+    return;
+  }
+  // Print handling explicit newlines and wrapping across rows.
+  int start = 0;
+  int curRow = 0;
+  int curCol = 0;
+  while (start < text.length() && curRow < LCD_ROWS) {
+    int nl = text.indexOf('\n', start);
+    String segment = (nl == -1) ? text.substring(start) : text.substring(start, nl);
+    int pos = 0;
+    while (pos < segment.length() && curRow < LCD_ROWS) {
+      int avail = LCD_COLS - curCol;
+      if (avail <= 0) break;
+      String remaining = segment.substring(pos);
+      String chunk;
+      if (remaining.length() <= avail) {
+        chunk = remaining;
+      } else {
+        String candidate = remaining.substring(0, avail);
+        int lastSpace = candidate.lastIndexOf(' ');
+        if (lastSpace > 0) chunk = candidate.substring(0, lastSpace);
+        else chunk = candidate;
+      }
+      while (chunk.length() > 0 && chunk.charAt(0) == ' ') { chunk = chunk.substring(1); pos++; }
+      lcd->setCursor(curCol, curRow);
+      lcd->print(chunk);
+      for (int i = chunk.length(); i < avail; ++i) lcd->print(' ');
+      pos += chunk.length();
+      curRow++;
+      curCol = 0;
+    }
+    if (nl == -1) break;
+    start = nl + 1;
+  }
+  if (VERBOSE_LOGS) { Serial.print("[LCD] print: "); Serial.println(text); }
+}
+
+// Print a single-line message to LCD and Serial (used for single-shot prompts/results)
+void safeLcdOncePrintAt(int col, int row, const String &text) {
+  // Print message wrapped across rows starting at (col,row) and clear overwritten
+  if (!lcd) {
+    Serial.print("[LCD] once @"); Serial.print(col); Serial.print(","); Serial.print(row); Serial.print(": "); Serial.println(text);
+    return;
+  }
+  if (col < 0) col = 0;
+  if (row < 0) row = 0;
+  if (row >= LCD_ROWS) return;
+
+  // Clear affected lines first
+  for (int r = row; r < LCD_ROWS; ++r) {
+    lcd->setCursor(0, r);
+    for (int i = 0; i < LCD_COLS; ++i) lcd->print(' ');
+  }
+
+  int pos = 0;
+  int curCol = col;
+  int curRow = row;
+  while (pos < text.length() && curRow < LCD_ROWS) {
+    int avail = LCD_COLS - curCol;
+    if (avail <= 0) break;
+    String remaining = text.substring(pos);
+    String chunk;
+    if (remaining.length() <= avail) {
+      chunk = remaining;
+    } else {
+      String candidate = remaining.substring(0, avail);
+      int lastSpace = candidate.lastIndexOf(' ');
+      if (lastSpace > 0) chunk = candidate.substring(0, lastSpace);
+      else chunk = candidate;
+    }
+    while (chunk.length() > 0 && chunk.charAt(0) == ' ') { chunk = chunk.substring(1); pos++; }
+    lcd->setCursor(curCol, curRow);
+    lcd->print(chunk);
+    for (int i = chunk.length(); i < avail; ++i) lcd->print(' ');
+    pos += chunk.length();
+    curRow++;
+    curCol = 0;
+  }
+  Serial.print("[LCD] once @"); Serial.print(col); Serial.print(","); Serial.print(row); Serial.print(": "); Serial.println(text);
+}
+
+enum FingerMode { F_IDLE = 0, F_WAIT_CAPTURE, F_PROCESSING };
+FingerMode fingerMode = F_IDLE;
+unsigned long fingerDeadline = 0;
+String pendingCorrelation = "";
+String pendingUserId = "";
+int pendingFingerId = -1;
+bool pendingIsRegister = false;
+int pendingAttemptCount = 0;
+const int MAX_PENDING_ATTEMPTS = 2;
+// flag: whether we've already shown the single prompt for the pending operation
+bool pendingPromptShown = false;
+// last printed countdown value (avoid repeated serial/LCD prints) - kept for compatibility
+int lastLcdCountdown = -1;
+
+// helper to send fingerprint payload to gateway
+extern WebsocketsClient wsClient;
+void sendFingerprintResult(bool matched, int fingerId, const String &fingerData, const String &userId) {
+  DynamicJsonDocument d(1024);
+  d["type"] = "fingerprint";
+  d["deviceId"] = DEVICE_ID;
+  d["matched"] = matched;
+  if (fingerId >= 0) d["fingerId"] = fingerId;
+  if (userId.length() > 0) d["userId"] = userId;
+  if (fingerData.length() > 0) d["fingerData"] = fingerData;
+  d["source"] = "esp32";
+  if (pendingCorrelation.length() > 0) d["correlationId"] = pendingCorrelation;
+  String out; serializeJson(d, out);
+  wsClient.send(out);
+}
+
+// enroll: capture twice -> createModel -> storeModel(id)
+int enrollToId(int preferId) {
+  int id = preferId > 0 ? preferId : -1;
+  // Basic flow: get two good images
+  for (int attempt = 0; attempt < 30; ++attempt) {
+    int p = finger.getImage();
+    if (VERBOSE_LOGS) { Serial.print("[FINGER] getImage attempt="); Serial.print(attempt); Serial.print(" code="); Serial.println(p); }
+    if (p == FINGERPRINT_OK) break;
+    delay(200);
+  }
+  int r = finger.image2Tz(1);
+  if (VERBOSE_LOGS) { Serial.print("[FINGER] image2Tz(1) result="); Serial.println(r); }
+  if (r != FINGERPRINT_OK) return -1;
+  delay(200);
+  // ask for second
+  unsigned long start = millis();
+  while (millis() - start < 5000) {
+    int p = finger.getImage();
+    if (VERBOSE_LOGS) { Serial.print("[FINGER] getImage(2) code="); Serial.println(p); }
+    if (p == FINGERPRINT_OK) {
+      int r2 = finger.image2Tz(2);
+      if (VERBOSE_LOGS) { Serial.print("[FINGER] image2Tz(2) result="); Serial.println(r2); }
+      if (r2 == FINGERPRINT_OK) break;
+    }
+    delay(200);
+  }
+  int cm = finger.createModel();
+  if (VERBOSE_LOGS) { Serial.print("[FINGER] createModel result="); Serial.println(cm); }
+  if (cm != FINGERPRINT_OK) return -1;
+  // choose an id: if preferId valid, use it, else find first free slot (simple linear lookup)
+  if (id <= 0) {
+    for (int tryId = 1; tryId < 200; ++tryId) {
+      int st = finger.storeModel(tryId);
+      if (VERBOSE_LOGS) { Serial.print("[FINGER] storeModel tryId="); Serial.print(tryId); Serial.print(" result="); Serial.println(st); }
+      if (st == FINGERPRINT_OK) { // store will return ok only if empty or overwritten
+        return tryId;
+      }
+    }
+    return -1;
+  }
+  int stId = finger.storeModel(id);
+  if (VERBOSE_LOGS) { Serial.print("[FINGER] storeModel prefId="); Serial.print(id); Serial.print(" result="); Serial.println(stId); }
+  if (stId == FINGERPRINT_OK) return id;
+  // try brute-force storing at next free
+  for (int tryId = 1; tryId < 200; ++tryId) {
+    if (finger.storeModel(tryId) == FINGERPRINT_OK) return tryId;
+  }
+  return -1;
+}
+
+// verify: capture and search
+bool verifyAndGet(int &outId, int &outConfidence) {
+  // wait for image
+  for (int attempt = 0; attempt < 30; ++attempt) {
+    int p = finger.getImage();
+    if (VERBOSE_LOGS) { Serial.print("[FINGER] verify getImage attempt="); Serial.print(attempt); Serial.print(" code="); Serial.println(p); }
+    if (p == FINGERPRINT_OK) break;
+    delay(200);
+  }
+  int r = finger.image2Tz(1);
+  if (VERBOSE_LOGS) { Serial.print("[FINGER] verify image2Tz(1) result="); Serial.println(r); }
+  if (r != FINGERPRINT_OK) return false;
+  // search
+  int p = finger.fingerFastSearch();
+  if (VERBOSE_LOGS) { Serial.print("[FINGER] fingerFastSearch result="); Serial.println(p); }
+  if (p == FINGERPRINT_OK) {
+    outId = finger.fingerID;
+    outConfidence = finger.confidence;
+    return true;
+  }
+  return false;
+}
+
 // default unlock pulse (raised to help mechanical solenoids)
 // Updated for your hardware: 3000ms is a safe default for small lockers
-const unsigned long UNLOCK_PULSE_MS = 3000;
+// Change this to 1500ms to match backend default unlock duration.
+// If your hardware requires a longer pulse, increase this value.
+const unsigned long UNLOCK_PULSE_MS = 1500;
 bool pulseActive = false;
 unsigned long pulseOffAt = 0;
 // persistent hold (no auto-off) mode
@@ -212,12 +486,21 @@ void handleCommandMsg(const String& msg) {
   // If a positive duration was requested but shorter than the device
   // default, enforce the default so Open always opens for at least
   // UNLOCK_PULSE_MS.
+  // By default the device will enforce a minimum pulse equal to
+  // UNLOCK_PULSE_MS. If you prefer the backend to fully control the
+  // duration, set ENFORCE_MIN_UNLOCK_PULSE to 0 and recompile.
+#ifndef ENFORCE_MIN_UNLOCK_PULSE
+#define ENFORCE_MIN_UNLOCK_PULSE 1
+#endif
+
+#if ENFORCE_MIN_UNLOCK_PULSE
   if (durationMs > 0 && durationMs < UNLOCK_PULSE_MS) {
     Serial.print("[CMD] requested durationMs="); Serial.print(durationMs);
     Serial.print(" < UNLOCK_PULSE_MS("); Serial.print(UNLOCK_PULSE_MS);
     Serial.println(") - overriding to default");
     durationMs = UNLOCK_PULSE_MS;
   }
+#endif
 
   unsigned long now = millis();
   if (now - lastCommandAt < COMMAND_RATE_LIMIT_MS) {
@@ -314,6 +597,55 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   applyRelayOutput(0);
 
+  // init I2C on standard ESP32 pins (SDA=21, SCL=22) and scan for LCD address
+  Wire.begin(21, 22);
+  Serial.println("[I2C SCAN] scanning for devices...");
+  int foundAddr = -1;
+  for (uint8_t addr = 1; addr < 127; ++addr) {
+    Wire.beginTransmission(addr);
+    uint8_t err = Wire.endTransmission();
+    if (err == 0) {
+      Serial.print("[I2C SCAN] Found 0x");
+      if (addr < 16) Serial.print('0');
+      Serial.println(addr, HEX);
+      if (addr == 0x27 || addr == 0x3F) {
+        foundAddr = addr;
+        break;
+      }
+      if (foundAddr == -1) foundAddr = addr; // keep first found as fallback
+    }
+  }
+
+  if (foundAddr == -1) {
+    Serial.println("[I2C SCAN] No I2C devices found. LCD will not be initialized.");
+  } else {
+    Serial.print("[I2C SCAN] Using I2C address 0x");
+    if (foundAddr < 16) Serial.print('0');
+    Serial.println(foundAddr, HEX);
+    lcd = new LiquidCrystal_I2C(foundAddr, 16, 2);
+    lcd->init();
+    safeLcdBacklight(true);
+    // Quick backlight sanity test: toggle a few times and log result
+    delay(200);
+    safeLcdBacklight(false);
+    delay(200);
+    safeLcdBacklight(true);
+    Serial.println("[LCD TEST] backlight toggle sequence executed");
+    safeLcdClear();
+    safeLcdPrintAt(0,0,"Booting...");
+  }
+
+  // init fingerprint serial + sensor
+  fingerSerial.begin(57600, SERIAL_8N1, FINGER_RX, FINGER_TX);
+  delay(100);
+  finger.begin(57600);
+  // verify sensor responding
+  if (finger.verifyPassword()) {
+    Serial.println("Fingerprint sensor ready");
+  } else {
+    Serial.println("Fingerprint sensor not found or failed init");
+  }
+
   // Boot self-test pulse to help validate wiring/polarity: short pulse
   Serial.println("[BOOT] starting boot self-test pulse (1500ms)");
   startUnlockPulse(1500);
@@ -333,6 +665,9 @@ void setup() {
   }
   Serial.println();
   Serial.println("[WIFI] Connected or timed out");
+  // Print local IP to help debug network / gateway reachability
+  IPAddress ip = WiFi.localIP();
+  Serial.print("[WIFI] Local IP: "); Serial.println(ip);
 
   wsClient.onMessage([](WebsocketsMessage msg) {
     String data = msg.data();
@@ -390,6 +725,46 @@ void setup() {
       }
     }
 
+    // Handle fingerprint commands: allow { action: 'finger_register' | 'finger_verify', delaySeconds, userId, fingerId }
+    if (!err) {
+      if (d.containsKey("action") && d["action"].is<const char*>()) {
+        const char* a = d["action"];
+        if (a) {
+          String action = String(a);
+          action.toLowerCase();
+          if (action == "finger_register" || action == "finger_verify") {
+            // set up pending state handled in loop()
+            pendingCorrelation = "";
+            if (d.containsKey("correlationId") && d["correlationId"].is<const char*>()) {
+              const char* c = d["correlationId"];
+              if (c) pendingCorrelation = String(c);
+            }
+            pendingUserId = "";
+            if (d.containsKey("userId") && d["userId"].is<const char*>()) {
+              const char* u = d["userId"];
+              if (u) pendingUserId = String(u);
+            }
+            pendingFingerId = -1;
+            if (d.containsKey("fingerId")) pendingFingerId = d["fingerId"] | -1;
+
+            unsigned long delayS = 3;
+            if (d.containsKey("delaySeconds")) delayS = (unsigned long)(d["delaySeconds"] | 3);
+
+            pendingIsRegister = (action == "finger_register");
+            fingerMode = F_WAIT_CAPTURE;
+            fingerDeadline = millis() + (delayS * 1000UL);
+
+            // show a single-line prompt (English) and avoid repeated messages
+            safeLcdClear();
+            safeLcdOncePrintAt(0,0,"Please place finger to scan");
+            pendingPromptShown = true;
+
+            return;
+          }
+        }
+      }
+    }
+
     // Fallback: treat as command-like payload
     handleCommandMsg(data);
   });
@@ -419,6 +794,54 @@ void loop() {
 
   unsigned long now = millis();
   processUnlockPulse(now);
+
+  // Fingerprint state machine
+  if (fingerMode == F_WAIT_CAPTURE) {
+    if (millis() >= fingerDeadline) {
+      // time to capture and process
+      fingerMode = F_PROCESSING;
+      lastLcdCountdown = -1; // reset countdown cache when starting processing
+      pendingPromptShown = false; // clear prompt flag so result can show once
+      safeLcdClear(); safeLcdOncePrintAt(0,0,"Scanning...");
+
+      if (pendingIsRegister) {
+        // perform enrollment
+        int newId = enrollToId(pendingFingerId);
+        if (newId > 0) {
+          sendFingerprintResult(true, newId, String(newId), pendingUserId);
+          safeLcdClear(); safeLcdOncePrintAt(0,0, String("Enrollment successful ID:") + String(newId));
+        } else {
+          sendFingerprintResult(false, -1, "", pendingUserId);
+          safeLcdClear(); safeLcdOncePrintAt(0,0, "Enrollment failed");
+        }
+      } else {
+        int matchedId = -1; int conf = 0;
+        bool ok = verifyAndGet(matchedId, conf);
+        if (ok) {
+          sendFingerprintResult(true, matchedId, String(matchedId), pendingUserId);
+          safeLcdClear(); safeLcdOncePrintAt(0,0, String("Verification success ID:") + String(matchedId));
+        } else {
+          sendFingerprintResult(false, -1, "", pendingUserId);
+          safeLcdClear(); safeLcdOncePrintAt(0,0, "Verification failed");
+        }
+      }
+
+      // reset state after short delay
+      delay(800);
+      fingerMode = F_IDLE;
+      lastLcdCountdown = -1; // reset countdown cache after processing
+      pendingCorrelation = "";
+      pendingUserId = "";
+      pendingFingerId = -1;
+      pendingIsRegister = false;
+      pendingPromptShown = false;
+      // restore heartbeat quickly
+      lastHeartbeatAt = millis();
+    } else {
+      // waiting for deadline (don't spam Serial/LCD)
+      // no-op: single prompt already shown
+    }
+  }
 
   if (wsConnected && now - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
     wsClient.send(buildHeartbeatPayload());
