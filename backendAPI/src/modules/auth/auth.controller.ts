@@ -91,6 +91,7 @@ export class AuthController {
         user: result.user,
         roleDetails: result.roleDetails,
         permissions: (result.permissions || []).map((permission: any) => ({
+          permissionCode: permission.permissionCode,
           permissionName: permission.permissionName,
           resource: permission.resource,
           action: permission.action,

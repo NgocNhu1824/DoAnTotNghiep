@@ -1277,7 +1277,17 @@ export class LockerService {
     };
   }
 
-  async unlockLocker(lockerId: string, currentUser?: any) {
+  async unlockLocker(
+    lockerId: string,
+    currentUser?: any,
+    unlockContext?: {
+      method?: string;
+      roomId?: string;
+      scheduleId?: string;
+      bookingId?: string;
+      metadata?: Record<string, any>;
+    },
+  ) {
     if (!Types.ObjectId.isValid(lockerId)) {
       throw new BadRequestException('Invalid locker id');
     }
@@ -1331,26 +1341,69 @@ export class LockerService {
       currentUser?.campusId?.toString?.() || currentUser?.campusId,
     );
 
+    const requestedMethod = this.normalizeNullableString(unlockContext?.method);
+    const normalizedRequestedMethod = String(requestedMethod || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]/g, '');
+    const isFaceIdUnlock = normalizedRequestedMethod === 'faceid';
+    const accessMethod = isFaceIdUnlock ? 'FaceID' : 'remote_open';
+    const dispatchAccepted = !gatewayDispatch.enabled || gatewayDispatch.accepted;
+    const accessStatus: 'success' | 'failed' | 'pending' = dispatchAccepted
+      ? isFaceIdUnlock
+        ? 'success'
+        : 'pending'
+      : 'failed';
+
+    const requestMetadata =
+      unlockContext?.metadata && typeof unlockContext.metadata === 'object'
+        ? unlockContext.metadata
+        : {};
+
+    const accessMetadata: Record<string, any> = {
+      ...requestMetadata,
+      lockerId,
+      lockerNumber: locker.lockerNumber,
+      roomId: locker.roomId ? String(locker.roomId) : null,
+      campusId: locker.campusId ? String(locker.campusId) : currentUserCampusId,
+      executedByUserId: currentUserId,
+      executedByUserName: currentUserName,
+      executedByCampusId: currentUserCampusId,
+      pin,
+      action: 'on',
+      correlationId,
+      iotGatewayDispatch: gatewayDispatch,
+      durationMs,
+      unlockMethod: accessMethod,
+    };
+
+    if (unlockContext?.roomId && !accessMetadata.roomId) {
+      accessMetadata.roomId = String(unlockContext.roomId);
+    }
+
+    if (unlockContext?.scheduleId) {
+      accessMetadata.scheduleId = String(unlockContext.scheduleId);
+    }
+
+    if (unlockContext?.bookingId) {
+      accessMetadata.bookingId = String(unlockContext.bookingId);
+    }
+
+    if (isFaceIdUnlock) {
+      accessMetadata.verification = 'faceid';
+    }
+
+    if (isFaceIdUnlock && dispatchAccepted) {
+      accessMetadata.usageEffect = 'assign';
+    }
+
     await this.createAccessLogEntry({
       deviceId,
-      method: 'remote_open',
-      status: 'pending',
+      method: accessMethod,
+      status: accessStatus,
       userId: currentUserId,
       userName: currentUserName,
-      metadata: {
-        lockerId,
-        lockerNumber: locker.lockerNumber,
-        roomId: locker.roomId ? String(locker.roomId) : null,
-        campusId: locker.campusId ? String(locker.campusId) : currentUserCampusId,
-        executedByUserId: currentUserId,
-        executedByUserName: currentUserName,
-        executedByCampusId: currentUserCampusId,
-        pin,
-        action: 'on',
-        correlationId,
-        iotGatewayDispatch: gatewayDispatch,
-        durationMs,
-      },
+      metadata: accessMetadata,
       pin,
     });
 

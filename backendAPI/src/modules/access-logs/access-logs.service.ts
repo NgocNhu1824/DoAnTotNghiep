@@ -170,7 +170,12 @@ export class AccessLogsService {
     }
 
     if (query.method) {
-      conditions.push({ method: String(query.method).trim().toLowerCase() });
+      const escapedMethod = String(query.method)
+        .trim()
+        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (escapedMethod) {
+        conditions.push({ method: { $regex: `^${escapedMethod}$`, $options: 'i' } });
+      }
     }
 
     if (query.status) {

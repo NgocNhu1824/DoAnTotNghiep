@@ -72,10 +72,21 @@ export class LockerController {
 
   @Post(':id/unlock')
   @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard, ScopeGuard)
-  @RequirePermissions('lockers.unlock', 'lockers.update', 'lockers.manage')
+  @RequirePermissions('lockers.unlock')
   @RequireScopes('SELF', 'CAMPUS', 'GLOBAL')
-  unlock(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.lockerService.unlockLocker(id, user);
+  unlock(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body()
+    body?: {
+      method?: string;
+      roomId?: string;
+      scheduleId?: string;
+      bookingId?: string;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    return this.lockerService.unlockLocker(id, user, body);
   }
 
   // ===== ID ROUTES (ALWAYS LAST) =====

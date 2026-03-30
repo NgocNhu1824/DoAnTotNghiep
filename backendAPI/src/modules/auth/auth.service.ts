@@ -418,6 +418,7 @@ export class AuthService {
           const perm = rp.permissionId as any;
           return {
             id: perm._id.toString(),
+            permissionCode: perm.permissionCode,
             permissionName: perm.permissionName,
             resource: perm.resource,
             action: perm.action,
