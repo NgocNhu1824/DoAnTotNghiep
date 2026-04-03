@@ -37,7 +37,10 @@ class ApiService {
         return response.data;
       },
       (error) => {
-        if (error.response?.status === 401) {
+        const requestUrl = String(error?.config?.url || '');
+        const isAuthLoginRequest = /\/auth\/login(?:\?|$)/.test(requestUrl);
+
+        if (error.response?.status === 401 && !isAuthLoginRequest) {
           // Handle unauthorized
           localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
           localStorage.removeItem(STORAGE_KEYS.USER_DATA);

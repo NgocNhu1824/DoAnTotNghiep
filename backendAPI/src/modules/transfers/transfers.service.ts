@@ -247,11 +247,22 @@ export class TransfersService implements OnModuleInit, OnModuleDestroy {
     const toBookingId =
       targetType === 'booking' ? this.toObjectIdOrNull((transfer as any).toBookingId) : null;
 
-    const receiver = await this.userModel
-      .findById(toUserId)
-      .select('fullName email')
-      .lean()
-      .exec();
+    const [receiver, locker] = await Promise.all([
+      this.userModel
+        .findById(toUserId)
+        .select('fullName email')
+        .lean()
+        .exec(),
+      this.lockerModel
+        .findById(lockerId)
+        .select('deviceId lockerNumber controlPin')
+        .lean()
+        .exec(),
+    ]);
+
+    const resolvedDeviceId =
+      String((locker as any)?.deviceId || '').trim() ||
+      `transfer_handover:${this.normalizeId(lockerId)}`;
 
     const receiverName = String((receiver as any)?.fullName || (receiver as any)?.email || '').trim() || null;
 
@@ -296,6 +307,7 @@ export class TransfersService implements OnModuleInit, OnModuleDestroy {
       scheduleId: toScheduleId || null,
       bookingId: toBookingId || null,
       action: 'unlock',
+      deviceId: resolvedDeviceId,
       method: 'transfer_handover',
       success: true,
       status: 'success',
@@ -308,6 +320,7 @@ export class TransfersService implements OnModuleInit, OnModuleDestroy {
         fromScheduleId: this.normalizeId((transfer as any).fromScheduleId),
         toScheduleId: toScheduleId ? this.normalizeId(toScheduleId) : null,
         toBookingId: toBookingId ? this.normalizeId(toBookingId) : null,
+        lockerDeviceId: String((locker as any)?.deviceId || '').trim() || null,
         autoActivated: true,
       },
     });

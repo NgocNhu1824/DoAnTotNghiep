@@ -11,6 +11,7 @@ import { Campus } from '../types/auth.types';
 import Loading from '../components/common/Loading';
 import { useAuth } from '../context/AuthContext';
 import { getDefaultDashboard } from '../constants/roles';
+import { toast } from 'react-toastify';
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -98,7 +99,23 @@ const LoginPage: React.FC = () => {
     } catch (err: any) {
       const rawMessage = err?.message;
       const message = Array.isArray(rawMessage) ? rawMessage[0] : rawMessage;
-      setError(message || 'Unable to sign in with email and password.');
+      const resolvedMessage = String(message || 'Unable to sign in with email and password.');
+      const normalizedMessage = resolvedMessage.trim().toLowerCase();
+      const isInvalidCredential =
+        normalizedMessage.includes('invalid email or password') ||
+        normalizedMessage.includes('invalid credential') ||
+        normalizedMessage.includes('incorrect email or password');
+      const isUserNotRegisPassword = normalizedMessage.includes('this account has not set a password yet. please sign in with google first.');
+
+      if (isInvalidCredential) {
+        toast.error('Wrong email or password. Please try again.');
+        setError('');
+      } else if (isUserNotRegisPassword) {
+        toast.error('This account has not set a password yet. Please sign in with Google first.');
+        setError('');
+      } else {
+        setError(resolvedMessage);
+      }
     } finally {
       setIsPasswordSubmitting(false);
     }
