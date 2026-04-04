@@ -269,6 +269,9 @@ const LecturerSchedulePage: React.FC = () => {
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [actingTransferId, setActingTransferId] = useState<string | null>(null);
   const [eligibleTransferSourceIds, setEligibleTransferSourceIds] = useState<Set<string>>(new Set());
   const lastNotifiedTransferIdRef = useRef<string | null>(null);
   const processedReturnParamsRef = useRef<string>('');
@@ -1371,27 +1374,9 @@ const LecturerSchedulePage: React.FC = () => {
                       </button>
                       <button
                         className="px-4 py-2 rounded bg-rose-600 text-white font-semibold hover:bg-rose-700 disabled:opacity-60"
-                        onClick={async () => {
-                          const reason = (window.prompt('Reason for rejection?') || '').trim();
-                          if (!reason) {
-                            toast({
-                              title: 'Reject failed',
-                              description: 'Please enter rejection reason.',
-                              variant: 'destructive',
-                            });
-                            return;
-                          }
-                          try {
-                            await transferService.rejectSelfTransfer(selectedTransfer._id, reason);
-                            toast({ title: 'Transfer rejected', description: 'You have rejected the transfer.' });
-                            setShowTransferModal(false);
-                            await fetchWeekSchedules();
-                            if (timeSlots.length > 0) await fetchUpcomingSchedules();
-                            await refreshTransferMappings();
-                            await refreshEligibleTransferSources();
-                          } catch (err: any) {
-                            toast({ title: 'Reject failed', description: err?.message || '', variant: 'destructive' });
-                          }
+                        onClick={() => {
+                          setRejectReason('');
+                          setRejectDialogOpen(true);
                         }}
                       >
                         Reject
@@ -1456,6 +1441,55 @@ const LecturerSchedulePage: React.FC = () => {
                 toast({ title: 'Cancel failed', description: err?.message || 'Could not cancel transfer', variant: 'destructive' });
               } finally {
                 setCancelLoading(false);
+              }
+            }}
+          />
+          <ConfirmDialog
+            open={rejectDialogOpen}
+            title="Reject this transfer request?"
+            description={
+              <div className="space-y-2">
+                <p>Please provide the reason for rejection.</p>
+                <textarea
+                  className="w-full rounded border px-2 py-1"
+                  placeholder="Enter rejection reason"
+                  value={rejectReason}
+                  onChange={(event) => setRejectReason(event.target.value)}
+                  rows={4}
+                  maxLength={500}
+                />
+              </div>
+            }
+            confirmText={actingTransferId ? 'Rejecting...' : 'Reject'}
+            cancelText="Cancel"
+            destructive
+            onCancel={() => {
+              if (actingTransferId) return;
+              setRejectDialogOpen(false);
+              setRejectReason('');
+            }}
+            onConfirm={async () => {
+              if (!selectedTransfer) return;
+              const reason = (rejectReason || '').trim();
+              if (!reason) {
+                toast({ title: 'Validation', description: 'Please enter rejection reason.', variant: 'destructive' });
+                return;
+              }
+              setActingTransferId(selectedTransfer._id);
+              try {
+                await transferService.rejectSelfTransfer(selectedTransfer._id, reason);
+                toast({ title: 'Transfer rejected', description: 'You have rejected the transfer.' });
+                setRejectDialogOpen(false);
+                setRejectReason('');
+                setShowTransferModal(false);
+                await fetchWeekSchedules();
+                if (timeSlots.length > 0) await fetchUpcomingSchedules();
+                await refreshTransferMappings();
+                await refreshEligibleTransferSources();
+              } catch (err: any) {
+                toast({ title: 'Reject failed', description: err?.message || '', variant: 'destructive' });
+              } finally {
+                setActingTransferId(null);
               }
             }}
           />
