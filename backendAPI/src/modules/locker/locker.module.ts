@@ -8,6 +8,7 @@ import { GatewaysModule } from '@/common/gateways/gateways.module';
 import { Locker, LockerSchema } from '@/database/schemas/locker.schema';
 import { Campus, CampusSchema } from '@/database/schemas/campus.schema';
 import { ESP32, ESP32Schema } from '@/database/schemas/esp32.schema';
+import { User, UserSchema } from '@/database/schemas/user.schema';
 import {
   AccessLog,
   AccessLogSchema,
@@ -25,6 +26,7 @@ import { Room, RoomSchema } from '@/database/schemas/room.schema';
       { name: Locker.name, schema: LockerSchema },
       { name: Campus.name, schema: CampusSchema },
       { name: ESP32.name, schema: ESP32Schema },
+      { name: User.name, schema: UserSchema },
       { name: AccessLog.name, schema: AccessLogSchema },
       { name: RoomUsageState.name, schema: RoomUsageStateSchema },
       { name: Room.name, schema: RoomSchema },

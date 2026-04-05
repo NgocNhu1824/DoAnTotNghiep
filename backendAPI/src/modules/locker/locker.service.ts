@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { Locker } from '@/database/schemas/locker.schema';
 import { Campus } from '@/database/schemas/campus.schema';
 import { ESP32 } from '@/database/schemas/esp32.schema';
+import { User } from '@/database/schemas/user.schema';
 import { AccessLog } from '@/database/schemas/access-log.schema';
 import { RoomUsageState } from '@/database/schemas/room-usage-state.schema';
 import { Room } from '@/database/schemas/room.schema';
@@ -37,6 +38,9 @@ export class LockerService {
 
     @InjectModel(ESP32.name)
     private readonly esp32Model: Model<ESP32>,
+
+    @InjectModel(User.name)
+    private readonly userModel: Model<User>,
 
     @InjectModel(AccessLog.name)
     private readonly accessLogModel: Model<AccessLog>,
@@ -414,7 +418,7 @@ export class LockerService {
     };
   }
 
-  private async pushCommandToIotGateway(command: {
+  async pushCommandToIotGateway(command: {
     correlationId: string;
     deviceId: string;
     pin: number;
@@ -465,6 +469,58 @@ export class LockerService {
       };
     } catch (error: any) {
       this.logger.warn(`Failed to push command to iot-gateway: ${error?.message || 'unknown error'}`);
+      return {
+        enabled: true,
+        accepted: false,
+        message: error?.message || 'Request failed',
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async pushIngestToIotGateway(deviceId: string, payload: any) {
+    const { baseUrl, username, password, timeoutMs } = this.getIotGatewayConfig();
+    if (!baseUrl) {
+      return {
+        enabled: false,
+        accepted: false,
+        message: 'IOT gateway URL is not configured',
+      };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Number(timeoutMs) || 4000);
+
+    try {
+      const endpoint = `${baseUrl.replace(/\/$/, '')}/api/lockers/ingest`;
+      const authHeader = Buffer.from(`${username}:${password}`).toString('base64');
+
+      const body = {
+        deviceId,
+        ...payload,
+      };
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Basic ${authHeader}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      const resPayload = await response.json().catch(() => null);
+
+      return {
+        enabled: true,
+        accepted: response.ok,
+        statusCode: response.status,
+        payload: resPayload,
+      };
+    } catch (error: any) {
+      this.logger.warn(`Failed to push ingest to iot-gateway: ${error?.message || 'unknown error'}`);
       return {
         enabled: true,
         accepted: false,
@@ -588,6 +644,20 @@ export class LockerService {
       accessTime: accessTime.toISOString(),
       correlationId: this.normalizeNullableString(metadata.correlationId),
     });
+
+    // If fingerprint data was provided in metadata and a valid user id is available,
+    // save fingerprintData into the users collection for registration flows.
+    try {
+      const fingerDataCandidate = metadata?.fingerData ?? metadata?.fingerprintData ?? metadata?.fingerDataRaw;
+      if (fingerDataCandidate && userObjectId) {
+        await this.userModel.updateOne(
+          { _id: userObjectId },
+          { $set: { fingerprintData: String(fingerDataCandidate) } },
+        ).exec();
+      }
+    } catch (err) {
+      this.logger.warn('Failed to persist fingerprint data to user record', err?.message || err);
+    }
 
     return {
       success: true,

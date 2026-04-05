@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards, ForbiddenException } from '@nestjs/common';
 import { LockerService } from './locker.service';
 import { CreateLockerDto } from './dto/create-locker.dto';
 import { UpdateLockerDto } from './dto/update-locker.dto';
@@ -51,6 +51,105 @@ export class LockerController {
     },
   ) {
     return this.lockerService.reportHeartbeat(body.deviceEsp32, body.solenoids, body.batteryLevel);
+  }
+
+  // ----- Admin test endpoints (not exposed in UI menu) -----
+  @Post('admin/test/fingerprint/register')
+  @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard)
+  @RequirePermissions('users.update')
+  async adminTestRegister(
+    @Body() body: { deviceId: string; userId?: string; fingerId?: number; fingerData?: string; delaySeconds?: number },
+    @CurrentUser() user: any,
+  ) {
+    // If client attempts to provide raw fingerData (simulate), only allow when
+    // caller has explicit DEV_TOOLS permission or when not running in production.
+    const wantsSimulate = !!body.fingerData;
+    const env = (process.env.NODE_ENV || 'development').toLowerCase();
+    const hasDevTools = Array.isArray(user?.permissions) && user.permissions.includes('DEV_TOOLS');
+    const roleIsDev = user?.roleCode === 'DEV_TOOLS';
+    if (wantsSimulate && env === 'production' && !hasDevTools && !roleIsDev) {
+      throw new ForbiddenException('Simulate mode is not allowed in production');
+    }
+
+    // If caller provided raw fingerData (simulate) then directly ingest the
+    // fingerprint event to the gateway so it is recorded without waiting for
+    // a physical device. Otherwise, ask the ESP32 device to prompt the user
+    // by sending a realtime command.
+    if (wantsSimulate) {
+      const payload: any = {
+        type: 'fingerprint',
+        fingerId: body.fingerId,
+        fingerData: body.fingerData,
+        userId: body.userId,
+        matched: true,
+        source: 'admin-test',
+        simulated: true,
+        simulatedBy: user?._id || null,
+      };
+
+      if (body.delaySeconds && Number.isFinite(Number(body.delaySeconds))) {
+        payload.delaySeconds = Number(body.delaySeconds);
+      }
+
+      const result = await this.lockerService.pushIngestToIotGateway(body.deviceId || 'esp32-1', payload);
+      return {
+        success: true,
+        data: result,
+      };
+    }
+
+    // Prompt physical device to start registration
+    const command: any = {
+      deviceId: body.deviceId || 'esp32-1',
+      action: 'finger_register',
+      userId: body.userId || null,
+      fingerId: body.fingerId,
+    };
+
+    if (body.delaySeconds && Number.isFinite(Number(body.delaySeconds))) {
+      command.delaySeconds = Number(body.delaySeconds);
+    }
+
+    const result = await this.lockerService.pushCommandToIotGateway(command as any);
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  @Post('admin/test/fingerprint/verify')
+  @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard)
+  @RequirePermissions('users.update')
+  async adminTestVerify(@Body() body: { deviceId: string; fingerId?: number; matched?: boolean; fingerData?: string }) {
+    const wantsSimulate = !!body.fingerData || body.matched !== undefined;
+
+    if (wantsSimulate) {
+      const payload: any = {
+        type: 'fingerprint',
+        fingerId: body.fingerId,
+        matched: body.matched === undefined ? true : Boolean(body.matched),
+        fingerData: body.fingerData,
+        source: 'admin-test',
+      };
+
+      const result = await this.lockerService.pushIngestToIotGateway(body.deviceId || 'esp32-1', payload);
+      return {
+        success: true,
+        data: result,
+      };
+    }
+
+    const command: any = {
+      deviceId: body.deviceId || 'esp32-1',
+      action: 'finger_verify',
+      fingerId: body.fingerId,
+    };
+
+    const result = await this.lockerService.pushCommandToIotGateway(command as any);
+    return {
+      success: true,
+      data: result,
+    };
   }
 
   @Post('esp32/command')

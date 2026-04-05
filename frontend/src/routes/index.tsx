@@ -19,6 +19,7 @@ import AuditLogPage from '../pages/Admin/AuditLogPage';
 import AccessLogPage from '../pages/Admin/AccessLogPage';
 import ScheduleManagementPage from '../pages/Admin/ScheduleManagementPage';
 import DeviceManagementPage from '../pages/Admin/DeviceManagementPage';
+import FingerTestPage from '../pages/Admin/FingerTestPage';
 import UserProfilePage from '../pages/Admin/UserProfilePage';
 import BookingManagementPage from '../pages/Admin/BookingManagementPage';
 import SettingsManagementPage from '../pages/Admin/SettingsManagementPage';
@@ -154,6 +155,17 @@ const AppRoutes: React.FC = () => {
               >
                 <AdminLayout>
                   <DeviceManagementPage />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/admin/finger-test"
+            element={
+              <ProtectedRoute requiredPermissions={[PERMISSIONS.USERS_UPDATE]}>
+                <AdminLayout>
+                  <FingerTestPage />
                 </AdminLayout>
               </ProtectedRoute>
             }
