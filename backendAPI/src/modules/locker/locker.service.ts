@@ -421,9 +421,10 @@ export class LockerService {
   async pushCommandToIotGateway(command: {
     correlationId: string;
     deviceId: string;
-    pin: number;
-    action: 'on' | 'off';
+    action: string;
+    pin?: number;
     durationMs?: number;
+    [key: string]: any;
   }) {
     const { baseUrl, username, password, timeoutMs } = this.getIotGatewayConfig();
     if (!baseUrl) {
@@ -655,8 +656,8 @@ export class LockerService {
           { $set: { fingerprintData: String(fingerDataCandidate) } },
         ).exec();
       }
-    } catch (err) {
-      this.logger.warn('Failed to persist fingerprint data to user record', err?.message || err);
+    } catch (err: unknown) {
+      this.logger.warn('Failed to persist fingerprint data to user record', (err as Error)?.message || err);
     }
 
     return {
@@ -1347,17 +1348,7 @@ export class LockerService {
     };
   }
 
-  async unlockLocker(
-    lockerId: string,
-    currentUser?: any,
-    unlockContext?: {
-      method?: string;
-      roomId?: string;
-      scheduleId?: string;
-      bookingId?: string;
-      metadata?: Record<string, any>;
-    },
-  ) {
+  private async resolveLockerForCommand(lockerId: string) {
     if (!Types.ObjectId.isValid(lockerId)) {
       throw new BadRequestException('Invalid locker id');
     }
@@ -1376,12 +1367,62 @@ export class LockerService {
     }
 
     const deviceId = String(locker.deviceId || '').trim();
+    if (!deviceId) {
+      throw new BadRequestException('Locker is not mapped to ESP32 device');
+    }
+
+    return locker;
+  }
+
+  async unlockLocker(
+    lockerId: string,
+    currentUser?: any,
+    unlockContext?: {
+      method?: string;
+      usageAction?: 'unlock' | 'return';
+      roomId?: string;
+      scheduleId?: string;
+      bookingId?: string;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    const locker = await this.resolveLockerForCommand(lockerId);
+
+    const deviceId = String(locker.deviceId || '').trim();
     const pin = Number(locker.controlPin);
     if (!deviceId || !Number.isFinite(pin)) {
       throw new BadRequestException('Locker is not mapped to ESP32 device/pin');
     }
 
-    const correlationId = `unlock-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const requestMetadata =
+      unlockContext?.metadata && typeof unlockContext.metadata === 'object'
+        ? unlockContext.metadata
+        : {};
+
+    const requestedUsageAction = String(
+      unlockContext?.usageAction || requestMetadata.usageAction || '',
+    )
+      .trim()
+      .toLowerCase();
+    const usageAction: 'unlock' | 'return' = requestedUsageAction === 'return' ? 'return' : 'unlock';
+
+    const resolvedRoomId = this.toObjectId(locker.roomId) || this.toObjectId(unlockContext?.roomId);
+    if (usageAction === 'return') {
+      if (!resolvedRoomId) {
+        throw new BadRequestException('Return action requires a valid room mapping');
+      }
+
+      const currentUsageState = await this.roomUsageStateModel
+        .findOne({ roomId: resolvedRoomId })
+        .select('status')
+        .lean();
+
+      if (!currentUsageState || currentUsageState.status !== 'occupied') {
+        throw new BadRequestException('Room is not currently in use, cannot return');
+      }
+    }
+
+    const correlationId = `${usageAction}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
     // Business rule: default unlock pulse duration (ms)
     const DEFAULT_UNLOCK_MS = 1500;
@@ -1425,22 +1466,19 @@ export class LockerService {
         : 'pending'
       : 'failed';
 
-    const requestMetadata =
-      unlockContext?.metadata && typeof unlockContext.metadata === 'object'
-        ? unlockContext.metadata
-        : {};
-
     const accessMetadata: Record<string, any> = {
       ...requestMetadata,
       lockerId,
       lockerNumber: locker.lockerNumber,
-      roomId: locker.roomId ? String(locker.roomId) : null,
+      roomId: resolvedRoomId ? String(resolvedRoomId) : null,
       campusId: locker.campusId ? String(locker.campusId) : currentUserCampusId,
       executedByUserId: currentUserId,
       executedByUserName: currentUserName,
       executedByCampusId: currentUserCampusId,
       pin,
-      action: 'on',
+      action: usageAction,
+      usageAction,
+      commandAction: 'on',
       correlationId,
       iotGatewayDispatch: gatewayDispatch,
       durationMs,
@@ -1464,7 +1502,7 @@ export class LockerService {
     }
 
     if (isFaceIdUnlock && dispatchAccepted) {
-      accessMetadata.usageEffect = 'assign';
+      accessMetadata.usageEffect = usageAction === 'return' ? 'release' : 'assign';
     }
 
     await this.createAccessLogEntry({
@@ -1483,13 +1521,285 @@ export class LockerService {
 
     return {
       success: true,
-      message: 'Unlock command accepted',
+      message: usageAction === 'return' ? 'Return command accepted' : 'Unlock command accepted',
       data: {
         lockerId,
         lockerNumber: locker.lockerNumber,
         deviceId,
         pin,
         correlationId,
+        usageAction,
+        gatewayDispatch,
+      },
+    };
+  }
+
+  async requestFingerprintRegistration(
+    lockerId: string,
+    currentUser?: any,
+    context?: {
+      roomId?: string;
+      scheduleId?: string;
+      bookingId?: string;
+      delaySeconds?: number;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    const locker = await this.resolveLockerForCommand(lockerId);
+    const deviceId = String(locker.deviceId || '').trim();
+    const pin = Number(locker.controlPin);
+
+    const currentUserId = this.normalizeNullableString(
+      currentUser?._id?.toString?.() || currentUser?._id,
+    );
+    if (!currentUserId) {
+      throw new BadRequestException('Cannot resolve current user for fingerprint registration');
+    }
+
+    const currentUserName = this.normalizeNullableString(currentUser?.fullName || currentUser?.email);
+    const currentUserCampusId = this.normalizeNullableString(
+      currentUser?.campusId?.toString?.() || currentUser?.campusId,
+    );
+
+    const requestMetadata =
+      context?.metadata && typeof context.metadata === 'object'
+        ? context.metadata
+        : {};
+
+    const resolvedRoomId = this.toObjectId(locker.roomId) || this.toObjectId(context?.roomId);
+    const delaySecondsRaw = Number(context?.delaySeconds ?? requestMetadata.delaySeconds);
+    const delaySeconds = Number.isFinite(delaySecondsRaw)
+      ? Math.max(1, Math.min(30, Math.round(delaySecondsRaw)))
+      : undefined;
+
+    const correlationId = `finger-register-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+    const command: Record<string, any> = {
+      correlationId,
+      deviceId,
+      action: 'finger_register',
+      userId: currentUserId,
+      roomId: resolvedRoomId ? String(resolvedRoomId) : null,
+      lockerId,
+      sourceType: 'mobile_fingerid_register',
+    };
+
+    if (Number.isFinite(pin)) {
+      command.pin = pin;
+    }
+
+    if (delaySeconds !== undefined) {
+      command.delaySeconds = delaySeconds;
+    }
+
+    const gatewayDispatch = await this.pushCommandToIotGateway(command as any);
+    const dispatchAccepted = !gatewayDispatch.enabled || gatewayDispatch.accepted;
+
+    const accessMetadata: Record<string, any> = {
+      ...requestMetadata,
+      lockerId,
+      lockerNumber: locker.lockerNumber,
+      roomId: resolvedRoomId ? String(resolvedRoomId) : null,
+      campusId: locker.campusId ? String(locker.campusId) : currentUserCampusId,
+      executedByUserId: currentUserId,
+      executedByUserName: currentUserName,
+      executedByCampusId: currentUserCampusId,
+      commandAction: 'finger_register',
+      action: 'register',
+      usageEffect: 'none',
+      sourceType: requestMetadata.sourceType || 'mobile_fingerid_register',
+      correlationId,
+      iotGatewayDispatch: gatewayDispatch,
+    };
+
+    if (context?.scheduleId) {
+      accessMetadata.scheduleId = String(context.scheduleId);
+    }
+
+    if (context?.bookingId) {
+      accessMetadata.bookingId = String(context.bookingId);
+    }
+
+    if (delaySeconds !== undefined) {
+      accessMetadata.delaySeconds = delaySeconds;
+    }
+
+    await this.createAccessLogEntry({
+      deviceId,
+      method: 'fingerprint',
+      status: dispatchAccepted ? 'pending' : 'failed',
+      userId: currentUserId,
+      userName: currentUserName,
+      metadata: accessMetadata,
+      pin: Number.isFinite(pin) ? pin : undefined,
+    });
+
+    if (gatewayDispatch.enabled && !gatewayDispatch.accepted) {
+      throw new InternalServerErrorException(
+        'Fingerprint registration command failed to dispatch to iot-gateway',
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Fingerprint registration command accepted',
+      data: {
+        lockerId,
+        lockerNumber: locker.lockerNumber,
+        deviceId,
+        pin: Number.isFinite(pin) ? pin : null,
+        correlationId,
+        gatewayDispatch,
+      },
+    };
+  }
+
+  async requestFingerprintVerification(
+    lockerId: string,
+    currentUser?: any,
+    context?: {
+      usageAction?: 'unlock' | 'return';
+      roomId?: string;
+      scheduleId?: string;
+      bookingId?: string;
+      delaySeconds?: number;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    const locker = await this.resolveLockerForCommand(lockerId);
+    const deviceId = String(locker.deviceId || '').trim();
+    const pin = Number(locker.controlPin);
+
+    const currentUserId = this.normalizeNullableString(
+      currentUser?._id?.toString?.() || currentUser?._id,
+    );
+    if (!currentUserId) {
+      throw new BadRequestException('Cannot resolve current user for fingerprint verification');
+    }
+
+    const currentUserName = this.normalizeNullableString(currentUser?.fullName || currentUser?.email);
+    const currentUserCampusId = this.normalizeNullableString(
+      currentUser?.campusId?.toString?.() || currentUser?.campusId,
+    );
+
+    const requestMetadata =
+      context?.metadata && typeof context.metadata === 'object'
+        ? context.metadata
+        : {};
+
+    const requestedUsageAction = String(
+      context?.usageAction || requestMetadata.usageAction || '',
+    )
+      .trim()
+      .toLowerCase();
+    const usageAction: 'unlock' | 'return' = requestedUsageAction === 'return' ? 'return' : 'unlock';
+
+    const resolvedRoomId = this.toObjectId(locker.roomId) || this.toObjectId(context?.roomId);
+    if (usageAction === 'return') {
+      if (!resolvedRoomId) {
+        throw new BadRequestException('Return action requires a valid room mapping');
+      }
+
+      const currentUsageState = await this.roomUsageStateModel
+        .findOne({ roomId: resolvedRoomId })
+        .select('status')
+        .lean();
+
+      if (!currentUsageState || currentUsageState.status !== 'occupied') {
+        throw new BadRequestException('Room is not currently in use, cannot return');
+      }
+    }
+
+    const delaySecondsRaw = Number(context?.delaySeconds ?? requestMetadata.delaySeconds);
+    const delaySeconds = Number.isFinite(delaySecondsRaw)
+      ? Math.max(1, Math.min(30, Math.round(delaySecondsRaw)))
+      : undefined;
+
+    const correlationId = `finger-verify-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+    const command: Record<string, any> = {
+      correlationId,
+      deviceId,
+      action: 'finger_verify',
+      userId: currentUserId,
+      roomId: resolvedRoomId ? String(resolvedRoomId) : null,
+      lockerId,
+      usageAction,
+      sourceType: usageAction === 'return' ? 'mobile_fingerid_return' : 'mobile_fingerid_verify',
+    };
+
+    if (Number.isFinite(pin)) {
+      command.pin = pin;
+    }
+
+    if (delaySeconds !== undefined) {
+      command.delaySeconds = delaySeconds;
+    }
+
+    const gatewayDispatch = await this.pushCommandToIotGateway(command as any);
+    const dispatchAccepted = !gatewayDispatch.enabled || gatewayDispatch.accepted;
+
+    const accessMetadata: Record<string, any> = {
+      ...requestMetadata,
+      lockerId,
+      lockerNumber: locker.lockerNumber,
+      roomId: resolvedRoomId ? String(resolvedRoomId) : null,
+      campusId: locker.campusId ? String(locker.campusId) : currentUserCampusId,
+      executedByUserId: currentUserId,
+      executedByUserName: currentUserName,
+      executedByCampusId: currentUserCampusId,
+      commandAction: 'finger_verify',
+      action: usageAction,
+      usageAction,
+      usageEffect: 'none',
+      sourceType:
+        requestMetadata.sourceType ||
+        (usageAction === 'return' ? 'mobile_fingerid_return' : 'mobile_fingerid_verify'),
+      correlationId,
+      iotGatewayDispatch: gatewayDispatch,
+    };
+
+    if (context?.scheduleId) {
+      accessMetadata.scheduleId = String(context.scheduleId);
+    }
+
+    if (context?.bookingId) {
+      accessMetadata.bookingId = String(context.bookingId);
+    }
+
+    if (delaySeconds !== undefined) {
+      accessMetadata.delaySeconds = delaySeconds;
+    }
+
+    await this.createAccessLogEntry({
+      deviceId,
+      method: 'fingerprint',
+      status: dispatchAccepted ? 'pending' : 'failed',
+      userId: currentUserId,
+      userName: currentUserName,
+      metadata: accessMetadata,
+      pin: Number.isFinite(pin) ? pin : undefined,
+    });
+
+    if (gatewayDispatch.enabled && !gatewayDispatch.accepted) {
+      throw new InternalServerErrorException(
+        'Fingerprint verification command failed to dispatch to iot-gateway',
+      );
+    }
+
+    return {
+      success: true,
+      message:
+        usageAction === 'return'
+          ? 'Fingerprint return command accepted'
+          : 'Fingerprint verification command accepted',
+      data: {
+        lockerId,
+        lockerNumber: locker.lockerNumber,
+        deviceId,
+        pin: Number.isFinite(pin) ? pin : null,
+        correlationId,
+        usageAction,
         gatewayDispatch,
       },
     };

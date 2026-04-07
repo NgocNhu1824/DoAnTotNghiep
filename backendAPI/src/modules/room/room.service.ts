@@ -9,6 +9,10 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Room, RoomDocument } from '../../database/schemas/room.schema';
 import { Campus } from '@/database/schemas/campus.schema';
+import {
+  RoomUsageState,
+  RoomUsageStateDocument,
+} from '@/database/schemas/room-usage-state.schema';
 import { CreateRoomDto, UpdateRoomDto } from './dto';
 import { RoomImportParserHelper } from './helpers/room-import-parser.helper';
 
@@ -23,6 +27,8 @@ export class RoomService {
   constructor(
     @InjectModel(Room.name) private roomModel: Model<RoomDocument>,
     @InjectModel(Campus.name) private campusModel: Model<Campus>,
+    @InjectModel(RoomUsageState.name)
+    private roomUsageStateModel: Model<RoomUsageStateDocument>,
   ) {}
 
   private parseBooleanValue(value: any, defaultValue = true): boolean {
@@ -41,6 +47,41 @@ export class RoomService {
 
   private normalizeImportValue(value: any): string {
     return String(value ?? '').trim().toLowerCase();
+  }
+
+  private toObjectId(value: any): Types.ObjectId | null {
+    if (!value) {
+      return null;
+    }
+
+    if (value instanceof Types.ObjectId) {
+      return value;
+    }
+
+    const raw = String(value).trim();
+    if (!Types.ObjectId.isValid(raw)) {
+      return null;
+    }
+
+    return new Types.ObjectId(raw);
+  }
+
+  private resolveCampusScope(campusId?: string, campusFilter?: any): Types.ObjectId | null {
+    const scopedCampusId = this.toObjectId(campusFilter?.campusId);
+    if (scopedCampusId) {
+      return scopedCampusId;
+    }
+
+    if (!campusId) {
+      return null;
+    }
+
+    const requestedCampusId = this.toObjectId(campusId);
+    if (!requestedCampusId) {
+      throw new BadRequestException('Invalid campusId');
+    }
+
+    return requestedCampusId;
   }
 
   async generateImportTemplate(): Promise<Buffer> {
@@ -663,5 +704,42 @@ export class RoomService {
       unavailable,
       maintain,
     };
+  }
+
+  async getRoomUsageStates(campusId?: string, campusFilter?: any): Promise<any[]> {
+    const filter: any = {};
+    const resolvedCampusId = this.resolveCampusScope(campusId, campusFilter);
+
+    if (resolvedCampusId) {
+      filter.campusId = resolvedCampusId;
+    }
+
+    const rows = await this.roomUsageStateModel
+      .find(filter)
+      .sort({ updatedAt: -1, roomId: 1 })
+      .lean()
+      .exec();
+
+    return rows.map((row: RoomUsageState & { _id: Types.ObjectId; createdAt?: Date; updatedAt?: Date }) => ({
+      id: String(row._id),
+      roomId: row.roomId ? String(row.roomId) : null,
+      lockerId: row.lockerId ? String(row.lockerId) : null,
+      campusId: row.campusId ? String(row.campusId) : null,
+      status: row.status,
+      currentUserId: row.currentUserId || null,
+      currentUserName: row.currentUserName || null,
+      currentUsageType: row.currentUsageType || null,
+      scheduleId: row.scheduleId ? String(row.scheduleId) : null,
+      bookingId: row.bookingId ? String(row.bookingId) : null,
+      startedAt: row.startedAt ? new Date(row.startedAt).toISOString() : null,
+      lastAccessLogId: row.lastAccessLogId ? String(row.lastAccessLogId) : null,
+      lastAction: row.lastAction || null,
+      lastMethod: row.lastMethod || null,
+      lastReason: row.lastReason || null,
+      updatedByUserId: row.updatedByUserId || null,
+      metadata: row.metadata || {},
+      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+    }));
   }
 }

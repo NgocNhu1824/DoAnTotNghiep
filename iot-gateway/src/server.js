@@ -120,6 +120,11 @@ async function bootstrap() {
   esp32Ws.onCommandAck((payload) => {
     gatewayService.handleRealtimeCommandAck(payload);
   });
+  esp32Ws.onTelemetry((payload) => {
+    gatewayService.handleIncomingPayload(payload, 'ws').catch((error) => {
+      logger.error('Failed to handle ws telemetry payload', error.message);
+    });
+  });
 
   if (config.serial.enabled) {
     const serialLockers = createSerialLockers({

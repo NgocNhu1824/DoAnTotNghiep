@@ -251,6 +251,11 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload);
+    const hasFaceTemplate = await this.faceTemplateModel.exists({ userId: populatedUser._id });
+    const hasFingerTemplate = await this.userModel.exists({
+      _id: populatedUser._id,
+      fingerprintData: { $exists: true, $nin: ['', null] },
+    });
 
     // 8. Return response with role and permissions
     return {
@@ -263,6 +268,8 @@ export class AuthService {
         avatar: populatedUser.avatar,
         roleId: populatedUser.roleId ? (populatedUser.roleId as any)._id.toString() : undefined,
         campusId: populatedUser.campusId, // Return full campus object
+        hasFaceId: Boolean(hasFaceTemplate),
+        hasFingerId: Boolean(hasFingerTemplate),
       },
       roleDetails,
       permissions,
@@ -350,6 +357,11 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload);
+    const hasFaceTemplate = await this.faceTemplateModel.exists({ userId: user._id });
+    const hasFingerTemplate = await this.userModel.exists({
+      _id: user._id,
+      fingerprintData: { $exists: true, $nin: ['', null] },
+    });
 
     return {
       success: true,
@@ -361,6 +373,8 @@ export class AuthService {
         avatar: user.avatar,
         roleId: user.roleId ? (user.roleId as any)._id.toString() : undefined,
         campusId: user.campusId,
+        hasFaceId: Boolean(hasFaceTemplate),
+        hasFingerId: Boolean(hasFingerTemplate),
       },
       roleDetails,
       permissions,
@@ -386,6 +400,11 @@ export class AuthService {
     const hasPassword = Boolean(user.passwordHash);
     const hasFaceTemplate = await this.faceTemplateModel.exists({ userId: user._id });
     const hasFaceId = Boolean(hasFaceTemplate);
+    const hasFingerTemplate = await this.userModel.exists({
+      _id: user._id,
+      fingerprintData: { $exists: true, $nin: ['', null] },
+    });
+    const hasFingerId = Boolean(hasFingerTemplate);
     const userData = user.toObject();
     delete userData.passwordHash;
 
@@ -434,6 +453,7 @@ export class AuthService {
       permissions,
       hasPassword,
       hasFaceId,
+      hasFingerId,
     };
   }
 

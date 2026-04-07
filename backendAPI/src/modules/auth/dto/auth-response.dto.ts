@@ -9,6 +9,8 @@ export class AuthResponseDto {
     avatar: string;
     roleId?: string;
     campusId: any; // Can be string (ID) or Campus object (populated)
+    hasFaceId?: boolean;
+    hasFingerId?: boolean;
   };
   roleDetails?: {
     id: string;

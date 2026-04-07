@@ -179,6 +179,7 @@ export class LockerController {
     @Body()
     body?: {
       method?: string;
+      usageAction?: 'unlock' | 'return';
       roomId?: string;
       scheduleId?: string;
       bookingId?: string;
@@ -186,6 +187,45 @@ export class LockerController {
     },
   ) {
     return this.lockerService.unlockLocker(id, user, body);
+  }
+
+  @Post(':id/fingerprint/register')
+  @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard, ScopeGuard)
+  @RequirePermissions('lockers.unlock')
+  @RequireScopes('SELF', 'CAMPUS', 'GLOBAL')
+  registerFingerprint(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body()
+    body?: {
+      roomId?: string;
+      scheduleId?: string;
+      bookingId?: string;
+      delaySeconds?: number;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    return this.lockerService.requestFingerprintRegistration(id, user, body);
+  }
+
+  @Post(':id/fingerprint/verify')
+  @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard, ScopeGuard)
+  @RequirePermissions('lockers.unlock')
+  @RequireScopes('SELF', 'CAMPUS', 'GLOBAL')
+  verifyFingerprint(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body()
+    body?: {
+      usageAction?: 'unlock' | 'return';
+      roomId?: string;
+      scheduleId?: string;
+      bookingId?: string;
+      delaySeconds?: number;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    return this.lockerService.requestFingerprintVerification(id, user, body);
   }
 
   // ===== ID ROUTES (ALWAYS LAST) =====

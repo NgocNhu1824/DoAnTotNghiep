@@ -14,6 +14,7 @@ import {
   UploadedFile,
   BadRequestException,
   Res,
+  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -113,6 +114,12 @@ export class RoomController {
   @RequirePermissions('rooms.read')
   async findByRoomCode(@Param('roomCode') roomCode: string) {
     return await this.roomService.findByRoomCode(roomCode);
+  }
+
+  @Get('usage-states')
+  @RequirePermissions('rooms.read')
+  async getRoomUsageStates(@Query('campusId') campusId: string, @Req() request: any) {
+    return await this.roomService.getRoomUsageStates(campusId, request.campusFilter);
   }
 
   @Get(':id')

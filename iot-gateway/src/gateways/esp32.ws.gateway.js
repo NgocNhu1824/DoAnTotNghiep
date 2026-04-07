@@ -13,6 +13,7 @@ function createEsp32WsGateway(options) {
   const callbacks = {
     onSyncSnapshot: null,
     onCommandAck: null,
+    onTelemetry: null,
   };
 
   const wss = new WebSocket.Server({ noServer: true });
@@ -87,7 +88,7 @@ function createEsp32WsGateway(options) {
       // Accept either wrapped { type: 'sync_snapshot', ... } or raw command object
       const type = String(parsed.type || '').toLowerCase();
 
-      if (type === 'sync_snapshot' || type === 'init' || type === 'heartbeat') {
+      if (type === 'sync_snapshot') {
         if (typeof callbacks.onSyncSnapshot === 'function') {
           callbacks.onSyncSnapshot({ ...parsed, deviceId });
         }
@@ -101,8 +102,12 @@ function createEsp32WsGateway(options) {
         return;
       }
 
-      // treat as a command from gateway if marked so
-      // ignore other messages
+      // Forward realtime telemetry payloads from plain WS devices.
+      if (type === 'init' || type === 'heartbeat' || type === 'state' || type === 'fingerprint') {
+        if (typeof callbacks.onTelemetry === 'function') {
+          callbacks.onTelemetry({ ...parsed, deviceId });
+        }
+      }
     });
 
     ws.on('close', () => {
@@ -115,6 +120,7 @@ function createEsp32WsGateway(options) {
   return {
     onSyncSnapshot(cb) { callbacks.onSyncSnapshot = cb; },
     onCommandAck(cb) { callbacks.onCommandAck = cb; },
+    onTelemetry(cb) { callbacks.onTelemetry = cb; },
 
     sendCommand(deviceId, payload) {
       const ws = socketsByDeviceId.get(String(deviceId || '').trim());

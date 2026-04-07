@@ -5,6 +5,7 @@ import {
   UpdateRoomDto,
   RoomStatistics,
   RoomImportResult,
+  RoomUsageState,
 } from '../types/room.types';
 
 class RoomService {
@@ -60,6 +61,20 @@ class RoomService {
     return await apiService.get<RoomStatistics>(`${this.BASE_PATH}/statistics`, { params });
   }
 
+  async getRoomUsageStates(campusId?: string): Promise<RoomUsageState[]> {
+    const params = campusId ? { campusId } : {};
+    const response = await apiService.get<RoomUsageState[] | { success: boolean; data: RoomUsageState[] }>(
+      `${this.BASE_PATH}/usage-states`,
+      { params },
+    );
+
+    if (Array.isArray(response)) {
+      return response;
+    }
+
+    return Array.isArray(response?.data) ? response.data : [];
+  }
+
   async importRooms(file: File, mode: 'dryRun' | 'strict' = 'strict'): Promise<RoomImportResult> {
     const formData = new FormData();
     formData.append('file', file);
@@ -85,4 +100,6 @@ class RoomService {
   }
 }
 
-export default new RoomService();
+const roomService = new RoomService();
+
+export default roomService;

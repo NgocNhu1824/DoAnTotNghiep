@@ -57,6 +57,28 @@ export interface RoomStatistics {
   maintain: number;
 }
 
+export interface RoomUsageState {
+  id: string;
+  roomId: string | null;
+  lockerId: string | null;
+  campusId: string | null;
+  status: 'occupied' | 'vacant';
+  currentUserId?: string | null;
+  currentUserName?: string | null;
+  currentUsageType?: string | null;
+  scheduleId?: string | null;
+  bookingId?: string | null;
+  startedAt?: string | null;
+  lastAccessLogId?: string | null;
+  lastAction?: string | null;
+  lastMethod?: string | null;
+  lastReason?: string | null;
+  updatedByUserId?: string | null;
+  metadata?: Record<string, any>;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface RoomImportError {
   rowIndex?: number;
   field?: string;

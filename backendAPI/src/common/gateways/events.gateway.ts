@@ -99,17 +99,45 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   // Event: Fingerprint recognition result
   @SubscribeMessage('auth:fingerprint')
   handleFingerprintAuth(
-    @MessageBody() data: { userId: string; matched: boolean },
+    @MessageBody()
+    data: {
+      userId: string;
+      matched: boolean;
+      correlationId?: string | null;
+      operation?: 'register' | 'verify' | 'unknown';
+      fingerId?: number | null;
+      deviceId?: string | null;
+      source?: string | null;
+      syncAccepted?: boolean;
+    },
     @ConnectedSocket() client: Socket,
   ) {
     this.logger.log(`Fingerprint auth result for user ${data.userId}: ${data.matched}`);
 
-    this.server.emit('auth:result', {
+    const correlationId = typeof data.correlationId === 'string' ? data.correlationId.trim() : '';
+    const operation = data.operation || this.resolveFingerprintOperation(correlationId);
+    const payload = {
       type: 'fingerprint',
       ...data,
-    });
+      correlationId: correlationId || undefined,
+      operation,
+      timestamp: new Date(),
+    };
+
+    this.server.emit('auth:result', payload);
+
+    if (operation === 'register') {
+      this.server.emit('fingerprint:enroll:update', payload);
+    }
 
     return { success: true };
+  }
+
+  private resolveFingerprintOperation(correlationId?: string): 'register' | 'verify' | 'unknown' {
+    if (!correlationId) return 'unknown';
+    if (correlationId.startsWith('finger-register-')) return 'register';
+    if (correlationId.startsWith('finger-verify-')) return 'verify';
+    return 'unknown';
   }
 
   // Event: Booking notification

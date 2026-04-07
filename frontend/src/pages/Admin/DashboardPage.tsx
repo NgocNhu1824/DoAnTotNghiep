@@ -1,165 +1,355 @@
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../hooks/use-toast';
 import Button from '../../components/common/Button';
 import Card from '../../components/common/Card';
+import { Badge } from '../../components/ui/badge';
+import roomService from '../../services/room.service';
+import { wsService } from '../../services/websocket.service';
+import { Room, RoomUsageState } from '../../types/room.types';
+
+const resolveErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) {
+      return message;
+    }
+  }
+
+  return fallback;
+};
+
+const getCampusLabel = (campusId?: Room['campusId'] | null): string => {
+  if (!campusId) {
+    return 'N/A';
+  }
+
+  if (typeof campusId === 'string') {
+    return campusId;
+  }
+
+  return campusId.campusName || campusId.campusCode || 'N/A';
+};
 
 const DashboardPage: React.FC = () => {
   const { user, roleDetails } = useAuth();
+  const { toast } = useToast();
 
-  const stats = [
-    { name: 'Total rooms', value: '24', icon: '🏛️', color: 'bg-blue-500' },
-    { name: 'In use', value: '12', icon: '✅', color: 'bg-green-500' },
-    { name: 'Available', value: '10', icon: '🔓', color: 'bg-yellow-500' },
-    { name: 'Maintenance', value: '2', icon: '🔧', color: 'bg-red-500' },
-  ];
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [usageStates, setUsageStates] = useState<RoomUsageState[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const recentActivities = [
-    { id: 1, action: 'Room borrowed', room: 'A101', user: 'John Doe', time: '10:30 AM', status: 'success' },
-    { id: 2, action: 'Room returned', room: 'B203', user: 'Jane Smith', time: '11:15 AM', status: 'success' },
-    { id: 3, action: 'Overdue', room: 'C301', user: 'Alex Lee', time: '12:00 PM', status: 'warning' },
-  ];
+  const loadDashboardRef = useRef<(isRefresh?: boolean) => Promise<void>>(async () => undefined);
+  const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const userScope = String(roleDetails?.scope || '').toUpperCase();
+  const scopedCampusId = userScope === 'GLOBAL' ? undefined : user?.campusId?._id;
+
+  const loadDashboard = useCallback(
+    async (isRefresh = false) => {
+      try {
+        if (isRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
+        const [roomsResponse, usageStatesResponse] = await Promise.all([
+          roomService.getAllRooms(scopedCampusId ? { campusId: scopedCampusId } : undefined),
+          roomService.getRoomUsageStates(scopedCampusId),
+        ]);
+
+        setRooms(Array.isArray(roomsResponse) ? roomsResponse : []);
+        setUsageStates(Array.isArray(usageStatesResponse) ? usageStatesResponse : []);
+        setLastUpdated(new Date());
+      } catch (error: unknown) {
+        toast({
+          title: 'Cannot load dashboard data',
+          description: resolveErrorMessage(error, 'Please try again in a few seconds.'),
+          variant: 'destructive',
+        });
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [scopedCampusId, toast],
+  );
+
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    loadDashboardRef.current = loadDashboard;
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    const socket = wsService.connect();
+
+    const onConnect = () => {
+      setWsConnected(true);
+    };
+
+    const onDisconnect = () => {
+      setWsConnected(false);
+    };
+
+    const scheduleRefresh = () => {
+      if (realtimeRefreshTimerRef.current) {
+        clearTimeout(realtimeRefreshTimerRef.current);
+      }
+
+      realtimeRefreshTimerRef.current = setTimeout(() => {
+        loadDashboardRef.current(true);
+      }, 350);
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    setWsConnected(socket.connected);
+
+    const realtimeEvents = [
+      'access-log:update',
+      'booking:updated',
+      'transfer:activated',
+      'locker:status:update',
+    ];
+
+    realtimeEvents.forEach((eventName) => {
+      socket.on(eventName, scheduleRefresh);
+    });
+
+    return () => {
+      if (realtimeRefreshTimerRef.current) {
+        clearTimeout(realtimeRefreshTimerRef.current);
+        realtimeRefreshTimerRef.current = null;
+      }
+
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      realtimeEvents.forEach((eventName) => {
+        socket.off(eventName, scheduleRefresh);
+      });
+      wsService.disconnect();
+    };
+  }, []);
+
+  const latestUsageStateByRoomId = useMemo(() => {
+    const stateMap = new Map<string, RoomUsageState>();
+
+    usageStates.forEach((usageState) => {
+      if (!usageState.roomId || stateMap.has(usageState.roomId)) {
+        return;
+      }
+
+      stateMap.set(usageState.roomId, usageState);
+    });
+
+    return stateMap;
+  }, [usageStates]);
+
+  const roomUsageRows = useMemo(() => {
+    return rooms.map((room) => {
+      const usageState = latestUsageStateByRoomId.get(room._id);
+      const isInUse = usageState?.status === 'occupied';
+
+      return {
+        room,
+        usageState,
+        isInUse,
+      };
+    });
+  }, [rooms, latestUsageStateByRoomId]);
+
+  const stats = useMemo(() => {
+    const total = roomUsageRows.length;
+    const inUse = roomUsageRows.filter((row) => row.isInUse).length;
+    const availableNow = roomUsageRows.filter(
+      (row) => row.room.status === 'available' && row.room.isActive && !row.isInUse,
+    ).length;
+    const maintenance = roomUsageRows.filter((row) => row.room.status === 'maintain').length;
+
+    return [
+      { name: 'Total rooms', value: total, icon: '🏛️', color: 'bg-blue-500' },
+      { name: 'In use', value: inUse, icon: '🟢', color: 'bg-emerald-500' },
+      { name: 'Available now', value: availableNow, icon: '🔓', color: 'bg-amber-500' },
+      { name: 'Maintenance', value: maintenance, icon: '🔧', color: 'bg-rose-500' },
+    ];
+  }, [roomUsageRows]);
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) {
+      return '-';
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return '-';
+    }
+
+    return date.toLocaleString();
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-80 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* Welcome Section */}
-      <div className="bg-gradient-to-r from-primary-600 to-primary-700 rounded-lg shadow-lg p-6">
-        <h1 className="text-3xl font-bold mb-2">
-          Hello, {user?.fullName || 'User'}!
-        </h1>
-        <p className="text-primary-100">
-          Welcome to the Smart Classroom Management System
-        </p>
-        <div className="mt-4 flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-sm">Campus:</span>
-            <span className="font-semibold">{user?.campusId?.campusName || 'N/A'}</span>
+      <Card className="border-primary/30 bg-gradient-to-r from-primary-600 to-primary-700 text-white">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Hello, {user?.fullName || 'User'}!</h1>
+            <p className="mt-1 text-primary-100">Realtime room usage dashboard</p>
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-primary-100">
+              <span>Campus: {user?.campusId?.campusName || 'N/A'}</span>
+              <span>Role: {roleDetails?.roleName || 'N/A'}</span>
+              <span className="inline-flex items-center gap-1">
+                {wsConnected ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+                {wsConnected ? 'Realtime connected' : 'Realtime disconnected'}
+              </span>
+            </div>
           </div>
+
           <div className="flex items-center gap-2">
-            <span className="text-sm">Role:</span>
-            <span className="font-semibold capitalize">{roleDetails?.roleName || 'N/A'}</span>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => loadDashboard(true)}
+              disabled={refreshing}
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
           </div>
         </div>
-      </div>
+      </Card>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
           <Card key={stat.name} className="hover:shadow-lg transition-shadow">
-            <div className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">{stat.name}</p>
-                  <p className="text-3xl font-bold text-gray-900">{stat.value}</p>
-                </div>
-                <div className={`${stat.color} w-12 h-12 rounded-lg flex items-center justify-center text-2xl`}>
-                  {stat.icon}
-                </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">{stat.name}</p>
+                <p className="mt-1 text-3xl font-bold text-gray-900">{stat.value}</p>
+              </div>
+              <div className={`${stat.color} flex h-12 w-12 items-center justify-center rounded-lg text-2xl text-white`}>
+                {stat.icon}
               </div>
             </div>
           </Card>
         ))}
       </div>
 
-      {/* Recent Activities */}
-      <Card>
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Recent activity</h2>
-            <Button size="sm" variant="secondary">View all</Button>
-          </div>
-          
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+      <Card title="Realtime Room Usage" description="Mapped from room list and room usage state.">
+        <div className="mb-4 flex flex-col gap-2 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+          <span>
+            Last updated: {lastUpdated ? lastUpdated.toLocaleString() : 'N/A'}
+          </span>
+          <span>
+            Campus scope: {userScope === 'GLOBAL' ? 'All campuses' : getCampusLabel(user?.campusId || null)}
+          </span>
+        </div>
+
+        <div className="overflow-x-auto rounded-md border">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Room
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Location
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Room status
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Usage state
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Current user
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Started at
+                </th>
+              </tr>
+            </thead>
+
+            <tbody className="divide-y divide-gray-100 bg-white">
+              {roomUsageRows.length === 0 && (
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Action
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Room
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    User
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Time
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
+                  <td colSpan={6} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                    No rooms found for current scope.
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {recentActivities.map((activity) => (
-                  <tr key={activity.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {activity.action}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {activity.room}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {activity.user}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {activity.time}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        activity.status === 'success' ? 'bg-green-100 text-green-800' :
-                        activity.status === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        {activity.status === 'success' ? 'Success' :
-                         activity.status === 'warning' ? 'Warning' : 'Error'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              )}
+
+              {roomUsageRows.map(({ room, usageState, isInUse }) => (
+                <tr key={room._id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900">{room.roomCode}</div>
+                    <div className="text-xs text-gray-500">{room.roomName}</div>
+                  </td>
+
+                  <td className="px-4 py-3 text-sm text-gray-700">
+                    {room.building} - Floor {room.floor}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <Badge
+                      className={
+                        room.status === 'maintain'
+                          ? 'bg-rose-100 text-rose-700 hover:bg-rose-100'
+                          : room.status === 'unavailable'
+                            ? 'bg-amber-100 text-amber-700 hover:bg-amber-100'
+                            : 'bg-blue-100 text-blue-700 hover:bg-blue-100'
+                      }
+                    >
+                      {room.status}
+                    </Badge>
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <Badge
+                      className={
+                        isInUse
+                          ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+                          : usageState?.status === 'vacant'
+                            ? 'bg-slate-100 text-slate-700 hover:bg-slate-100'
+                            : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-100'
+                      }
+                    >
+                      {isInUse ? 'In use' : usageState?.status === 'vacant' ? 'Vacant' : 'No state'}
+                    </Badge>
+                  </td>
+
+                  <td className="px-4 py-3 text-sm text-gray-700">
+                    {usageState?.currentUserName || '-'}
+                  </td>
+
+                  <td className="px-4 py-3 text-sm text-gray-700">
+                    {formatDateTime(usageState?.startedAt)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </Card>
-
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-          <div className="p-6 text-center">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">New booking</h3>
-            <p className="text-sm text-gray-600">Create a classroom booking request</p>
-          </div>
-        </Card>
-
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-          <div className="p-6 text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">View schedule</h3>
-            <p className="text-sm text-gray-600">Check classroom usage schedule</p>
-          </div>
-        </Card>
-
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-          <div className="p-6 text-center">
-            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Analytics</h3>
-            <p className="text-sm text-gray-600">View reports and insights</p>
-          </div>
-        </Card>
-      </div>
     </div>
   );
 };

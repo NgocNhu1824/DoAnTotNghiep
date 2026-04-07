@@ -596,14 +596,33 @@ class GatewayService {
         ? `finger-${payload.fingerId}`
         : deviceId;
 
+    const rawCorrelationId = payload.correlationId !== undefined ? String(payload.correlationId) : '';
+    const correlationId = rawCorrelationId.trim();
+    let operation = 'unknown';
+    if (correlationId.startsWith('finger-register-')) operation = 'register';
+    else if (correlationId.startsWith('finger-verify-')) operation = 'verify';
+
     this.wsClient.emit(this.events.FINGERPRINT_AUTH, {
       userId,
       matched: Boolean(payload.matched),
+      fingerId: payload.fingerId !== undefined ? Number(payload.fingerId) : null,
+      deviceId,
+      correlationId: correlationId || null,
+      operation,
+      source: payload.source || null,
+      syncAccepted:
+        payload.syncAccepted !== undefined ? Boolean(payload.syncAccepted) : undefined,
     });
   }
 
   async syncFingerprintLog(payload, deviceId) {
-    await this.postSafe('/esp32/access-log', {
+    const rawCorrelationId = payload.correlationId !== undefined ? String(payload.correlationId) : '';
+    const correlationId = rawCorrelationId.trim();
+    let operation = 'unknown';
+    if (correlationId.startsWith('finger-register-')) operation = 'register';
+    else if (correlationId.startsWith('finger-verify-')) operation = 'verify';
+
+    return await this.postSafe('/esp32/access-log', {
       deviceId,
       method: 'fingerprint',
       status: Boolean(payload.matched) ? 'success' : 'failed',
@@ -613,6 +632,8 @@ class GatewayService {
       metadata: {
         source: payload.source,
         matched: Boolean(payload.matched),
+        correlationId: correlationId || undefined,
+        operation,
         // forward raw fingerprint data if ESP32 provided it (registration flow)
         fingerData: payload.fingerData !== undefined ? payload.fingerData : undefined,
       },
@@ -651,8 +672,11 @@ class GatewayService {
     }
 
     if (type === 'fingerprint') {
-      this.emitFingerprint(data, deviceId);
-      await this.syncFingerprintLog(data, deviceId);
+      const syncResult = await this.syncFingerprintLog(data, deviceId);
+      this.emitFingerprint({
+        ...data,
+        syncAccepted: Boolean(syncResult?.ok),
+      }, deviceId);
       this.logger.info('Forwarded fingerprint payload via WebSocket', deviceId);
       return data;
     }
