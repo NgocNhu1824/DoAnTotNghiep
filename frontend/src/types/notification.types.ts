@@ -1,4 +1,5 @@
 export type NotificationPriority = 'low' | 'medium' | 'high';
+export type NotificationTargetType = 'users' | 'campus' | 'all';
 
 export interface AppNotification {
   _id: string;
@@ -27,4 +28,23 @@ export interface NotificationListMeta {
 export interface NotificationListResponse {
   data: AppNotification[];
   meta: NotificationListMeta;
+}
+
+export interface CreateNotificationPayload {
+  targetType: NotificationTargetType;
+  title: string;
+  message: string;
+  type?: string;
+  priority?: NotificationPriority;
+  campusId?: string;
+  recipientIds?: string[];
+  data?: Record<string, any>;
+  dedupeKey?: string;
+}
+
+export interface CreateNotificationResult {
+  created: number;
+  recipientCount: number;
+  targetType: NotificationTargetType;
+  campusId: string | null;
 }

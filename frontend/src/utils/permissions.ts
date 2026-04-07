@@ -101,6 +101,7 @@ export const PERMISSIONS = {
   INCIDENTS_RESOLVE: 'incidents.resolve',
 
   // Notifications
+  NOTIFICATIONS_CREATE: 'notifications.create',
   NOTIFICATIONS_READ: 'notifications.read',
 
   // Transfers
@@ -172,6 +173,7 @@ export const getPermissionDisplayName = (permissionName: string): string => {
     'incidents.read': 'View incidents',
     'incidents.update': 'Update incidents',
     'incidents.resolve': 'Resolve incidents',
+    'notifications.create': 'Create notifications',
     'notifications.read': 'View notifications',
     'transfers.create': 'Create transfer requests',
     'transfers.read': 'View transfer requests',

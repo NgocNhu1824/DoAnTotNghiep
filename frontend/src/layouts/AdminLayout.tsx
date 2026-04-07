@@ -29,6 +29,7 @@ import {
   Cpu,
   ArrowLeftRight,
   TriangleAlert,
+  BellRing,
 } from 'lucide-react';
 
 const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -119,6 +120,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       icon: TriangleAlert,
       path: '/incidents',
       requiredPermissions: [PERMISSIONS.INCIDENTS_READ],
+    },
+    {
+      id: 'notifications-create',
+      label: 'Send Notifications',
+      icon: BellRing,
+      path: '/notifications/create',
+      requiredPermissions: [PERMISSIONS.NOTIFICATIONS_CREATE],
     },
       {
         id: 'transfers',

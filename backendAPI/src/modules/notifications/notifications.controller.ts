@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { CampusScopeGuard } from '@/common/guards/campus-scope.guard';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
@@ -7,12 +7,34 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { RequirePermissions } from '@/common/decorators/permissions.decorator';
 import { RequireScopes } from '@/common/decorators/scopes.decorator';
 import { QueryNotificationsDto } from './dto/query-notifications.dto';
+import { CreateManualNotificationDto } from './dto/create-manual-notification.dto';
 import { NotificationsService } from './notifications.service';
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard, ScopeGuard)
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
+
+  @Post()
+  @RequirePermissions('notifications.create')
+  @RequireScopes('CAMPUS', 'GLOBAL')
+  async createManual(
+    @Body() payload: CreateManualNotificationDto,
+    @CurrentUser() user: any,
+    @Req() request: any,
+  ) {
+    const data = await this.notificationsService.createManualNotification(
+      payload,
+      user,
+      request.campusFilter,
+    );
+
+    return {
+      success: true,
+      message: 'Notification sent successfully',
+      data,
+    };
+  }
 
   @Get()
   @RequirePermissions('notifications.read')

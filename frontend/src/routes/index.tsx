@@ -24,6 +24,7 @@ import UserProfilePage from '../pages/Admin/UserProfilePage';
 import BookingManagementPage from '../pages/Admin/BookingManagementPage';
 import SettingsManagementPage from '../pages/Admin/SettingsManagementPage';
 import IncidentManagementPage from '../pages/Admin/IncidentManagementPage';
+import NotificationBroadcastPage from '../pages/Admin/NotificationBroadcastPage';
 import LecturerBookingPage from '../pages/Lecturer/LecturerBookingPage';
 import LecturerBookingHistoryPage from '../pages/Lecturer/LecturerBookingHistoryPage';
 import LecturerSchedulePage from '@/pages/Lecturer/LecturerSchedulePage';
@@ -323,6 +324,20 @@ const AppRoutes: React.FC = () => {
               >
                 <AdminLayout>
                   <IncidentManagementPage />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/notifications/create"
+            element={
+              <ProtectedRoute
+                requiredPermissions={[PERMISSIONS.NOTIFICATIONS_CREATE]}
+                requiredScopes={['CAMPUS', 'GLOBAL']}
+              >
+                <AdminLayout>
+                  <NotificationBroadcastPage />
                 </AdminLayout>
               </ProtectedRoute>
             }

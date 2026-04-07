@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Notification } from '@/database/schemas/notification.schema';
@@ -6,6 +6,7 @@ import { User } from '@/database/schemas/user.schema';
 import { Role } from '@/database/schemas/role.schema';
 import { Booking } from '@/database/schemas/booking.schema';
 import { QueryNotificationsDto } from './dto/query-notifications.dto';
+import { CreateManualNotificationDto } from './dto/create-manual-notification.dto';
 import { CreateNotificationInput } from './notifications.types';
 import { EventsGateway } from '@/common/gateways/events.gateway';
 import { NotificationsQueueService } from './notifications.queue';
@@ -419,6 +420,94 @@ export class NotificationsService {
     private readonly notificationsQueueService: NotificationsQueueService,
   ) {}
 
+  async createManualNotification(
+    payload: CreateManualNotificationDto,
+    currentUser: any,
+    campusFilter: any,
+  ): Promise<{
+    created: number;
+    recipientCount: number;
+    targetType: 'users' | 'campus' | 'all';
+    campusId: string | null;
+  }> {
+    const senderId = this.extractObjectId(currentUser?._id);
+    if (!senderId) {
+      throw new BadRequestException('Invalid sender account');
+    }
+
+    const allowedCampusId = this.extractObjectId(campusFilter?.campusId);
+    const requestedCampusId = this.extractObjectId(payload.campusId);
+
+    if (allowedCampusId && requestedCampusId && allowedCampusId !== requestedCampusId) {
+      throw new ForbiddenException('You cannot send notifications outside your campus scope');
+    }
+
+    const targetType = payload.targetType;
+    const title = String(payload.title || '').trim();
+    const message = String(payload.message || '').trim();
+
+    if (!title || !message) {
+      throw new BadRequestException('Title and message are required');
+    }
+
+    const recipientRows = await this.resolveManualRecipients({
+      targetType,
+      recipientIds: payload.recipientIds,
+      allowedCampusId,
+      requestedCampusId,
+    });
+
+    const uniqueRecipients = Array.from(
+      new Map(recipientRows.map((row: any) => [String(row._id), row])).values(),
+    ).filter((row: any) => String(row._id) !== senderId);
+
+    if (uniqueRecipients.length === 0) {
+      throw new BadRequestException('No eligible recipients found');
+    }
+
+    const normalizedType =
+      String(payload.type || 'manual_announcement')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '_') || 'manual_announcement';
+    const dedupeBase = String(payload.dedupeKey || '').trim();
+
+    const sharedData =
+      payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+        ? payload.data
+        : {};
+
+    const items: CreateNotificationInput[] = uniqueRecipients.map((row: any) => {
+      const recipientId = String(row._id);
+      const recipientCampusId = this.extractObjectId(row?.campusId);
+
+      return {
+        recipientId,
+        senderId,
+        campusId: recipientCampusId || allowedCampusId || requestedCampusId || null,
+        type: normalizedType,
+        title,
+        message,
+        priority: payload.priority || 'medium',
+        data: {
+          ...sharedData,
+          source: 'manual',
+          targetType,
+        },
+        dedupeKey: dedupeBase ? `${dedupeBase}:recipient:${recipientId}` : undefined,
+      };
+    });
+
+    await this.createAndBroadcastMany(items);
+
+    return {
+      created: items.length,
+      recipientCount: items.length,
+      targetType,
+      campusId: allowedCampusId || requestedCampusId || null,
+    };
+  }
+
   async findMine(currentUser: any, campusFilter: any, query: QueryNotificationsDto) {
     const userId = currentUser?._id;
     const page = Math.max(1, Number(query.page || 1));
@@ -774,6 +863,87 @@ export class NotificationsService {
 
   async cancelBookingReminder(bookingId: string): Promise<void> {
     await this.notificationsQueueService.cancelBookingReminder(bookingId);
+  }
+
+  private async resolveManualRecipients(options: {
+    targetType: 'users' | 'campus' | 'all';
+    recipientIds?: string[];
+    allowedCampusId?: string | null;
+    requestedCampusId?: string | null;
+  }): Promise<Array<{ _id: Types.ObjectId; campusId?: Types.ObjectId | null }>> {
+    const { targetType, recipientIds = [], allowedCampusId, requestedCampusId } = options;
+
+    if (targetType === 'users') {
+      const normalizedIds = Array.from(
+        new Set(
+          recipientIds
+            .map((id) => String(id || '').trim())
+            .filter(Boolean),
+        ),
+      );
+
+      if (normalizedIds.length === 0) {
+        throw new BadRequestException('Recipient list is required for targetType "users"');
+      }
+
+      const invalidIds = normalizedIds.filter((id) => !Types.ObjectId.isValid(id));
+      if (invalidIds.length > 0) {
+        throw new BadRequestException(`Invalid recipient IDs: ${invalidIds.slice(0, 5).join(', ')}`);
+      }
+
+      const objectIds = normalizedIds.map((id) => new Types.ObjectId(id));
+      const query: any = {
+        _id: { $in: objectIds },
+        isActive: { $ne: false },
+      };
+
+      if (allowedCampusId) {
+        query.campusId = new Types.ObjectId(allowedCampusId);
+      } else if (requestedCampusId) {
+        query.campusId = new Types.ObjectId(requestedCampusId);
+      }
+
+      const rows = await this.userModel.find(query).select('_id campusId').lean().exec();
+
+      const found = new Set(rows.map((row: any) => String(row._id)));
+      const missing = normalizedIds.filter((id) => !found.has(id));
+
+      if (missing.length > 0) {
+        throw new BadRequestException(
+          `Some recipients are invalid or inaccessible: ${missing.slice(0, 5).join(', ')}`,
+        );
+      }
+
+      return rows as any;
+    }
+
+    if (targetType === 'campus') {
+      const campusId = requestedCampusId || allowedCampusId;
+      if (!campusId) {
+        throw new BadRequestException('campusId is required when targetType is "campus"');
+      }
+
+      return (await this.userModel
+        .find({
+          isActive: { $ne: false },
+          campusId: new Types.ObjectId(campusId),
+        })
+        .select('_id campusId')
+        .lean()
+        .exec()) as any;
+    }
+
+    const allQuery: any = {
+      isActive: { $ne: false },
+    };
+
+    if (allowedCampusId) {
+      allQuery.campusId = new Types.ObjectId(allowedCampusId);
+    } else if (requestedCampusId) {
+      allQuery.campusId = new Types.ObjectId(requestedCampusId);
+    }
+
+    return (await this.userModel.find(allQuery).select('_id campusId').lean().exec()) as any;
   }
 
   private async createAndBroadcastMany(items: CreateNotificationInput[]): Promise<void> {

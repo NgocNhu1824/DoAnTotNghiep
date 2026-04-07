@@ -1,5 +1,10 @@
 import api from './api.service';
-import { AppNotification, NotificationListResponse } from '@/types/notification.types';
+import {
+  AppNotification,
+  CreateNotificationPayload,
+  CreateNotificationResult,
+  NotificationListResponse,
+} from '@/types/notification.types';
 
 export const notificationsService = {
   getMyNotifications: async (params?: {
@@ -36,6 +41,17 @@ export const notificationsService = {
   markAllAsRead: async (): Promise<number> => {
     const res = await api.patch<{ success: boolean; data: { updated: number } }>('/notifications/read-all', {});
     return res.data?.updated || 0;
+  },
+
+  createNotification: async (
+    payload: CreateNotificationPayload,
+  ): Promise<CreateNotificationResult> => {
+    const res = await api.post<{ success: boolean; data: CreateNotificationResult }>(
+      '/notifications',
+      payload,
+    );
+
+    return res.data;
   },
 };
 
