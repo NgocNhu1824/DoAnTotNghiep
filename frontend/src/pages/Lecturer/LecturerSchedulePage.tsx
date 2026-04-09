@@ -1275,13 +1275,13 @@ const LecturerSchedulePage: React.FC = () => {
                                     <Button
                                       type="button"
                                       variant="outline"
-                                      className="h-7 min-w-[96px] px-2 text-xs whitespace-nowrap"
+                                      className="h-7 min-w-[96px] border border-blue-200 bg-blue-50 px-2 text-xs whitespace-nowrap text-blue-700 hover:bg-blue-100"
                                       onClick={() => {
                                         setDetailSchedule(cell);
                                         setShowDetailModal(true);
                                       }}
                                     >
-                                      Details
+                                      Info
                                     </Button>
 
                                     {(
@@ -1445,47 +1445,23 @@ const LecturerSchedulePage: React.FC = () => {
       {showDetailModal && detailSchedule && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           {(() => {
-            const bookingSchedule = isBookingSchedule(detailSchedule);
-            const roomDetail = getRoomInfo(detailSchedule.roomId);
-
             return (
-          <div className="bg-white rounded-2xl shadow-2xl p-5 w-[620px] h-[430px] max-w-[90vw] max-h-[80vh] overflow-y-auto relative border border-blue-200">
+          <div className="bg-white rounded-2xl shadow-2xl p-5 w-[520px] max-w-[90vw] max-h-[80vh] overflow-y-auto relative border border-blue-200">
             <button
               className="absolute top-3 right-3 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold shadow"
               onClick={() => setShowDetailModal(false)}
               aria-label="Close"
             >×</button>
             <div className="flex flex-col items-center mb-4">
-              <h2 className="text-2xl font-bold text-blue-700">{bookingSchedule ? 'Booking Schedule Details' : 'Schedule Details'}</h2>
+              <h2 className="text-2xl font-bold text-blue-700">Schedule Info</h2>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-[15px]">
-              <div className="flex flex-col gap-2 border-r border-gray-200 pr-4">
-                <div className="font-semibold text-blue-700 mb-1">Class Code: <span className="font-normal text-gray-900 whitespace-normal break-words">{bookingSchedule ? 'BOOKING' : detailSchedule.classCode || '-'}</span></div>
-                {!bookingSchedule && (
-                  <div className="font-semibold text-blue-700 mb-1">Subject Code: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.subjectCode || '-'}</span></div>
-                )}
-                <div className="font-semibold text-blue-700 mb-1">{bookingSchedule ? 'Booking Purpose' : 'Subject Name'}: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.subjectName || '-'}</span></div>
-                <div className="font-semibold text-blue-700 mb-1">Type: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.isOnline ? 'Online' : 'Offline'}</span></div>
-                <div className="font-semibold text-blue-700 mt-2 mb-1">Room Information</div>
-                <div className="ml-2">Room Code: <span className="text-gray-900 whitespace-normal break-words">{roomDetail.code}</span></div>
-                <div className="ml-2">Room Name: <span className="text-gray-900 whitespace-normal break-words">{roomDetail.name}</span></div>
-                <div className="ml-2">Building: <span className="text-gray-900 whitespace-normal break-words">{roomDetail.building}</span></div>
-              </div>
-              <div className="flex flex-col gap-2 pl-4">
-                <div className="font-semibold text-blue-700 mt-2 mb-1">Schedule Information</div>
-                <div className="ml-2">Start Date: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.dateStart ? new Date(detailSchedule.dateStart).toLocaleDateString('en-GB') : '-'}</span></div>
-                <div className="ml-2">Day of Week: <span className="text-gray-900 whitespace-normal break-words">{getWeekdayLabel(detailSchedule.dateStart)}</span></div>
-                <div className="ml-2">Slot Number: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.slotNumber || '-'}</span></div>
-                <div className="ml-2">Start Time: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.startTime || '-'}</span></div>
-                <div className="ml-2">End Time: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.endTime || '-'}</span></div>
-                {!bookingSchedule && (
-                  <div className="ml-2">Semester: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.semester || '-'}</span></div>
-                )}
-                {!bookingSchedule && (
-                  <div className="ml-2">Mode: <span className="text-gray-900 whitespace-normal break-words">{detailSchedule.isOnline ? 'Online' : 'Offline'}</span></div>
-                )}
-                <div className="ml-2">Status: <span className="text-gray-900 whitespace-normal break-words">{getStatusLabel(detailSchedule.status)}</span></div>
-              </div>
+            <div className="space-y-2 text-[15px]">
+              <div className="font-semibold text-blue-700">Class Code: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.classCode || '-'}</span></div>
+              <div className="font-semibold text-blue-700">Subject Code: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.subjectCode || '-'}</span></div>
+              <div className="font-semibold text-blue-700">Subject Name: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.subjectName || '-'}</span></div>
+              <div className="font-semibold text-blue-700">Start Date: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.dateStart ? new Date(detailSchedule.dateStart).toLocaleDateString('en-GB') : '-'}</span></div>
+              <div className="font-semibold text-blue-700">Day of Week: <span className="font-normal text-gray-900 whitespace-normal break-words">{getWeekdayLabel(detailSchedule.dateStart)}</span></div>
+              <div className="font-semibold text-blue-700">Slot Number: <span className="font-normal text-gray-900 whitespace-normal break-words">{detailSchedule.slotNumber || '-'}</span></div>
             </div>
           </div>
             );
