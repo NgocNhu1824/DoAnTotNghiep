@@ -1,5 +1,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MoreHorizontal } from 'lucide-react';
 import LecturerLayout from '@/layouts/LecturerLayout';
 import ConfirmDialog from '@/components/common/ConfirmDialog';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -9,14 +10,30 @@ import { scheduleService } from '@/services/schedule.service';
 import { timeSlotService } from '@/services/time-slot.service';
 import bookingService from '@/services/booking.service';
 import transferService from '@/services/transfer.service';
+import roomService from '@/services/room.service';
 import { lockerService } from '@/services/locker.service';
 import { wsService } from '@/services/websocket.service';
 import { Schedule } from '@/types/schedule.types';
 import { TimeSlot } from '@/types/time-slot.types';
 import { Booking } from '@/types/booking.types';
+import { Room } from '@/types/room.types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TransferRecord, TransferTargetOption } from '@/types/transfer.types';
 
@@ -273,6 +290,10 @@ const LecturerSchedulePage: React.FC = () => {
   const [rejectReason, setRejectReason] = useState('');
   const [actingTransferId, setActingTransferId] = useState<string | null>(null);
   const [eligibleTransferSourceIds, setEligibleTransferSourceIds] = useState<Set<string>>(new Set());
+  const [roomDevicesModalOpen, setRoomDevicesModalOpen] = useState(false);
+  const [roomDevicesLoading, setRoomDevicesLoading] = useState(false);
+  const [selectedRoomForDevices, setSelectedRoomForDevices] = useState<Room | null>(null);
+  const [selectedRoomForDevicesId, setSelectedRoomForDevicesId] = useState('');
   const lastNotifiedTransferIdRef = useRef<string | null>(null);
   const processedReturnParamsRef = useRef<string>('');
   const weekFetchSeqRef = useRef(0);
@@ -1008,6 +1029,82 @@ const LecturerSchedulePage: React.FC = () => {
     return 'bg-gray-100 text-gray-700';
   };
 
+  const getScheduleRoomId = (roomId: Schedule['roomId']): string => {
+    if (roomId && typeof roomId === 'object') {
+      return roomId._id || '';
+    }
+
+    if (typeof roomId === 'string') {
+      return roomId;
+    }
+
+    return '';
+  };
+
+  const getDeviceStatusView = (status?: 'ok' | 'broken') => {
+    if (status === 'broken') {
+      return {
+        text: 'Broken',
+        className: 'bg-red-50 text-red-700 border-red-200',
+      };
+    }
+
+    return {
+      text: 'Active',
+      className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    };
+  };
+
+  const handleReportIncident = (schedule: DisplaySchedule) => {
+    const roomId = getScheduleRoomId(schedule.roomId);
+    if (!roomId) {
+      toast({
+        title: 'Error',
+        description: 'Room information is not available to report incident.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const query = new URLSearchParams({
+      source: 'lecturer-schedule',
+      scheduleId: String(schedule._id || ''),
+    });
+
+    navigate(`/public/incident-report/${encodeURIComponent(roomId)}?${query.toString()}`);
+  };
+
+  const handleViewRoomDevices = async (schedule: DisplaySchedule) => {
+    const roomId = getScheduleRoomId(schedule.roomId);
+    if (!roomId) {
+      toast({
+        title: 'Error',
+        description: 'Room information is not available to view devices.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSelectedRoomForDevicesId(roomId);
+    setSelectedRoomForDevices(null);
+    setRoomDevicesModalOpen(true);
+
+    try {
+      setRoomDevicesLoading(true);
+      const roomDetail = await roomService.getRoomById(roomId);
+      setSelectedRoomForDevices(roomDetail);
+    } catch {
+      toast({
+        title: 'Error',
+        description: 'Cannot load room devices',
+        variant: 'destructive',
+      });
+      setSelectedRoomForDevices(null);
+    } finally {
+      setRoomDevicesLoading(false);
+    }
+  };
+
   const getRoomInfo = (roomId: Schedule['roomId']) => {
     if (roomId && typeof roomId === 'object') {
       return {
@@ -1208,6 +1305,28 @@ const LecturerSchedulePage: React.FC = () => {
                                             : 'Transfer'}
                                       </Button>
                                     )}
+
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 border border-slate-200"
+                                            title="More actions"
+                                          >
+                                            <MoreHorizontal className="h-4 w-4" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                          <DropdownMenuItem onClick={() => handleReportIncident(cell)}>
+                                            Report incident
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => void handleViewRoomDevices(cell)}>
+                                            View device
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
                                   </div>
                                 </div>
                               </div>
@@ -1226,6 +1345,103 @@ const LecturerSchedulePage: React.FC = () => {
         )}
           </CardContent>
         </Card>
+
+      <Dialog
+        open={roomDevicesModalOpen}
+        onOpenChange={(open) => {
+          setRoomDevicesModalOpen(open);
+          if (!open) {
+            setSelectedRoomForDevices(null);
+            setSelectedRoomForDevicesId('');
+            setRoomDevicesLoading(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              Room Devices: {selectedRoomForDevices?.roomCode || selectedRoomForDevicesId || '--'}
+            </DialogTitle>
+          </DialogHeader>
+
+          {roomDevicesLoading ? (
+            <div className="rounded-md border bg-white px-3 py-8 text-center text-sm text-muted-foreground">
+              Loading room devices...
+            </div>
+          ) : selectedRoomForDevices ? (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-slate-50/80 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-base font-semibold text-slate-900">{selectedRoomForDevices.roomName}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Capacity: {selectedRoomForDevices.capacity || 0} seats
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="border-slate-300 text-slate-700">
+                    Total Devices: {selectedRoomForDevices.devices?.length || 0}
+                  </Badge>
+                </div>
+              </div>
+
+              {!selectedRoomForDevices.devices || selectedRoomForDevices.devices.length === 0 ? (
+                <div className="rounded-md border bg-white px-3 py-8 text-center text-sm text-muted-foreground">
+                  No devices found in this room.
+                </div>
+              ) : (
+                <div className="rounded-lg border bg-white overflow-hidden shadow-sm">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-100/70">
+                      <tr>
+                        <th className="border-b px-4 py-3 text-left font-semibold text-slate-700">Device Code</th>
+                        <th className="border-b px-4 py-3 text-left font-semibold text-slate-700">Device Name</th>
+                        <th className="border-b px-4 py-3 text-center font-semibold text-slate-700">Quantity</th>
+                        <th className="border-b px-4 py-3 text-center font-semibold text-slate-700">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedRoomForDevices.devices.map((device, index) => (
+                        <tr key={device._id || `${device.deviceCode}-${index}`} className="hover:bg-slate-50/70">
+                          <td className="border-b px-4 py-3 font-medium text-slate-800">{device.deviceCode}</td>
+                          <td className="border-b px-4 py-3 text-slate-700">{device.deviceName}</td>
+                          <td className="border-b px-4 py-3 text-center text-slate-700">{device.quantity ?? 0}</td>
+                          <td className="border-b px-4 py-3 text-center">
+                            <Badge
+                              variant="outline"
+                              className={getDeviceStatusView(device.deviceStatus).className}
+                            >
+                              {getDeviceStatusView(device.deviceStatus).text}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-md border bg-white px-3 py-8 text-center text-sm text-muted-foreground">
+              No room data available.
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRoomDevicesModalOpen(false);
+                setSelectedRoomForDevices(null);
+                setSelectedRoomForDevicesId('');
+                setRoomDevicesLoading(false);
+              }}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {showDetailModal && detailSchedule && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           {(() => {
