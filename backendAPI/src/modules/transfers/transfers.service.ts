@@ -20,14 +20,14 @@ import { Booking } from '@/database/schemas/booking.schema';
 import { AccessLog } from '@/database/schemas/access-log.schema';
 import { RoomUsageState } from '@/database/schemas/room-usage-state.schema';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
+import { SettingsService } from '@/modules/settings/settings.service';
 
 @Injectable()
 export class TransfersService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TransfersService.name);
-  // Business rule: transfer request is only allowed near source schedule end time.
-  private static readonly TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END = 15;
-  private static readonly TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END = 15;
-  private static readonly ACTIVATION_POLL_INTERVAL_MS = 30_000;
+  private static readonly DEFAULT_TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END = 15;
+  private static readonly DEFAULT_TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END = 15;
+  private static readonly DEFAULT_ACTIVATION_POLL_INTERVAL_MS = 30_000;
 
   private activationTimer: NodeJS.Timeout | null = null;
   private isActivatingTransfers = false;
@@ -125,22 +125,113 @@ export class TransfersService implements OnModuleInit, OnModuleDestroy {
     private roomUsageStateModel: Model<RoomUsageState>,
     private readonly eventsGateway: EventsGateway,
     private readonly notificationsService: NotificationsService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   onModuleInit() {
-    this.activationTimer = setInterval(() => {
-      void this.activateDueApprovedTransfers();
-    }, TransfersService.ACTIVATION_POLL_INTERVAL_MS);
-
-    setTimeout(() => {
-      void this.activateDueApprovedTransfers();
-    }, 2500);
+    this.scheduleActivationTick(2500);
   }
 
   onModuleDestroy() {
     if (this.activationTimer) {
-      clearInterval(this.activationTimer);
+      clearTimeout(this.activationTimer);
       this.activationTimer = null;
+    }
+  }
+
+  private normalizeNumberSetting(
+    value: unknown,
+    fallback: number,
+    min = 0,
+    max = 1_000_000,
+  ): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+
+    const rounded = Math.round(parsed);
+    if (rounded < min || rounded > max) {
+      return fallback;
+    }
+
+    return rounded;
+  }
+
+  private async getNumberSettingByCampus(
+    key: string,
+    campusId: string | null,
+    fallback: number,
+    min = 0,
+    max = 1_000_000,
+  ): Promise<number> {
+    try {
+      const effective = await this.settingsService.getEffectiveValueForCampus(key, campusId);
+      return this.normalizeNumberSetting(effective?.value, fallback, min, max);
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async getTransferWindowConfig(
+    campusId: string,
+  ): Promise<{ openBeforeMinutes: number; closeAfterMinutes: number }> {
+    const [openBeforeMinutes, closeAfterMinutes] = await Promise.all([
+      this.getNumberSettingByCampus(
+        'transfer.open_before_source_end_minutes',
+        campusId,
+        TransfersService.DEFAULT_TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END,
+        0,
+        24 * 60,
+      ),
+      this.getNumberSettingByCampus(
+        'transfer.close_after_source_end_minutes',
+        campusId,
+        TransfersService.DEFAULT_TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END,
+        0,
+        24 * 60,
+      ),
+    ]);
+
+    return { openBeforeMinutes, closeAfterMinutes };
+  }
+
+  private async getActivationPollIntervalMs(): Promise<number> {
+    return this.getNumberSettingByCampus(
+      'transfer.activation_poll_interval_ms',
+      null,
+      TransfersService.DEFAULT_ACTIVATION_POLL_INTERVAL_MS,
+      3_000,
+      10 * 60 * 1000,
+    );
+  }
+
+  private buildTransferWindowViolationMessage(config: {
+    openBeforeMinutes: number;
+    closeAfterMinutes: number;
+  }): string {
+    return `Transfer request is only allowed from ${config.openBeforeMinutes} minutes before source end time until ${config.closeAfterMinutes} minutes after source end time`;
+  }
+
+  private scheduleActivationTick(delayMs: number): void {
+    if (this.activationTimer) {
+      clearTimeout(this.activationTimer);
+      this.activationTimer = null;
+    }
+
+    this.activationTimer = setTimeout(() => {
+      void this.runActivationTick();
+    }, delayMs);
+  }
+
+  private async runActivationTick(): Promise<void> {
+    try {
+      await this.activateDueApprovedTransfers();
+    } catch (error: any) {
+      this.logger.warn(`Transfer activation tick failed: ${error?.message || 'unknown error'}`);
+    } finally {
+      const nextDelay = await this.getActivationPollIntervalMs();
+      this.scheduleActivationTick(nextDelay);
     }
   }
 
@@ -515,7 +606,11 @@ export class TransfersService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  private isWithinTransferRequestWindow(schedule: any, now = new Date()): boolean {
+  private isWithinTransferRequestWindow(
+    schedule: any,
+    config: { openBeforeMinutes: number; closeAfterMinutes: number },
+    now = new Date(),
+  ): boolean {
     const slot = this.getScheduleSlotInfo(schedule);
     const sourceEndAt = this.buildUtcDateTime(schedule?.dateStart, slot.endTime || '');
     if (!sourceEndAt) {
@@ -523,14 +618,10 @@ export class TransfersService implements OnModuleInit, OnModuleDestroy {
     }
 
     const windowStart = new Date(sourceEndAt);
-    windowStart.setUTCMinutes(
-      windowStart.getUTCMinutes() - TransfersService.TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END,
-    );
+    windowStart.setUTCMinutes(windowStart.getUTCMinutes() - config.openBeforeMinutes);
 
     const windowEnd = new Date(sourceEndAt);
-    windowEnd.setUTCMinutes(
-      windowEnd.getUTCMinutes() + TransfersService.TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END,
-    );
+    windowEnd.setUTCMinutes(windowEnd.getUTCMinutes() + config.closeAfterMinutes);
 
     return now.getTime() >= windowStart.getTime() && now.getTime() <= windowEnd.getTime();
   }
@@ -578,8 +669,12 @@ export class TransfersService implements OnModuleInit, OnModuleDestroy {
       .lean()
       .exec();
 
-    const filteredRows = this.isTransferWindowEnforced()
-      ? rows.filter((item: any) => this.isWithinTransferRequestWindow(item))
+    const windowConfig = this.isTransferWindowEnforced()
+      ? await this.getTransferWindowConfig(campusId)
+      : null;
+
+    const filteredRows = windowConfig
+      ? rows.filter((item: any) => this.isWithinTransferRequestWindow(item, windowConfig))
       : rows;
 
     return filteredRows
@@ -634,9 +729,13 @@ export class TransfersService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Source schedule not found');
     }
 
-    if (this.isTransferWindowEnforced() && !this.isWithinTransferRequestWindow(sourceSchedule)) {
+    const windowConfig = this.isTransferWindowEnforced()
+      ? await this.getTransferWindowConfig(campusId)
+      : null;
+
+    if (windowConfig && !this.isWithinTransferRequestWindow(sourceSchedule, windowConfig)) {
       throw new BadRequestException(
-        `Transfer request is only allowed from ${TransfersService.TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END} minutes before source end time until ${TransfersService.TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END} minutes after source end time`,
+        this.buildTransferWindowViolationMessage(windowConfig),
       );
     }
 
@@ -1151,9 +1250,13 @@ export class TransfersService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Target must start after source schedule ends');
     }
 
-    if (this.isTransferWindowEnforced() && !this.isWithinTransferRequestWindow(fromSchedule)) {
+    const transferWindowConfig = this.isTransferWindowEnforced()
+      ? await this.getTransferWindowConfig(campusId)
+      : null;
+
+    if (transferWindowConfig && !this.isWithinTransferRequestWindow(fromSchedule, transferWindowConfig)) {
       throw new BadRequestException(
-        `Transfer request is only allowed from ${TransfersService.TRANSFER_OPEN_MINUTES_BEFORE_SOURCE_END} minutes before source end time until ${TransfersService.TRANSFER_CLOSE_MINUTES_AFTER_SOURCE_END} minutes after source end time`,
+        this.buildTransferWindowViolationMessage(transferWindowConfig),
       );
     }
 

@@ -16,8 +16,11 @@ import { User } from '@/database/schemas/user.schema';
 import { AccessLog } from '@/database/schemas/access-log.schema';
 import { RoomUsageState } from '@/database/schemas/room-usage-state.schema';
 import { Room } from '@/database/schemas/room.schema';
+import { Schedule } from '@/database/schemas/schedule.schema';
+import { Booking } from '@/database/schemas/booking.schema';
 import { EventsGateway } from '@/common/gateways/events.gateway';
 import { AppConfig } from '@/config/app.config';
+import { SettingsService } from '@/modules/settings/settings.service';
 
 import { CreateLockerDto } from './dto/create-locker.dto';
 import { UpdateLockerDto } from './dto/update-locker.dto';
@@ -27,6 +30,8 @@ type IotGatewayCommandTransport = 'websocket' | 'http' | 'hybrid';
 @Injectable()
 export class LockerService {
   private readonly logger = new Logger(LockerService.name);
+  private static readonly DEFAULT_UNLOCK_BEFORE_CLASS_MINUTES = 5;
+  private static readonly DEFAULT_OVERDUE_RETURN_WARNING_MINUTES = 15;
   // In-memory dedupe for resync requests to avoid flooding devices
   private lastResyncAt: Map<string, number> = new Map();
   private lastResyncAllAt: number = 0;
@@ -54,8 +59,15 @@ export class LockerService {
     @InjectModel(Room.name)
     private readonly roomModel: Model<Room>,
 
+    @InjectModel(Schedule.name)
+    private readonly scheduleModel: Model<Schedule>,
+
+    @InjectModel(Booking.name)
+    private readonly bookingModel: Model<Booking>,
+
     private readonly eventsGateway: EventsGateway,
     private readonly configService: ConfigService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   /* =========================
@@ -396,6 +408,278 @@ export class LockerService {
     }
 
     return 'none';
+  }
+
+  private parseTimeToMinutes(value: string): number {
+    const parts = String(value || '')
+      .split(':')
+      .map((part) => Number(part));
+
+    if (parts.length !== 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) {
+      return -1;
+    }
+
+    const [hours, minutes] = parts;
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+      return -1;
+    }
+
+    return hours * 60 + minutes;
+  }
+
+  private buildUtcDateTime(dateValue: Date, timeValue: string): Date | null {
+    const minutes = this.parseTimeToMinutes(timeValue);
+    if (minutes < 0) {
+      return null;
+    }
+
+    const sourceDate = new Date(dateValue);
+    if (Number.isNaN(sourceDate.getTime())) {
+      return null;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+
+    return new Date(
+      Date.UTC(
+        sourceDate.getUTCFullYear(),
+        sourceDate.getUTCMonth(),
+        sourceDate.getUTCDate(),
+        hours,
+        mins,
+        0,
+        0,
+      ),
+    );
+  }
+
+  private normalizeNumericSetting(
+    value: unknown,
+    fallback: number,
+    min = 0,
+    max = 10_000,
+  ): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+
+    const rounded = Math.round(parsed);
+    if (rounded < min || rounded > max) {
+      return fallback;
+    }
+
+    return rounded;
+  }
+
+  private async getNumericSettingValue(
+    key: string,
+    campusId: string | null,
+    fallback: number,
+    min = 0,
+    max = 10_000,
+  ): Promise<number> {
+    try {
+      const effective = await this.settingsService.getEffectiveValueForCampus(key, campusId);
+      return this.normalizeNumericSetting(effective?.value, fallback, min, max);
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async getUnlockBeforeClassMinutes(campusId: string | null): Promise<number> {
+    return this.getNumericSettingValue(
+      'locker.auto_unlock_before_class_minutes',
+      campusId,
+      LockerService.DEFAULT_UNLOCK_BEFORE_CLASS_MINUTES,
+      0,
+      12 * 60,
+    );
+  }
+
+  private async getOverdueReturnWarningMinutes(campusId: string | null): Promise<number> {
+    return this.getNumericSettingValue(
+      'booking.max_overdue_minutes',
+      campusId,
+      LockerService.DEFAULT_OVERDUE_RETURN_WARNING_MINUTES,
+      0,
+      24 * 60,
+    );
+  }
+
+  private async resolveScheduleStartAt(scheduleId: string): Promise<Date | null> {
+    if (!Types.ObjectId.isValid(scheduleId)) {
+      return null;
+    }
+
+    const schedule = await this.scheduleModel
+      .findById(scheduleId)
+      .populate('timeSlotId', 'startTime')
+      .select('dateStart timeSlotId startTime')
+      .lean()
+      .exec();
+
+    if (!schedule) {
+      return null;
+    }
+
+    const slot =
+      schedule.timeSlotId && typeof schedule.timeSlotId === 'object' ? (schedule.timeSlotId as any) : null;
+    const startTime = String((slot?.startTime || (schedule as any)?.startTime || '')).trim();
+    if (!startTime) {
+      return null;
+    }
+
+    return this.buildUtcDateTime((schedule as any).dateStart, startTime);
+  }
+
+  private async resolveScheduleEndAt(scheduleId: string): Promise<Date | null> {
+    if (!Types.ObjectId.isValid(scheduleId)) {
+      return null;
+    }
+
+    const schedule = await this.scheduleModel
+      .findById(scheduleId)
+      .populate('timeSlotId', 'endTime')
+      .select('dateStart timeSlotId endTime')
+      .lean()
+      .exec();
+
+    if (!schedule) {
+      return null;
+    }
+
+    const slot =
+      schedule.timeSlotId && typeof schedule.timeSlotId === 'object' ? (schedule.timeSlotId as any) : null;
+    const endTime = String((slot?.endTime || (schedule as any)?.endTime || '')).trim();
+    if (!endTime) {
+      return null;
+    }
+
+    return this.buildUtcDateTime((schedule as any).dateStart, endTime);
+  }
+
+  private async resolveBookingEndAt(bookingId: string): Promise<Date | null> {
+    if (!Types.ObjectId.isValid(bookingId)) {
+      return null;
+    }
+
+    const booking = await this.bookingModel
+      .findById(bookingId)
+      .select('bookingDate dateStart endTime')
+      .lean()
+      .exec();
+
+    if (!booking) {
+      return null;
+    }
+
+    const dateValue = (booking as any).bookingDate || (booking as any).dateStart;
+    const endTime = String((booking as any).endTime || '').trim();
+    if (!dateValue || !endTime) {
+      return null;
+    }
+
+    return this.buildUtcDateTime(dateValue, endTime);
+  }
+
+  private async enforceUnlockBeforeClassWindow(params: {
+    usageAction: 'unlock' | 'return';
+    scheduleId?: string | null;
+    campusId?: string | null;
+  }): Promise<void> {
+    if (params.usageAction !== 'unlock') {
+      return;
+    }
+
+    const scheduleId = this.normalizeNullableString(params.scheduleId);
+    if (!scheduleId || !Types.ObjectId.isValid(scheduleId)) {
+      return;
+    }
+
+    const startAt = await this.resolveScheduleStartAt(scheduleId);
+    if (!startAt) {
+      return;
+    }
+
+    const unlockBeforeClassMinutes = await this.getUnlockBeforeClassMinutes(params.campusId || null);
+    const allowedFrom = new Date(startAt.getTime() - unlockBeforeClassMinutes * 60 * 1000);
+
+    if (Date.now() < allowedFrom.getTime()) {
+      throw new BadRequestException(
+        `You can only unlock from ${unlockBeforeClassMinutes} minutes before class start`,
+      );
+    }
+  }
+
+  private async buildReturnOverdueWarning(params: {
+    usageAction: 'unlock' | 'return';
+    roomId: Types.ObjectId | null;
+    campusId?: string | null;
+    scheduleId?: string | null;
+    bookingId?: string | null;
+  }): Promise<
+    | {
+        isOverdue: boolean;
+        overdueMinutes: number;
+        warningAfterMinutes: number;
+        source: 'schedule' | 'booking';
+        targetId: string;
+        deadlineAt: string;
+      }
+    | null
+  > {
+    if (params.usageAction !== 'return' || !params.roomId) {
+      return null;
+    }
+
+    const usageState = await this.roomUsageStateModel
+      .findOne({ roomId: params.roomId })
+      .select('scheduleId bookingId')
+      .lean();
+
+    const scheduleId = this.normalizeNullableString(params.scheduleId) ||
+      (usageState?.scheduleId ? String(usageState.scheduleId) : null);
+    const bookingId = this.normalizeNullableString(params.bookingId) ||
+      (usageState?.bookingId ? String(usageState.bookingId) : null);
+
+    let source: 'schedule' | 'booking' | null = null;
+    let targetId = '';
+    let endAt: Date | null = null;
+
+    if (scheduleId && Types.ObjectId.isValid(scheduleId)) {
+      endAt = await this.resolveScheduleEndAt(scheduleId);
+      if (endAt) {
+        source = 'schedule';
+        targetId = scheduleId;
+      }
+    }
+
+    if (!endAt && bookingId && Types.ObjectId.isValid(bookingId)) {
+      endAt = await this.resolveBookingEndAt(bookingId);
+      if (endAt) {
+        source = 'booking';
+        targetId = bookingId;
+      }
+    }
+
+    if (!endAt || !source || !targetId) {
+      return null;
+    }
+
+    const warningAfterMinutes = await this.getOverdueReturnWarningMinutes(params.campusId || null);
+    const warningDeadline = new Date(endAt.getTime() + warningAfterMinutes * 60 * 1000);
+    const overdueMinutes = Math.max(0, Math.floor((Date.now() - warningDeadline.getTime()) / 60000));
+
+    return {
+      isOverdue: overdueMinutes > 0,
+      overdueMinutes,
+      warningAfterMinutes,
+      source,
+      targetId,
+      deadlineAt: warningDeadline.toISOString(),
+    };
   }
 
   private async syncRoomUsageState(params: {
@@ -1530,7 +1814,27 @@ export class LockerService {
       .toLowerCase();
     const usageAction: 'unlock' | 'return' = requestedUsageAction === 'return' ? 'return' : 'unlock';
 
+    const currentUserCampusId = this.normalizeNullableString(
+      currentUser?.campusId?.toString?.() || currentUser?.campusId,
+    );
+    const effectiveCampusId =
+      this.normalizeNullableString(locker.campusId?.toString?.() || locker.campusId) ||
+      currentUserCampusId;
+    const contextScheduleId = this.normalizeNullableString(
+      unlockContext?.scheduleId || requestMetadata.scheduleId,
+    );
+    const contextBookingId = this.normalizeNullableString(
+      unlockContext?.bookingId || requestMetadata.bookingId,
+    );
+
     const resolvedRoomId = this.toObjectId(locker.roomId) || this.toObjectId(unlockContext?.roomId);
+
+    await this.enforceUnlockBeforeClassWindow({
+      usageAction,
+      scheduleId: contextScheduleId,
+      campusId: effectiveCampusId,
+    });
+
     if (usageAction === 'return') {
       if (!resolvedRoomId) {
         throw new BadRequestException('Return action requires a valid room mapping');
@@ -1545,6 +1849,14 @@ export class LockerService {
         throw new BadRequestException('Room is not currently in use, cannot return');
       }
     }
+
+    const returnOverdueWarning = await this.buildReturnOverdueWarning({
+      usageAction,
+      roomId: resolvedRoomId,
+      campusId: effectiveCampusId,
+      scheduleId: contextScheduleId,
+      bookingId: contextBookingId,
+    });
 
     const correlationId = `${usageAction}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
@@ -1594,9 +1906,6 @@ export class LockerService {
       currentUser?._id?.toString?.() || currentUser?._id,
     );
     const currentUserName = this.normalizeNullableString(currentUser?.fullName || currentUser?.email);
-    const currentUserCampusId = this.normalizeNullableString(
-      currentUser?.campusId?.toString?.() || currentUser?.campusId,
-    );
 
     const dispatchAccepted = !gatewayDispatch.enabled || gatewayDispatch.accepted;
     const accessStatus: 'success' | 'failed' | 'pending' = dispatchAccepted
@@ -1628,12 +1937,12 @@ export class LockerService {
       accessMetadata.roomId = String(unlockContext.roomId);
     }
 
-    if (unlockContext?.scheduleId) {
-      accessMetadata.scheduleId = String(unlockContext.scheduleId);
+    if (contextScheduleId) {
+      accessMetadata.scheduleId = contextScheduleId;
     }
 
-    if (unlockContext?.bookingId) {
-      accessMetadata.bookingId = String(unlockContext.bookingId);
+    if (contextBookingId) {
+      accessMetadata.bookingId = contextBookingId;
     }
 
     if (isFaceIdUnlock) {
@@ -1642,6 +1951,14 @@ export class LockerService {
 
     if (isFaceIdUnlock && dispatchAccepted) {
       accessMetadata.usageEffect = usageAction === 'return' ? 'release' : 'assign';
+    }
+
+    if (returnOverdueWarning) {
+      accessMetadata.returnPolicy = returnOverdueWarning;
+      if (returnOverdueWarning.isOverdue) {
+        accessMetadata.warningCode = 'OVERDUE_RETURN';
+        accessMetadata.warningMessage = `Return is overdue by ${returnOverdueWarning.overdueMinutes} minutes`;
+      }
     }
 
     await this.createAccessLogEntry({
@@ -1669,6 +1986,11 @@ export class LockerService {
         correlationId,
         usageAction,
         gatewayDispatch,
+        warnings:
+          returnOverdueWarning && returnOverdueWarning.isOverdue
+            ? [`Return is overdue by ${returnOverdueWarning.overdueMinutes} minutes`]
+            : [],
+        returnPolicy: returnOverdueWarning,
       },
     };
   }
@@ -1835,7 +2157,24 @@ export class LockerService {
       .toLowerCase();
     const usageAction: 'unlock' | 'return' = requestedUsageAction === 'return' ? 'return' : 'unlock';
 
+    const effectiveCampusId =
+      this.normalizeNullableString(locker.campusId?.toString?.() || locker.campusId) ||
+      currentUserCampusId;
+    const contextScheduleId = this.normalizeNullableString(
+      context?.scheduleId || requestMetadata.scheduleId,
+    );
+    const contextBookingId = this.normalizeNullableString(
+      context?.bookingId || requestMetadata.bookingId,
+    );
+
     const resolvedRoomId = this.toObjectId(locker.roomId) || this.toObjectId(context?.roomId);
+
+    await this.enforceUnlockBeforeClassWindow({
+      usageAction,
+      scheduleId: contextScheduleId,
+      campusId: effectiveCampusId,
+    });
+
     if (usageAction === 'return') {
       if (!resolvedRoomId) {
         throw new BadRequestException('Return action requires a valid room mapping');
@@ -1850,6 +2189,14 @@ export class LockerService {
         throw new BadRequestException('Room is not currently in use, cannot return');
       }
     }
+
+    const returnOverdueWarning = await this.buildReturnOverdueWarning({
+      usageAction,
+      roomId: resolvedRoomId,
+      campusId: effectiveCampusId,
+      scheduleId: contextScheduleId,
+      bookingId: contextBookingId,
+    });
 
     const delaySecondsRaw = Number(context?.delaySeconds ?? requestMetadata.delaySeconds);
     const delaySeconds = Number.isFinite(delaySecondsRaw)
@@ -1902,16 +2249,24 @@ export class LockerService {
       iotGatewayDispatch: gatewayDispatch,
     };
 
-    if (context?.scheduleId) {
-      accessMetadata.scheduleId = String(context.scheduleId);
+    if (contextScheduleId) {
+      accessMetadata.scheduleId = contextScheduleId;
     }
 
-    if (context?.bookingId) {
-      accessMetadata.bookingId = String(context.bookingId);
+    if (contextBookingId) {
+      accessMetadata.bookingId = contextBookingId;
     }
 
     if (delaySeconds !== undefined) {
       accessMetadata.delaySeconds = delaySeconds;
+    }
+
+    if (returnOverdueWarning) {
+      accessMetadata.returnPolicy = returnOverdueWarning;
+      if (returnOverdueWarning.isOverdue) {
+        accessMetadata.warningCode = 'OVERDUE_RETURN';
+        accessMetadata.warningMessage = `Return is overdue by ${returnOverdueWarning.overdueMinutes} minutes`;
+      }
     }
 
     await this.createAccessLogEntry({
@@ -1944,6 +2299,11 @@ export class LockerService {
         correlationId,
         usageAction,
         gatewayDispatch,
+        warnings:
+          returnOverdueWarning && returnOverdueWarning.isOverdue
+            ? [`Return is overdue by ${returnOverdueWarning.overdueMinutes} minutes`]
+            : [],
+        returnPolicy: returnOverdueWarning,
       },
     };
   }

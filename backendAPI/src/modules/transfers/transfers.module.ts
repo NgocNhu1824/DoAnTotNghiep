@@ -18,6 +18,7 @@ import {
 } from '@/database/schemas/room-usage-state.schema';
 import { GatewaysModule } from '../../common/gateways/gateways.module';
 import { NotificationsModule } from '@/modules/notifications/notifications.module';
+import { SettingsModule } from '@/modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { NotificationsModule } from '@/modules/notifications/notifications.modul
     ]),
     GatewaysModule,
     NotificationsModule,
+    SettingsModule,
   ],
   controllers: [TransfersController],
   providers: [TransfersService],

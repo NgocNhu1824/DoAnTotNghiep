@@ -255,6 +255,14 @@ export class SettingsService {
     return this.resolveEffectiveSetting(normalizedKey, targetCampusId);
   }
 
+  async getEffectiveValueForCampus(key: string, campusId?: string | null): Promise<any> {
+    const normalizedKey = this.normalizeKey(key);
+    const normalizedCampusId = this.normalizeCampusInput(campusId);
+    const targetCampusId = normalizedCampusId === undefined ? null : normalizedCampusId;
+
+    return this.resolveEffectiveSetting(normalizedKey, targetCampusId);
+  }
+
   private async resolveEffectiveSetting(key: string, campusId: string | null): Promise<any> {
     const effectiveCacheKey = this.effectiveCacheKey(key, campusId);
     const cached = await this.redisService.getJson<any>(effectiveCacheKey);
@@ -337,11 +345,29 @@ export class SettingsService {
 
   private getDefaultSettingValue(key: string): unknown {
     const maxOverdueMinutes = Number(this.configService.get<string>('MAX_OVERDUE_MINUTES') || 15);
+    const selfBookingLeadMinutes = Number(
+      this.configService.get<string>('BOOKING_SELF_LEAD_MINUTES') || 15,
+    );
     const autoUnlockBeforeClass = Number(
       this.configService.get<string>('AUTO_UNLOCK_BEFORE_CLASS') || 5,
     );
     const notificationBeforeClass = Number(
       this.configService.get<string>('NOTIFICATION_BEFORE_CLASS') || 30,
+    );
+    const transferOpenBeforeSourceEndMinutes = Number(
+      this.configService.get<string>('TRANSFER_OPEN_BEFORE_SOURCE_END_MINUTES') || 15,
+    );
+    const transferCloseAfterSourceEndMinutes = Number(
+      this.configService.get<string>('TRANSFER_CLOSE_AFTER_SOURCE_END_MINUTES') || 15,
+    );
+    const transferActivationPollIntervalMs = Number(
+      this.configService.get<string>('TRANSFER_ACTIVATION_POLL_INTERVAL_MS') || 30_000,
+    );
+    const bookingApprovalReminderMinMinutes = Number(
+      this.configService.get<string>('BOOKING_APPROVAL_REMINDER_MINUTES') || 15,
+    );
+    const bookingApprovalReminderMaxMinutes = Number(
+      this.configService.get<string>('BOOKING_APPROVAL_REMINDER_MAX_MINUTES') || 20,
     );
 
     const defaults: Record<string, unknown> = {
@@ -349,8 +375,14 @@ export class SettingsService {
       auto_unlock_before_class: autoUnlockBeforeClass,
       notification_before_class: notificationBeforeClass,
       'booking.max_overdue_minutes': maxOverdueMinutes,
+      'booking.self_booking_lead_minutes': selfBookingLeadMinutes,
       'locker.auto_unlock_before_class_minutes': autoUnlockBeforeClass,
       'notification.notification_before_class': notificationBeforeClass,
+      'notification.booking_approval_reminder_min_minutes': bookingApprovalReminderMinMinutes,
+      'notification.booking_approval_reminder_max_minutes': bookingApprovalReminderMaxMinutes,
+      'transfer.open_before_source_end_minutes': transferOpenBeforeSourceEndMinutes,
+      'transfer.close_after_source_end_minutes': transferCloseAfterSourceEndMinutes,
+      'transfer.activation_poll_interval_ms': transferActivationPollIntervalMs,
     };
 
     const value = defaults[key];

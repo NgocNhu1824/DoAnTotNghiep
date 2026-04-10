@@ -58,9 +58,15 @@ const DEFAULT_FORM: SettingFormState = {
 };
 
 const PRESET_KEYS = [
+  'booking.self_booking_lead_minutes',
   'notification.notification_before_class',
+  'notification.booking_approval_reminder_min_minutes',
+  'notification.booking_approval_reminder_max_minutes',
   'booking.max_overdue_minutes',
   'locker.auto_unlock_before_class_minutes',
+  'transfer.open_before_source_end_minutes',
+  'transfer.close_after_source_end_minutes',
+  'transfer.activation_poll_interval_ms',
   'security.enable_face_recognition',
   'security.enable_fingerprint',
 ];

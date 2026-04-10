@@ -9,10 +9,12 @@ import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { NotificationsQueueService } from './notifications.queue';
 import { NotificationsWorker } from './notifications.worker';
+import { SettingsModule } from '@/modules/settings/settings.module';
 
 @Module({
   imports: [
     GatewaysModule,
+    SettingsModule,
     MongooseModule.forFeature([
       { name: Notification.name, schema: NotificationSchema },
       { name: User.name, schema: UserSchema },

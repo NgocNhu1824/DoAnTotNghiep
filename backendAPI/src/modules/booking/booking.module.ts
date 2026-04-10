@@ -9,6 +9,7 @@ import { GatewaysModule } from '@/common/gateways/gateways.module';
 import { RoomModule } from '@/modules/room/room.module';
 import { TimeSlotsModule } from '@/modules/time-slots/time-slots.module';
 import { NotificationsModule } from '@/modules/notifications/notifications.module';
+import { SettingsModule } from '@/modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { NotificationsModule } from '@/modules/notifications/notifications.modul
     RoomModule,
     TimeSlotsModule,
     NotificationsModule,
+    SettingsModule,
     MongooseModule.forFeature([
       { name: Booking.name, schema: BookingSchema },
       { name: User.name, schema: UserSchema },

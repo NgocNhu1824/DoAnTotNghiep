@@ -18,10 +18,14 @@ import {
   RoomUsageStateSchema,
 } from '@/database/schemas/room-usage-state.schema';
 import { Room, RoomSchema } from '@/database/schemas/room.schema';
+import { Schedule, ScheduleSchema } from '@/database/schemas/schedule.schema';
+import { Booking, BookingSchema } from '@/database/schemas/booking.schema';
+import { SettingsModule } from '@/modules/settings/settings.module';
 
 @Module({
   imports: [
     GatewaysModule,
+    SettingsModule,
     MongooseModule.forFeature([
       { name: Locker.name, schema: LockerSchema },
       { name: Campus.name, schema: CampusSchema },
@@ -30,6 +34,8 @@ import { Room, RoomSchema } from '@/database/schemas/room.schema';
       { name: AccessLog.name, schema: AccessLogSchema },
       { name: RoomUsageState.name, schema: RoomUsageStateSchema },
       { name: Room.name, schema: RoomSchema },
+      { name: Schedule.name, schema: ScheduleSchema },
+      { name: Booking.name, schema: BookingSchema },
     ]),
   ],
   controllers: [LockerController, Esp32Controller],

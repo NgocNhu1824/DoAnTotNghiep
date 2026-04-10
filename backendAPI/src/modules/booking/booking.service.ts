@@ -14,11 +14,12 @@ import { BookingMapperHelper } from './helpers/booking-mapper.helper';
 import { BookingValidationHelper } from './helpers/booking-validation.helper';
 import { TimeSlotsService } from '@/modules/time-slots/time-slots.service';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
+import { SettingsService } from '@/modules/settings/settings.service';
 
 @Injectable()
 export class BookingService {
   // Keep this configurable in code to easily match policy updates.
-  private static readonly SELF_BOOKING_LEAD_MINUTES = 15;
+  private static readonly DEFAULT_SELF_BOOKING_LEAD_MINUTES = 15;
 
   constructor(
     @InjectModel(Booking.name)
@@ -30,7 +31,43 @@ export class BookingService {
     private readonly eventsGateway: EventsGateway,
     private readonly timeSlotsService: TimeSlotsService,
     private readonly notificationsService: NotificationsService,
+    private readonly settingsService: SettingsService,
   ) {}
+
+  private normalizeNumberSetting(
+    value: unknown,
+    fallback: number,
+    min = 0,
+    max = 1440,
+  ): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+
+    const bounded = Math.round(parsed);
+    if (bounded < min || bounded > max) {
+      return fallback;
+    }
+
+    return bounded;
+  }
+
+  private async getSelfBookingLeadMinutes(campusId: string): Promise<number> {
+    try {
+      const effective = await this.settingsService.getEffectiveValueForCampus(
+        'booking.self_booking_lead_minutes',
+        campusId,
+      );
+
+      return this.normalizeNumberSetting(
+        effective?.value,
+        BookingService.DEFAULT_SELF_BOOKING_LEAD_MINUTES,
+      );
+    } catch {
+      return BookingService.DEFAULT_SELF_BOOKING_LEAD_MINUTES;
+    }
+  }
 
   private async ensureRoomExistsInCampus(campusId: string, roomId: string): Promise<void> {
     const room = await this.roomModel
@@ -86,17 +123,22 @@ export class BookingService {
     return rows.map((slot: any) => BookingMapperHelper.mapSlotDefinition(slot));
   }
 
-  private ensureSelfBookingLeadTime(bookingDate: Date, startTime: string): void {
+  private async ensureSelfBookingLeadTime(
+    bookingDate: Date,
+    startTime: string,
+    campusId: string,
+  ): Promise<void> {
     const startDateTime = BookingTimeHelper.toDateTime(bookingDate, startTime);
     if (!startDateTime) {
       throw new BadRequestException('Invalid startTime value');
     }
 
-    const cutoff = startDateTime.getTime() - BookingService.SELF_BOOKING_LEAD_MINUTES * 60 * 1000;
+    const leadMinutes = await this.getSelfBookingLeadMinutes(campusId);
+    const cutoff = startDateTime.getTime() - leadMinutes * 60 * 1000;
 
     if (Date.now() >= cutoff) {
       throw new BadRequestException(
-        `Booking must be created at least ${BookingService.SELF_BOOKING_LEAD_MINUTES} minutes before class start`,
+        `Booking must be created at least ${leadMinutes} minutes before class start`,
       );
     }
   }
@@ -212,7 +254,7 @@ export class BookingService {
     }
 
     const bookingDate = BookingValidationHelper.toUTCDate(dto.bookingDate);
-    this.ensureSelfBookingLeadTime(bookingDate, dto.startTime);
+    await this.ensureSelfBookingLeadTime(bookingDate, dto.startTime, campusId);
 
     const created = await this.bookingModel.create({
       campusId: new Types.ObjectId(campusId),

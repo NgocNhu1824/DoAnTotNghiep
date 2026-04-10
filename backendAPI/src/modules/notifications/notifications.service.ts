@@ -10,6 +10,7 @@ import { CreateManualNotificationDto } from './dto/create-manual-notification.dt
 import { CreateNotificationInput } from './notifications.types';
 import { EventsGateway } from '@/common/gateways/events.gateway';
 import { NotificationsQueueService } from './notifications.queue';
+import { SettingsService } from '@/modules/settings/settings.service';
 
 @Injectable()
 export class NotificationsService {
@@ -418,6 +419,7 @@ export class NotificationsService {
     private readonly bookingModel: Model<Booking>,
     private readonly eventsGateway: EventsGateway,
     private readonly notificationsQueueService: NotificationsQueueService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   async getManualTargetOptions(
@@ -847,10 +849,8 @@ export class NotificationsService {
         })),
       );
 
-      await this.notificationsQueueService.scheduleBookingReminder(
-        { bookingId, campusId },
-        this.getReminderDelayMs(),
-      );
+      const delayMs = await this.getReminderDelayMs(campusId);
+      await this.notificationsQueueService.scheduleBookingReminder({ bookingId, campusId }, delayMs);
     } catch (error) {
       this.logger.warn(`Failed to dispatch booking notifications: ${error}`);
     }
@@ -1306,14 +1306,60 @@ export class NotificationsService {
     return Array.from(new Set(userRows.map((row: any) => row._id.toString())));
   }
 
-  private getReminderDelayMs(): number {
-    const min = Number(process.env.BOOKING_APPROVAL_REMINDER_MINUTES || 15);
-    const max = Number(process.env.BOOKING_APPROVAL_REMINDER_MAX_MINUTES || 20);
+  private normalizeReminderBound(value: unknown, fallback: number): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
 
-    const safeMin = Number.isNaN(min) ? 15 : min;
-    const safeMax = Number.isNaN(max) ? 20 : Math.max(max, safeMin);
+    const rounded = Math.round(parsed);
+    if (rounded < 0 || rounded > 1440) {
+      return fallback;
+    }
 
-    const delayMinutes = safeMin + Math.floor(Math.random() * (safeMax - safeMin + 1));
+    return rounded;
+  }
+
+  private async getReminderBounds(campusId: string): Promise<{ min: number; max: number }> {
+    const defaultMin = Number(process.env.BOOKING_APPROVAL_REMINDER_MINUTES || 15);
+    const defaultMax = Number(process.env.BOOKING_APPROVAL_REMINDER_MAX_MINUTES || 20);
+
+    const fallbackMin = this.normalizeReminderBound(defaultMin, 15);
+    const fallbackMax = this.normalizeReminderBound(defaultMax, Math.max(20, fallbackMin));
+
+    let min = fallbackMin;
+    let max = Math.max(fallbackMax, min);
+
+    try {
+      const minSetting = await this.settingsService.getEffectiveValueForCampus(
+        'notification.booking_approval_reminder_min_minutes',
+        campusId,
+      );
+      min = this.normalizeReminderBound(minSetting?.value, fallbackMin);
+    } catch {
+      min = fallbackMin;
+    }
+
+    try {
+      const maxSetting = await this.settingsService.getEffectiveValueForCampus(
+        'notification.booking_approval_reminder_max_minutes',
+        campusId,
+      );
+      max = this.normalizeReminderBound(maxSetting?.value, fallbackMax);
+    } catch {
+      max = fallbackMax;
+    }
+
+    if (max < min) {
+      max = min;
+    }
+
+    return { min, max };
+  }
+
+  private async getReminderDelayMs(campusId: string): Promise<number> {
+    const { min, max } = await this.getReminderBounds(campusId);
+    const delayMinutes = min + Math.floor(Math.random() * (max - min + 1));
     return delayMinutes * 60 * 1000;
   }
 
