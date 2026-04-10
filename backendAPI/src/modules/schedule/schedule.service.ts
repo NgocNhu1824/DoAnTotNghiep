@@ -16,6 +16,7 @@ import { QueryScheduleDto } from './dto/query-schedule.dto';
 import { CsvParserHelper } from './helpers/csv-parser.helper';
 import { ImportValidatorHelper } from './helpers/import-validator.helper';
 import { ConflictDetectorHelper } from './helpers/conflict-detector.helper';
+const XLSX = require('xlsx');
 
 @Injectable()
 export class ScheduleService {
@@ -93,6 +94,123 @@ export class ScheduleService {
       startTime: slot?.startTime || null,
       endTime: slot?.endTime || null,
     };
+  }
+
+  async generateImportTemplate(): Promise<Buffer> {
+    const sampleData = [
+      {
+        roomCode: 'SE1810',
+        lecturerEmail: 'lecturer1@fpt.edu.vn',
+        dateStart: '2026-03-31',
+        dayOfWeek: 3,
+        slotType: 'NEWSLOT',
+        slotNumber: 1,
+        startTime: '07:00',
+        endTime: '09:15',
+        classCode: 'SE1810',
+        subjectCode: 'SWE201',
+        subjectName: 'Software Engineering Fundamentals',
+        semester: 'Spring2026',
+        isOnline: 'false',
+      },
+      {
+        roomCode: 'B205',
+        lecturerEmail: 'lecturer2@fpt.edu.vn',
+        dateStart: '2026-04-02',
+        dayOfWeek: 5,
+        slotType: 'OLDSLOT',
+        slotNumber: 3,
+        startTime: '10:30',
+        endTime: '12:00',
+        classCode: 'SE1821',
+        subjectCode: 'MAD101',
+        subjectName: 'Mobile Application Development',
+        semester: 'Spring2026',
+        isOnline: 'true',
+      },
+    ];
+
+    const templateRows = [
+      ['Each row represents one schedule record. Fill from left to right, then continue on the next row.'],
+      ['Columns marked with * are required. dayOfWeek/startTime/endTime are optional; system can derive them from date and time-slot.'],
+      [],
+      [
+        'roomCode*',
+        'lecturerEmail*',
+        'dateStart*',
+        'dayOfWeek',
+        'slotType*',
+        'slotNumber*',
+        'startTime',
+        'endTime',
+        'classCode',
+        'subjectCode',
+        'subjectName',
+        'semester',
+        'isOnline',
+      ],
+      ...sampleData.map((row) => [
+        row.roomCode,
+        row.lecturerEmail,
+        row.dateStart,
+        row.dayOfWeek,
+        row.slotType,
+        row.slotNumber,
+        row.startTime,
+        row.endTime,
+        row.classCode,
+        row.subjectCode,
+        row.subjectName,
+        row.semester,
+        row.isOnline,
+      ]),
+    ];
+
+    const templateWorksheet = XLSX.utils.aoa_to_sheet(templateRows);
+    templateWorksheet['!cols'] = [
+      { wch: 14 },
+      { wch: 30 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 34 },
+      { wch: 14 },
+      { wch: 10 },
+    ];
+
+    const instructionRows = [
+      ['Field', 'Required', 'Description', 'Accepted Values / Example'],
+      ['roomCode', 'Yes', 'Room code in your campus', 'A101'],
+      ['lecturerEmail', 'Yes', 'Lecturer email in your campus', 'lecturer1@fpt.edu.vn'],
+      ['dateStart', 'Yes', 'Class date (YYYY-MM-DD)', '2026-03-31'],
+      ['dayOfWeek', 'No', '2=Monday ... 7=Saturday (must match dateStart if filled)', '3'],
+      ['slotType', 'Yes', 'Slot type code', 'OLDSLOT / NEWSLOT'],
+      ['slotNumber', 'Yes', 'Slot number', '1, 2, 3...'],
+      ['startTime', 'No', 'Time must match selected slot if filled', '07:00'],
+      ['endTime', 'No', 'Time must match selected slot if filled', '09:15'],
+      ['classCode', 'No', 'Class code', 'SE1810'],
+      ['subjectCode', 'No', 'Subject code', 'SWE201'],
+      ['subjectName', 'No', 'Subject name', 'Software Engineering Fundamentals'],
+      ['semester', 'No', 'Semester text', 'Spring2026'],
+      ['isOnline', 'No', 'Teaching mode', 'true / false'],
+    ];
+
+    const instructionWorksheet = XLSX.utils.aoa_to_sheet(instructionRows);
+    instructionWorksheet['!cols'] = [{ wch: 16 }, { wch: 10 }, { wch: 34 }, { wch: 62 }];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, templateWorksheet, 'ScheduleTemplate');
+    XLSX.utils.book_append_sheet(workbook, instructionWorksheet, 'Instructions');
+
+    return XLSX.write(workbook, {
+      type: 'buffer',
+      bookType: 'xlsx',
+    });
   }
 
   async importSchedules(file: any, mode: 'dryRun' | 'strict' | 'lenient', user: any): Promise<any> {

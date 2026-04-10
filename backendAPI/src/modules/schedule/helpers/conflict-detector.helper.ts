@@ -106,7 +106,7 @@ export class ConflictDetectorHelper {
             rowIndex,
             field: 'roomCode',
             code: 'ROOM_CONFLICT',
-            message: `Room "${newSch.roomCode}" is already booked at this time (${newDateDisplay}, slot ${newSch.slotNumber})`,
+            message: `Room "${newSch.roomCode}" has already been used at this time (${newDateDisplay}, slot ${newSch.slotNumber})`,
           });
           hasRoomConflict = true;
         }
