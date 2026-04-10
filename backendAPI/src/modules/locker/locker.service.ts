@@ -17,9 +17,12 @@ import { AccessLog } from '@/database/schemas/access-log.schema';
 import { RoomUsageState } from '@/database/schemas/room-usage-state.schema';
 import { Room } from '@/database/schemas/room.schema';
 import { EventsGateway } from '@/common/gateways/events.gateway';
+import { AppConfig } from '@/config/app.config';
 
 import { CreateLockerDto } from './dto/create-locker.dto';
 import { UpdateLockerDto } from './dto/update-locker.dto';
+
+type IotGatewayCommandTransport = 'websocket' | 'http' | 'hybrid';
 
 @Injectable()
 export class LockerService {
@@ -66,6 +69,65 @@ export class LockerService {
 
     const exists = await this.campusModel.exists({ _id: campusId });
     if (!exists) throw new NotFoundException('Campus not found');
+  }
+
+  private async resolveDefaultCampusObjectId(): Promise<Types.ObjectId | null> {
+    const configuredCandidates = [
+      this.configService.get<string>('DEFAULT_CAMPUS_ID'),
+      process.env.DEFAULT_CAMPUS_ID,
+      AppConfig.DEFAULT_CAMPUS_ID,
+    ];
+
+    for (const candidate of configuredCandidates) {
+      const configured = String(candidate || '').trim();
+      if (!configured || !Types.ObjectId.isValid(configured)) {
+        continue;
+      }
+
+      const exists = await this.campusModel.exists({ _id: configured });
+      if (exists) {
+        return new Types.ObjectId(configured);
+      }
+    }
+
+    const fallbackCampus = await this.campusModel
+      .findOne()
+      .select('_id')
+      .sort({ createdAt: 1, _id: 1 })
+      .lean();
+
+    const fallbackId = fallbackCampus?._id ? String(fallbackCampus._id) : '';
+    if (fallbackId && Types.ObjectId.isValid(fallbackId)) {
+      return new Types.ObjectId(fallbackId);
+    }
+
+    return null;
+  }
+
+  private async resolveCampusForDevice(deviceId: string): Promise<Types.ObjectId | null> {
+    const normalizedDeviceId = String(deviceId || '').trim();
+    if (!normalizedDeviceId) {
+      return await this.resolveDefaultCampusObjectId();
+    }
+
+    const existingLockerWithCampus = await this.lockerModel
+      .findOne({
+        deviceId: normalizedDeviceId,
+        campusId: { $ne: null },
+      })
+      .select('campusId')
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .lean();
+
+    const existingCampusId = existingLockerWithCampus?.campusId
+      ? String(existingLockerWithCampus.campusId)
+      : '';
+
+    if (existingCampusId && Types.ObjectId.isValid(existingCampusId)) {
+      return new Types.ObjectId(existingCampusId);
+    }
+
+    return await this.resolveDefaultCampusObjectId();
   }
 
   private mapResponse(item: any) {
@@ -125,6 +187,20 @@ export class LockerService {
       return;
     }
 
+    const fallbackCampusId = await this.resolveCampusForDevice(esp32.deviceId);
+
+    if (fallbackCampusId) {
+      await this.lockerModel.updateMany(
+        {
+          deviceId: esp32.deviceId,
+          campusId: null,
+        },
+        {
+          campusId: fallbackCampusId,
+        },
+      );
+    }
+
     let nextLockerNumber = await this.getNextLockerNumber();
 
     for (const device of devices) {
@@ -152,6 +228,7 @@ export class LockerService {
           deviceId: esp32.deviceId,
           controlPin: pin,
           esp32Id: esp32._id,
+          campusId: fallbackCampusId,
           status: 'available',
           batteryLevel: 100,
           isActive: true,
@@ -409,12 +486,23 @@ export class LockerService {
     const username = String(this.configService.get<string>('IOT_GATEWAY_AUTH_USER') || '').trim();
     const password = String(this.configService.get<string>('IOT_GATEWAY_AUTH_PASS') || '').trim();
     const timeoutMs = Number(this.configService.get<string>('IOT_GATEWAY_TIMEOUT_MS') || 4000);
+    const transportRaw = String(
+      this.configService.get<string>('IOT_GATEWAY_COMMAND_TRANSPORT') ||
+        this.configService.get<string>('IOT_GATEWAY_TRANSPORT') ||
+        'websocket',
+    )
+      .trim()
+      .toLowerCase();
+
+    const commandTransport: IotGatewayCommandTransport =
+      transportRaw === 'http' || transportRaw === 'hybrid' ? transportRaw : 'websocket';
 
     return {
       baseUrl,
       username,
       password,
       timeoutMs: Number.isFinite(timeoutMs) ? Math.max(500, timeoutMs) : 4000,
+      commandTransport,
     };
   }
 
@@ -426,20 +514,37 @@ export class LockerService {
     durationMs?: number;
     [key: string]: any;
   }) {
-    const { baseUrl, username, password, timeoutMs } = this.getIotGatewayConfig();
+    const { baseUrl, username, password, timeoutMs, commandTransport } = this.getIotGatewayConfig();
+    const websocketFallbackEnabled = commandTransport !== 'http';
+
+    if (commandTransport === 'websocket') {
+      return {
+        enabled: false,
+        accepted: true,
+        transport: 'websocket',
+        message: 'HTTP dispatch skipped (IOT_GATEWAY_COMMAND_TRANSPORT=websocket)',
+      };
+    }
+
     if (!baseUrl) {
       return {
         enabled: false,
-        accepted: false,
-        message: 'IOT gateway URL is not configured',
+        accepted: websocketFallbackEnabled,
+        transport: 'http',
+        message: websocketFallbackEnabled
+          ? 'IOT gateway URL is not configured, using websocket-only dispatch'
+          : 'IOT gateway URL is not configured',
       };
     }
 
     if (!username || !password) {
       return {
         enabled: false,
-        accepted: false,
-        message: 'IOT gateway basic auth credentials are not configured',
+        accepted: websocketFallbackEnabled,
+        transport: 'http',
+        message: websocketFallbackEnabled
+          ? 'IOT gateway basic auth credentials are not configured, using websocket-only dispatch'
+          : 'IOT gateway basic auth credentials are not configured',
       };
     }
 
@@ -464,7 +569,9 @@ export class LockerService {
 
       return {
         enabled: true,
-        accepted: response.ok,
+        accepted: response.ok || websocketFallbackEnabled,
+        fallbackUsed: !response.ok && websocketFallbackEnabled,
+        transport: 'http',
         statusCode: response.status,
         payload,
       };
@@ -472,8 +579,12 @@ export class LockerService {
       this.logger.warn(`Failed to push command to iot-gateway: ${error?.message || 'unknown error'}`);
       return {
         enabled: true,
-        accepted: false,
-        message: error?.message || 'Request failed',
+        accepted: websocketFallbackEnabled,
+        fallbackUsed: websocketFallbackEnabled,
+        transport: 'http',
+        message: websocketFallbackEnabled
+          ? `${error?.message || 'Request failed'} (websocket fallback active)`
+          : error?.message || 'Request failed',
       };
     } finally {
       clearTimeout(timer);
@@ -1067,6 +1178,19 @@ export class LockerService {
       ? Math.max(0, Math.min(100, Number(batteryLevel)))
       : undefined;
 
+    const fallbackCampusId = await this.resolveCampusForDevice(deviceEsp32);
+    if (fallbackCampusId) {
+      await this.lockerModel.updateMany(
+        {
+          deviceId: deviceEsp32,
+          campusId: null,
+        },
+        {
+          campusId: fallbackCampusId,
+        },
+      );
+    }
+
     const updated = await this.esp32Model.findOneAndUpdate(
       { deviceId: deviceEsp32 },
       {
@@ -1428,21 +1552,43 @@ export class LockerService {
     const DEFAULT_UNLOCK_MS = 1500;
     const durationMs = DEFAULT_UNLOCK_MS;
 
-    this.eventsGateway.sendHardwareCommand({
-      deviceId,
-      pin,
-      action: 'on',
-      correlationId,
-      durationMs,
-    });
+    const requestedMethod = this.normalizeNullableString(unlockContext?.method);
+    const normalizedRequestedMethod = String(requestedMethod || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]/g, '');
+    const isFaceIdUnlock = normalizedRequestedMethod === 'faceid';
+    const accessMethod = isFaceIdUnlock ? 'FaceID' : 'remote_open';
+    const verificationTag = this.normalizeNullableString(
+      requestMetadata.verification || (isFaceIdUnlock ? 'faceid' : null),
+    );
+    const sourceType = this.normalizeNullableString(
+      requestMetadata.sourceType ||
+        (isFaceIdUnlock
+          ? usageAction === 'return'
+            ? 'mobile_schedule_faceid_return'
+            : 'mobile_schedule_faceid'
+          : 'remote_open'),
+    );
 
-    const gatewayDispatch = await this.pushCommandToIotGateway({
-      correlationId,
+    const hardwareCommand = {
       deviceId,
       pin,
       action: 'on',
+      correlationId,
       durationMs,
-    });
+      usageAction,
+      lockerId,
+      roomId: resolvedRoomId ? String(resolvedRoomId) : undefined,
+      scheduleId: unlockContext?.scheduleId ? String(unlockContext.scheduleId) : undefined,
+      bookingId: unlockContext?.bookingId ? String(unlockContext.bookingId) : undefined,
+      sourceType: sourceType || undefined,
+      verification: verificationTag || undefined,
+    };
+
+    this.eventsGateway.sendHardwareCommand(hardwareCommand as any);
+
+    const gatewayDispatch = await this.pushCommandToIotGateway(hardwareCommand as any);
 
     const currentUserId = this.normalizeNullableString(
       currentUser?._id?.toString?.() || currentUser?._id,
@@ -1452,13 +1598,6 @@ export class LockerService {
       currentUser?.campusId?.toString?.() || currentUser?.campusId,
     );
 
-    const requestedMethod = this.normalizeNullableString(unlockContext?.method);
-    const normalizedRequestedMethod = String(requestedMethod || '')
-      .trim()
-      .toLowerCase()
-      .replace(/[\s_-]/g, '');
-    const isFaceIdUnlock = normalizedRequestedMethod === 'faceid';
-    const accessMethod = isFaceIdUnlock ? 'FaceID' : 'remote_open';
     const dispatchAccepted = !gatewayDispatch.enabled || gatewayDispatch.accepted;
     const accessStatus: 'success' | 'failed' | 'pending' = dispatchAccepted
       ? isFaceIdUnlock
@@ -1591,6 +1730,8 @@ export class LockerService {
     if (delaySeconds !== undefined) {
       command.delaySeconds = delaySeconds;
     }
+
+    this.eventsGateway.sendHardwareCommand(command as any);
 
     const gatewayDispatch = await this.pushCommandToIotGateway(command as any);
     const dispatchAccepted = !gatewayDispatch.enabled || gatewayDispatch.accepted;
@@ -1735,6 +1876,8 @@ export class LockerService {
     if (delaySeconds !== undefined) {
       command.delaySeconds = delaySeconds;
     }
+
+    this.eventsGateway.sendHardwareCommand(command as any);
 
     const gatewayDispatch = await this.pushCommandToIotGateway(command as any);
     const dispatchAccepted = !gatewayDispatch.enabled || gatewayDispatch.accepted;

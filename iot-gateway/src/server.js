@@ -18,6 +18,7 @@ const logger = createLogger('BOOT');
 
 async function bootstrap() {
   logger.info('Starting IoT Gateway', {
+    host: config.app.host,
     port: config.app.port,
     websocket: `${config.websocket.url}${config.websocket.namespace}`,
     serialEnabled: config.serial.enabled,
@@ -79,8 +80,8 @@ async function bootstrap() {
     logger: createLogger('APP'),
   });
 
-  const httpServer = app.listen(config.app.port, () => {
-    logger.info(`Gateway HTTP listening on port ${config.app.port}`);
+  const httpServer = app.listen(config.app.port, config.app.host, () => {
+    logger.info(`Gateway HTTP listening on ${config.app.host}:${config.app.port}`);
   });
 
   const esp32Realtime = createEsp32RealtimeGateway({

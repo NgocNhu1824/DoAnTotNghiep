@@ -3,6 +3,7 @@ const { env } = require('./env');
 const config = {
   app: {
     env: env.NODE_ENV,
+    host: env.HOST,
     port: env.PORT,
   },
   serial: {

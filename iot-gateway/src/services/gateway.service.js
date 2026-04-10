@@ -15,6 +15,8 @@ class GatewayService {
 
     this.deviceSnapshots = new Map();
     this.pendingCommands = new Map();
+    this.pendingRealtimeSyncAll = new Map();
+    this.pendingFingerprintSessions = new Map();
     this.realtimeBridge = null;
   }
 
@@ -27,6 +29,149 @@ class GatewayService {
       this.pendingCommands.set(deviceId, []);
     }
     return this.pendingCommands.get(deviceId);
+  }
+
+  cleanupFingerprintSessions(maxAgeMs = 10 * 60 * 1000) {
+    const now = Date.now();
+    for (const [correlationId, session] of this.pendingFingerprintSessions.entries()) {
+      const createdAt = Number(session?.createdAt || 0);
+      if (!createdAt || now - createdAt > maxAgeMs) {
+        this.pendingFingerprintSessions.delete(correlationId);
+      }
+    }
+  }
+
+  rememberFingerprintSession(data = {}, correlationId, deviceId) {
+    const normalizedCorrelationId = String(correlationId || data.correlationId || '').trim();
+    const normalizedAction = String(data.action || '').trim().toLowerCase();
+    if (!normalizedCorrelationId || (normalizedAction !== 'finger_verify' && normalizedAction !== 'finger_register')) {
+      return;
+    }
+
+    const normalizedDeviceId = String(deviceId || data.deviceId || this.defaultDeviceId || '').trim();
+    const pin = Number(data.pin);
+    const usageAction = String(data.usageAction || '').trim().toLowerCase() === 'return' ? 'return' : 'unlock';
+    const durationMsRaw = Number(data.durationMs);
+
+    this.pendingFingerprintSessions.set(normalizedCorrelationId, {
+      correlationId: normalizedCorrelationId,
+      action: normalizedAction,
+      deviceId: normalizedDeviceId || null,
+      pin: Number.isFinite(pin) ? pin : null,
+      usageAction,
+      lockerId: data.lockerId !== undefined && data.lockerId !== null ? String(data.lockerId) : null,
+      roomId: data.roomId !== undefined && data.roomId !== null ? String(data.roomId) : null,
+      scheduleId: data.scheduleId !== undefined && data.scheduleId !== null ? String(data.scheduleId) : null,
+      bookingId: data.bookingId !== undefined && data.bookingId !== null ? String(data.bookingId) : null,
+      userId: data.userId !== undefined && data.userId !== null ? String(data.userId) : null,
+      userName: data.userName !== undefined && data.userName !== null ? String(data.userName) : null,
+      sourceType: data.sourceType !== undefined && data.sourceType !== null ? String(data.sourceType) : null,
+      durationMs: Number.isFinite(durationMsRaw)
+        ? Math.max(100, Math.min(5000, Math.round(durationMsRaw)))
+        : 1500,
+      createdAt: Date.now(),
+    });
+
+    this.cleanupFingerprintSessions();
+  }
+
+  resolveFingerprintOperation(correlationId) {
+    const normalizedCorrelationId = String(correlationId || '').trim();
+    if (normalizedCorrelationId.startsWith('finger-register-')) return 'register';
+    if (normalizedCorrelationId.startsWith('finger-verify-')) return 'verify';
+    return 'unknown';
+  }
+
+  findFingerprintSession(payload = {}, deviceId = '') {
+    const correlationId = String(payload.correlationId || '').trim();
+    if (!correlationId) {
+      return null;
+    }
+
+    const session = this.pendingFingerprintSessions.get(correlationId);
+    if (!session) {
+      return null;
+    }
+
+    const normalizedDeviceId = String(deviceId || payload.deviceId || this.defaultDeviceId || '').trim();
+    if (session.deviceId && normalizedDeviceId && session.deviceId !== normalizedDeviceId) {
+      return null;
+    }
+
+    return {
+      ...session,
+      correlationId,
+      deviceId: normalizedDeviceId || session.deviceId || null,
+    };
+  }
+
+  resolveRealtimeSyncTarget(deviceId, connectedIds = []) {
+    const normalizedRequested = String(deviceId || '').trim();
+    const normalizedConnected = (Array.isArray(connectedIds) ? connectedIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+
+    if (normalizedConnected.length === 0) {
+      return null;
+    }
+
+    if (!normalizedRequested) {
+      return normalizedConnected.length === 1 ? normalizedConnected[0] : null;
+    }
+
+    const exact = normalizedConnected.find((id) => id === normalizedRequested);
+    if (exact) {
+      return exact;
+    }
+
+    const requestedLower = normalizedRequested.toLowerCase();
+    const caseInsensitive = normalizedConnected.find((id) => id.toLowerCase() === requestedLower);
+    if (caseInsensitive) {
+      return caseInsensitive;
+    }
+
+    // If there is exactly one connected device, use it as a safe fallback.
+    return normalizedConnected.length === 1 ? normalizedConnected[0] : null;
+  }
+
+  markRealtimeSyncAllProgress(correlationId, deviceId, ok) {
+    const correlation = String(correlationId || '').trim();
+    const normalizedDeviceId = String(deviceId || '').trim();
+    if (!correlation || !normalizedDeviceId) {
+      return;
+    }
+
+    const tracker = this.pendingRealtimeSyncAll.get(correlation);
+    if (!tracker || !tracker.pendingDeviceIds.has(normalizedDeviceId)) {
+      return;
+    }
+
+    tracker.pendingDeviceIds.delete(normalizedDeviceId);
+    if (ok) {
+      tracker.success += 1;
+    } else {
+      tracker.failed += 1;
+    }
+
+    if (tracker.pendingDeviceIds.size > 0) {
+      this.pendingRealtimeSyncAll.set(correlation, tracker);
+      return;
+    }
+
+    this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+      correlationId: correlation,
+      deviceId: '*',
+      status: tracker.failed > 0 ? 'failed' : 'completed',
+      message: `Sync-all done. success=${tracker.success}, failed=${tracker.failed}`,
+      summary: {
+        total: tracker.total,
+        success: tracker.success,
+        failed: tracker.failed,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    this.pendingRealtimeSyncAll.delete(correlation);
   }
 
   enqueueCommand(data = {}) {
@@ -161,6 +306,8 @@ class GatewayService {
         : 'Failed to apply realtime sync snapshot to backend.',
       timestamp: new Date().toISOString(),
     });
+
+    this.markRealtimeSyncAllProgress(correlationId, deviceId, initResult.ok);
   }
 
   getOrCreateSnapshot(deviceId) {
@@ -319,22 +466,43 @@ class GatewayService {
     if (isAll) {
       const realtimeIds = this.realtimeBridge?.listConnectedDeviceIds?.() || [];
       if (realtimeIds.length > 0) {
+        const dispatchedRealtimeIds = realtimeIds
+          .map((id) => String(id || '').trim())
+          .filter(Boolean)
+          .filter((id) =>
+            this.realtimeBridge.requestSync(id, {
+              correlationId,
+              deviceId: id,
+              requestedAt: new Date().toISOString(),
+            }),
+          );
+
+        if (dispatchedRealtimeIds.length > 0) {
+          this.pendingRealtimeSyncAll.set(correlationId, {
+            total: dispatchedRealtimeIds.length,
+            success: 0,
+            failed: 0,
+            pendingDeviceIds: new Set(dispatchedRealtimeIds),
+            startedAt: Date.now(),
+          });
+
+          this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+            correlationId,
+            deviceId: '*',
+            status: 'started',
+            message: `Realtime sync requested for ${dispatchedRealtimeIds.length} connected ESP32 devices.`,
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+
         this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
           correlationId,
           deviceId: '*',
-          status: 'started',
-          message: `Realtime sync requested for ${realtimeIds.length} connected ESP32 devices.`,
+          status: 'failed',
+          message: 'Realtime devices are connected but sync requests could not be dispatched.',
           timestamp: new Date().toISOString(),
         });
-
-        realtimeIds.forEach((id) => {
-          this.realtimeBridge.requestSync(id, {
-            correlationId,
-            deviceId: id,
-            requestedAt: new Date().toISOString(),
-          });
-        });
-        return;
       }
 
       const snapshotEntries = Array.from(this.deviceSnapshots.entries());
@@ -401,18 +569,26 @@ class GatewayService {
       return;
     }
 
-    const realtimeRequested = this.realtimeBridge?.requestSync?.(deviceId, {
-      correlationId,
-      deviceId,
-      requestedAt: new Date().toISOString(),
-    });
+    const connectedRealtimeIds = this.realtimeBridge?.listConnectedDeviceIds?.() || [];
+    const realtimeTargetDeviceId = this.resolveRealtimeSyncTarget(deviceId, connectedRealtimeIds);
+
+    const realtimeRequested = realtimeTargetDeviceId
+      ? this.realtimeBridge?.requestSync?.(realtimeTargetDeviceId, {
+          correlationId,
+          deviceId: realtimeTargetDeviceId,
+          requestedAt: new Date().toISOString(),
+        })
+      : false;
 
     if (realtimeRequested) {
       this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
         correlationId,
-        deviceId,
+        deviceId: realtimeTargetDeviceId || deviceId,
         status: 'started',
-        message: 'Realtime sync request was sent to ESP32 device.',
+        message:
+          realtimeTargetDeviceId && realtimeTargetDeviceId !== deviceId
+            ? `Realtime sync request was sent to connected ESP32 device ${realtimeTargetDeviceId}.`
+            : 'Realtime sync request was sent to ESP32 device.',
         timestamp: new Date().toISOString(),
       });
       return;
@@ -430,8 +606,29 @@ class GatewayService {
     const correlationId = String(data.correlationId || `cmd-${Date.now()}`);
     const deviceId = String(data.deviceId || this.defaultDeviceId || '').trim();
     const pin = Number(data.pin);
-    const isPinCommand = Number.isFinite(pin);
     const action = String(data.action || '').trim();
+    const normalizedAction = action.toLowerCase();
+    const isDirectPinAction = normalizedAction === 'on' || normalizedAction === 'off';
+    const isPinCommand = Number.isFinite(pin) && isDirectPinAction;
+    const passthroughPinMetadata = {
+      durationMs: data.durationMs,
+      sourceType: data.sourceType,
+      verification: data.verification,
+      usageAction: data.usageAction,
+      lockerId: data.lockerId,
+      roomId: data.roomId,
+      scheduleId: data.scheduleId,
+      bookingId: data.bookingId,
+      userId: data.userId,
+      userName: data.userName,
+    };
+
+    const pinCommandMetadata = Object.entries(passthroughPinMetadata).reduce((acc, [key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
 
     let queuedCommand = null;
     if (isPinCommand) {
@@ -441,7 +638,7 @@ class GatewayService {
         correlationId,
         deviceId,
         pin,
-        action: action === 'off' ? 'off' : 'on',
+        action: normalizedAction === 'off' ? 'off' : 'on',
         durationMs,
       });
     }
@@ -453,10 +650,14 @@ class GatewayService {
       correlationId,
       deviceId,
       requestedAt: new Date().toISOString(),
-      ...(isPinCommand ? { pin, action: action === 'off' ? 'off' : 'on' } : { ...data, action }),
+      ...(isPinCommand
+        ? { pin, action: normalizedAction === 'off' ? 'off' : 'on', ...pinCommandMetadata }
+        : { ...data, action }),
     };
 
     const dispatchedRealtime = this.realtimeBridge?.sendCommand?.(deviceId, realtimePayload) || false;
+
+    this.rememberFingerprintSession(data, correlationId, deviceId);
 
     this.wsClient.emit(this.events.HARDWARE_COMMAND_ACK, {
       correlationId,
@@ -598,9 +799,7 @@ class GatewayService {
 
     const rawCorrelationId = payload.correlationId !== undefined ? String(payload.correlationId) : '';
     const correlationId = rawCorrelationId.trim();
-    let operation = 'unknown';
-    if (correlationId.startsWith('finger-register-')) operation = 'register';
-    else if (correlationId.startsWith('finger-verify-')) operation = 'verify';
+    const operation = this.resolveFingerprintOperation(correlationId);
 
     this.wsClient.emit(this.events.FINGERPRINT_AUTH, {
       userId,
@@ -615,25 +814,45 @@ class GatewayService {
     });
   }
 
-  async syncFingerprintLog(payload, deviceId) {
+  async syncFingerprintLog(payload, deviceId, fingerprintSession = null) {
     const rawCorrelationId = payload.correlationId !== undefined ? String(payload.correlationId) : '';
     const correlationId = rawCorrelationId.trim();
-    let operation = 'unknown';
-    if (correlationId.startsWith('finger-register-')) operation = 'register';
-    else if (correlationId.startsWith('finger-verify-')) operation = 'verify';
+    const operation = this.resolveFingerprintOperation(correlationId);
+    const sessionAction = fingerprintSession?.action === 'finger_register'
+      ? 'register'
+      : String(fingerprintSession?.usageAction || '').toLowerCase() === 'return'
+        ? 'return'
+        : 'unlock';
+    const sessionPin = Number(fingerprintSession?.pin);
 
     return await this.postSafe('/esp32/access-log', {
       deviceId,
       method: 'fingerprint',
       status: Boolean(payload.matched) ? 'success' : 'failed',
       fingerId: payload.fingerId !== undefined ? Number(payload.fingerId) : null,
-      userId: payload.userId !== undefined ? String(payload.userId) : null,
-      userName: payload.userName !== undefined ? String(payload.userName) : null,
+      userId:
+        payload.userId !== undefined
+          ? String(payload.userId)
+          : fingerprintSession?.userId || null,
+      userName:
+        payload.userName !== undefined
+          ? String(payload.userName)
+          : fingerprintSession?.userName || null,
+      pin: Number.isFinite(sessionPin) ? sessionPin : undefined,
       metadata: {
         source: payload.source,
         matched: Boolean(payload.matched),
         correlationId: correlationId || undefined,
         operation,
+        commandAction: fingerprintSession?.action || undefined,
+        action: sessionAction,
+        usageAction: fingerprintSession?.usageAction || undefined,
+        lockerId: fingerprintSession?.lockerId || undefined,
+        roomId: fingerprintSession?.roomId || undefined,
+        scheduleId: fingerprintSession?.scheduleId || undefined,
+        bookingId: fingerprintSession?.bookingId || undefined,
+        sourceType: fingerprintSession?.sourceType || undefined,
+        pin: Number.isFinite(sessionPin) ? sessionPin : undefined,
         // forward raw fingerprint data if ESP32 provided it (registration flow)
         fingerData: payload.fingerData !== undefined ? payload.fingerData : undefined,
       },
@@ -672,7 +891,36 @@ class GatewayService {
     }
 
     if (type === 'fingerprint') {
-      const syncResult = await this.syncFingerprintLog(data, deviceId);
+      const fingerprintSession = this.findFingerprintSession(data, deviceId);
+      const syncResult = await this.syncFingerprintLog(data, deviceId, fingerprintSession);
+
+      const shouldAutoUnlock =
+        Boolean(data.matched) &&
+        fingerprintSession?.action === 'finger_verify' &&
+        Number.isFinite(Number(fingerprintSession.pin));
+
+      if (shouldAutoUnlock) {
+        const autoUnlockCorrelationId = `finger-open-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+        await this.handleHardwareCommand({
+          correlationId: autoUnlockCorrelationId,
+          deviceId,
+          pin: Number(fingerprintSession.pin),
+          action: 'on',
+          durationMs: Number(fingerprintSession.durationMs) || 1500,
+          sourceType: 'finger_verify_auto_unlock',
+          lockerId: fingerprintSession?.lockerId || undefined,
+          roomId: fingerprintSession?.roomId || undefined,
+          scheduleId: fingerprintSession?.scheduleId || undefined,
+          bookingId: fingerprintSession?.bookingId || undefined,
+          usageAction: fingerprintSession?.usageAction || 'unlock',
+          verificationCorrelationId: fingerprintSession?.correlationId || undefined,
+        });
+      }
+
+      if (fingerprintSession?.correlationId) {
+        this.pendingFingerprintSessions.delete(fingerprintSession.correlationId);
+      }
+
       this.emitFingerprint({
         ...data,
         syncAccepted: Boolean(syncResult?.ok),

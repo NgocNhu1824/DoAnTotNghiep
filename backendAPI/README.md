@@ -213,18 +213,25 @@ Xem file schema trong thư mục `src/database/schemas/` hoặc tham khảo docu
 	- API điều khiển pin: `POST /api/esp32/control` với payload `{ deviceId, pin, action: 'on' | 'off' }`
 	- Hoặc API command solenoid cũ: `POST /api/esp32/command` với payload `{ deviceEsp32, idSolenoid, action }`
 - Backend phát lệnh realtime qua gateway bằng event `hardware:command`.
-- Đồng thời backend đẩy command sang iot-gateway HTTP API `POST /api/lockers/command/push` để queue fallback khi thiết bị polling.
+- Nếu cấu hình `IOT_GATEWAY_COMMAND_TRANSPORT=hybrid` hoặc `http`, backend sẽ đẩy thêm command sang iot-gateway HTTP API `POST /api/lockers/command/push`.
 - Gateway chuyển lệnh tới ESP32 (HTTP polling queue hoặc websocket realtime channel, tùy mode đang chạy).
 - Khi có trạng thái trả về, backend nhận `sync/state` và ghi access log (`remote_open`, `iot_state_sync`) để theo dõi audit.
 
-Biến môi trường cần cho unlock command qua HTTP gateway:
+Biến môi trường cho command transport:
 
 ```env
 IOT_GATEWAY_BASE_URL=http://localhost:4010
 IOT_GATEWAY_AUTH_USER=esp32
 IOT_GATEWAY_AUTH_PASS=esp32-secret
 IOT_GATEWAY_TIMEOUT_MS=4000
+IOT_GATEWAY_COMMAND_TRANSPORT=websocket
 ```
+
+`IOT_GATEWAY_COMMAND_TRANSPORT`:
+
+- `websocket` (recommended): chỉ dùng realtime socket event, không phụ thuộc HTTP push.
+- `hybrid`: ưu tiên websocket, HTTP push là fallback.
+- `http`: chỉ dùng HTTP push.
 
 ## 📄 License
 

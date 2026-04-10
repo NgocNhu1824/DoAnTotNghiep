@@ -17,6 +17,7 @@ function toBool(value, fallback) {
 
 const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
+  HOST: process.env.HOST || '0.0.0.0',
   PORT: toNumber(process.env.PORT, 4010),
 
   SERIAL_PORT: process.env.SERIAL_PORT || 'AUTO',
