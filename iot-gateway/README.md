@@ -86,6 +86,7 @@ Sao chep .env.example thanh .env va dieu chinh:
 
 ```env
 NODE_ENV=development
+HOST=0.0.0.0
 PORT=4010
 
 SERIAL_PORT=AUTO
@@ -95,6 +96,8 @@ ENABLE_SERIAL=true
 SOCKET_URL=http://localhost:3000
 SOCKET_NAMESPACE=/events
 WS_AUTH_TOKEN=
+ESP32_WS_NAMESPACE=/esp32
+ESP32_WS_TOKEN=esp32-secret
 
 DEVICE_ID=esp32-1
 GATEWAY_ID=gateway-win-01
@@ -125,6 +128,7 @@ Body JSON:
 
 - index.js duoc giu de backward compatibility, se goi src/server.js.
 - Neu chi dung HTTP ma khong dung serial: dat ENABLE_SERIAL=false.
+- Tren Windows voi Wi-Fi profile Public, firewall thuong chan inbound TCP. Neu ESP32 cu "connect() failed", hay mo inbound TCP `4010` (run PowerShell as Administrator) hoac doi sang mang khong bat client isolation.
 
 ## Giao thức (ESP32 ↔ Gateway ↔ Backend)
 

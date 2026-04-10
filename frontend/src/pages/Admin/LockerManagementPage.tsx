@@ -27,6 +27,7 @@ type Campus = {
 type SyncJobStatus = 'queued' | 'started' | 'completed' | 'failed';
 
 type SyncJob = {
+  jobKey: string;
   correlationId: string;
   deviceId: string;
   lockerId?: string;
@@ -111,6 +112,7 @@ const LockerManagementPage: React.FC = () => {
   const [syncingLockerIds, setSyncingLockerIds] = useState<Record<string, boolean>>({});
   const [unlockingLockerIds, setUnlockingLockerIds] = useState<Record<string, boolean>>({});
   const syncJobsRef = useRef<SyncJob[]>([]);
+  const lockersRef = useRef<LockerEntity[]>([]);
   // Track correlationIds initiated by user actions so UI ignores external/automatic syncs
   const userInitiatedSyncsRef = useRef<Set<string>>(new Set());
 
@@ -146,6 +148,34 @@ const LockerManagementPage: React.FC = () => {
   }, [syncJobs]);
 
   useEffect(() => {
+    lockersRef.current = lockers;
+  }, [lockers]);
+
+  const resolveLockerByDeviceId = (rawDeviceId: string) => {
+    const deviceId = String(rawDeviceId || '').trim();
+    if (!deviceId || deviceId === '*') {
+      return null;
+    }
+
+    const matched = [...lockersRef.current]
+      .filter((locker) => String(locker.deviceId || '').trim() === deviceId)
+      .sort((a, b) => Number(a.lockerNumber ?? Number.MAX_SAFE_INTEGER) - Number(b.lockerNumber ?? Number.MAX_SAFE_INTEGER));
+
+    if (matched.length === 0) {
+      return null;
+    }
+
+    const picked = matched[0];
+    const lockerId = String(picked.id || picked._id || '').trim();
+    const lockerNumber = Number.isFinite(Number(picked.lockerNumber)) ? Number(picked.lockerNumber) : undefined;
+
+    return {
+      lockerId: lockerId || undefined,
+      lockerNumber,
+    };
+  };
+
+  useEffect(() => {
     const socket = wsService.connect();
 
     const onHardwareUpdate = (event: any) => {
@@ -169,17 +199,22 @@ const LockerManagementPage: React.FC = () => {
         statusRaw === 'started' || statusRaw === 'completed' || statusRaw === 'failed'
           ? (statusRaw as SyncJobStatus)
           : 'queued';
-      const deviceId = String(payload.deviceId || 'unknown-device');
+      const deviceId = String(payload.deviceId || 'unknown-device').trim() || 'unknown-device';
+      const jobKey = `${correlationId}:${deviceId}`;
+      const inferredLocker = resolveLockerByDeviceId(deviceId);
       const message = normalizeSyncMessage(String(payload.message || 'No message'));
       const updatedAt = new Date().toISOString();
 
       setSyncJobs((prev) => {
-        const hasExisting = prev.some((item) => item.correlationId === correlationId);
+        const hasExisting = prev.some((item) => item.jobKey === jobKey);
         if (!hasExisting) {
           return [
             {
+              jobKey,
               correlationId,
               deviceId,
+              lockerId: inferredLocker?.lockerId,
+              lockerNumber: inferredLocker?.lockerNumber,
               status,
               message,
               updatedAt,
@@ -189,10 +224,12 @@ const LockerManagementPage: React.FC = () => {
         }
 
         return prev.map((item) =>
-          item.correlationId === correlationId
+          item.jobKey === jobKey
             ? {
                 ...item,
                 deviceId,
+                lockerId: item.lockerId || inferredLocker?.lockerId,
+                lockerNumber: item.lockerNumber ?? inferredLocker?.lockerNumber,
                 status,
                 message,
                 updatedAt,
@@ -202,23 +239,32 @@ const LockerManagementPage: React.FC = () => {
       });
 
       if (status === 'completed' || status === 'failed') {
-        const matchedJob = syncJobsRef.current.find((item) => item.correlationId === correlationId);
-        if (matchedJob?.lockerId) {
+        const matchedJob = syncJobsRef.current.find((item) => item.jobKey === jobKey);
+        const targetLockerId = matchedJob?.lockerId || inferredLocker?.lockerId;
+
+        if (targetLockerId) {
           setSyncingLockerIds((prev) => ({
             ...prev,
-            [matchedJob.lockerId as string]: false,
+            [targetLockerId]: false,
           }));
         }
 
-        if (matchedJob && !matchedJob.lockerId) {
+        if (deviceId === '*') {
           setSyncAllLoading(false);
+
+          if (status === 'completed') {
+            fetchData();
+          }
         }
 
-        if (status === 'completed') {
-          fetchData();
+        const hasSummaryJob = syncJobsRef.current.some(
+          (item) => item.correlationId === correlationId && item.deviceId === '*',
+        );
+
+        // Keep tracking while sync-all still emits per-device updates.
+        if (!hasSummaryJob || (deviceId === '*' && status === 'completed')) {
+          userInitiatedSyncsRef.current.delete(correlationId);
         }
-        // cleanup tracking for this user-initiated correlationId
-        userInitiatedSyncsRef.current.delete(correlationId);
       }
     };
 
@@ -379,6 +425,7 @@ const LockerManagementPage: React.FC = () => {
       if (correlationId) userInitiatedSyncsRef.current.add(correlationId);
 
       const queuedJob: SyncJob = {
+        jobKey: `${correlationId}:*`,
         correlationId,
         deviceId: '*',
         status: 'queued',
@@ -431,6 +478,7 @@ const LockerManagementPage: React.FC = () => {
       if (correlationId) userInitiatedSyncsRef.current.add(correlationId);
 
       const queuedJob: SyncJob = {
+        jobKey: `${correlationId}:${deviceId}`,
         correlationId,
         deviceId,
         lockerId,
@@ -695,7 +743,7 @@ const LockerManagementPage: React.FC = () => {
                 </TableHeader>
                 <TableBody>
                   {syncJobs.slice(0, 10).map((job) => (
-                    <TableRow key={job.correlationId}>
+                    <TableRow key={job.jobKey}>
                       <TableCell className="text-xs text-muted-foreground">
                         {new Date(job.updatedAt).toLocaleTimeString()}
                       </TableCell>

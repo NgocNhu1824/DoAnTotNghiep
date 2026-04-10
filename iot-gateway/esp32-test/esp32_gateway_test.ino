@@ -19,7 +19,7 @@ const char* WIFI_SSID = "Ky Tuc Xa DHFPT";
 const char* WIFI_PASS = "";
 
 // ======================== GATEWAY (WebSocket) ========================
-const char* WS_HOST = "172.16.2.24"; // gateway host or IP
+const char* WS_HOST = "172.16.1.127"; // gateway host or IP
 const uint16_t WS_PORT = 4010;
 const char* WS_NAMESPACE = "/esp32"; // path the gateway upgrade handler listens on
 const char* DEVICE_ID = "esp32-1";
@@ -36,6 +36,77 @@ String buildWsUrl() {
   url += "&token=";
   url += WS_TOKEN;
   return url;
+}
+
+bool isSameSubnet(const IPAddress& a, const IPAddress& b, const IPAddress& mask) {
+  for (int i = 0; i < 4; ++i) {
+    if ((a[i] & mask[i]) != (b[i] & mask[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Forward declarations used by connectGateway(), which appears before
+// the global WebSocket client/state definitions in this file.
+extern WebsocketsClient wsClient;
+extern bool wsConnected;
+extern unsigned long lastHeartbeatAt;
+String buildInitPayload();
+String buildHeartbeatPayload();
+
+bool connectGateway() {
+  if (WiFi.status() != WL_CONNECTED) {
+    wsConnected = false;
+    Serial.println("[WS] skip connect: WiFi not connected");
+    return false;
+  }
+
+  IPAddress localIp = WiFi.localIP();
+  IPAddress subnetMask = WiFi.subnetMask();
+  IPAddress gatewayIp = WiFi.gatewayIP();
+  IPAddress targetIp;
+  bool targetIsIpv4 = targetIp.fromString(WS_HOST);
+
+  if (targetIsIpv4 && !isSameSubnet(targetIp, localIp, subnetMask)) {
+    Serial.print("[NET] subnet mismatch: local=");
+    Serial.print(localIp);
+    Serial.print(" mask=");
+    Serial.print(subnetMask);
+    Serial.print(" target=");
+    Serial.println(targetIp);
+    Serial.print("[NET] gateway on current WiFi=");
+    Serial.println(gatewayIp);
+  }
+
+  WiFiClient tcpProbe;
+  bool tcpOk = tcpProbe.connect(WS_HOST, WS_PORT);
+  if (!tcpOk) {
+    wsConnected = false;
+    Serial.print("[NET] TCP probe failed to ");
+    Serial.print(WS_HOST);
+    Serial.print(":");
+    Serial.println(WS_PORT);
+    return false;
+  }
+  tcpProbe.stop();
+
+  String wsUrl = buildWsUrl();
+  Serial.print("[WS] connecting to "); Serial.println(wsUrl);
+
+  bool ok = wsClient.connect(wsUrl);
+  if (!ok) {
+    wsConnected = false;
+    Serial.println("[WS] connect() failed");
+    return false;
+  }
+
+  wsConnected = true;
+  Serial.println("[WS] connect() success");
+  wsClient.send(buildInitPayload());
+  wsClient.send(buildHeartbeatPayload());
+  lastHeartbeatAt = millis();
+  return true;
 }
 
 // ======================== HARDWARE ========================
@@ -467,6 +538,34 @@ void handleCommandMsg(const String& msg) {
     if (a) action = String(a);
   } else action = "off";
 
+  String sourceType = "";
+  if (cmd.containsKey("sourceType") && cmd["sourceType"].is<const char*>()) {
+    const char* s = cmd["sourceType"];
+    if (s) sourceType = String(s);
+  }
+  sourceType.toLowerCase();
+
+  String verification = "";
+  if (cmd.containsKey("verification") && cmd["verification"].is<const char*>()) {
+    const char* v = cmd["verification"];
+    if (v) verification = String(v);
+  }
+  verification.toLowerCase();
+
+  String usageAction = "unlock";
+  if (cmd.containsKey("usageAction") && cmd["usageAction"].is<const char*>()) {
+    const char* ua = cmd["usageAction"];
+    if (ua) usageAction = String(ua);
+  }
+  usageAction.toLowerCase();
+
+  String authMethod = "";
+  if (sourceType.indexOf("finger") >= 0 || verification == "fingerid" || verification == "fingerprint" || correlationId.startsWith("finger-open-")) {
+    authMethod = "Finger ID";
+  } else if (sourceType.indexOf("face") >= 0 || verification == "faceid") {
+    authMethod = "Face ID";
+  }
+
   int value01 = actionToValue01(action);
 
   // parse requested duration (ms)
@@ -537,6 +636,16 @@ void handleCommandMsg(const String& msg) {
     if (correlationId.length() > 0) {
       Serial.print("[CMD] correlationId="); Serial.println(correlationId);
     }
+
+    safeLcdClear();
+    if (authMethod.length() > 0) {
+      safeLcdOncePrintAt(0,0, authMethod + " success");
+      safeLcdOncePrintAt(0,1, usageAction == "return" ? "Returning..." : "Opening locker...");
+    } else {
+      safeLcdOncePrintAt(0,0, usageAction == "return" ? "Returning room" : "Locker command OK");
+      safeLcdOncePrintAt(0,1, usageAction == "return" ? "Please wait..." : "Opening locker...");
+    }
+
     startUnlockPulse(durationMs);
     DynamicJsonDocument s(512);
     s["type"] = "state";
@@ -561,6 +670,10 @@ void handleCommandMsg(const String& msg) {
   } else {
     pulseActive = false;
     applyRelayOutput(0);
+
+    safeLcdClear();
+    safeLcdOncePrintAt(0,0, usageAction == "return" ? "Return completed" : "Locker closed");
+    safeLcdOncePrintAt(0,1, "Ready");
 
     DynamicJsonDocument s(256);
     s["type"] = "state";
@@ -668,6 +781,8 @@ void setup() {
   // Print local IP to help debug network / gateway reachability
   IPAddress ip = WiFi.localIP();
   Serial.print("[WIFI] Local IP: "); Serial.println(ip);
+  Serial.print("[WIFI] Subnet mask: "); Serial.println(WiFi.subnetMask());
+  Serial.print("[WIFI] Gateway IP: "); Serial.println(WiFi.gatewayIP());
 
   wsClient.onMessage([](WebsocketsMessage msg) {
     String data = msg.data();
@@ -773,20 +888,16 @@ void setup() {
     if (event == WebsocketsEvent::ConnectionOpened) {
       wsConnected = true;
       Serial.println("[WS] Connected to gateway");
-      wsClient.send(buildInitPayload());
-      wsClient.send(buildHeartbeatPayload());
-      lastHeartbeatAt = millis();
     } else if (event == WebsocketsEvent::ConnectionClosed) {
       wsConnected = false;
-      Serial.println("[WS] Disconnected from gateway");
+      Serial.print("[WS] Disconnected from gateway: ");
+      Serial.println(data);
     } else if (event == WebsocketsEvent::GotPing) {
       wsClient.pong();
     }
   });
 
-  String wsUrl = buildWsUrl();
-  Serial.print("[WS] connecting to "); Serial.println(wsUrl);
-  wsClient.connect(wsUrl);
+  connectGateway();
 }
 
 void loop() {
@@ -851,9 +962,8 @@ void loop() {
   static unsigned long lastReconnectTry = 0;
   if (!wsConnected && millis() - lastReconnectTry > 5000) {
     lastReconnectTry = millis();
-    String wsUrl = buildWsUrl();
     Serial.println("[WS] trying reconnect...");
-    wsClient.connect(wsUrl);
+    connectGateway();
   }
 
   delay(10);

@@ -218,7 +218,14 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   }
 
   // Send control command down to serial gateway.
-  sendHardwareCommand(data: { deviceId: string; pin: number; action: 'on' | 'off'; correlationId?: string; durationMs?: number }) {
+  sendHardwareCommand(data: {
+    deviceId: string;
+    action: string;
+    pin?: number;
+    correlationId?: string;
+    durationMs?: number;
+    [key: string]: any;
+  }) {
     this.server.emit('hardware:command', {
       ...data,
       timestamp: new Date(),
