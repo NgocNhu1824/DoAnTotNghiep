@@ -13,6 +13,8 @@ import {
   RoomUsageState,
   RoomUsageStateDocument,
 } from '@/database/schemas/room-usage-state.schema';
+import { AccessLog } from '@/database/schemas/access-log.schema';
+import { Incident } from '@/database/schemas/incident.schema';
 import { CreateRoomDto, UpdateRoomDto } from './dto';
 import { RoomImportParserHelper } from './helpers/room-import-parser.helper';
 
@@ -22,11 +24,112 @@ const CAMPUS_IMPORT_ALIASES: Record<string, string> = {
   fuct: 'fpt university can tho',
 };
 
+interface RoomDashboardSummary {
+  summary: {
+    totalRooms: number;
+    roomsInUse: number;
+    availableNow: number;
+    maintenance: number;
+    unavailable: number;
+    inactive: number;
+    withoutUsageState: number;
+  };
+  rows: Array<{
+    roomId: string;
+    roomCode: string;
+    roomName: string;
+    building: string;
+    floor: number;
+    campusId: string | null;
+    campusName: string | null;
+    roomStatus: 'available' | 'unavailable' | 'maintain';
+    isActive: boolean;
+    usageStatus: 'occupied' | 'vacant' | null;
+    isInUse: boolean;
+    currentUserName: string | null;
+    currentUsageType: string | null;
+    lastAction: string | null;
+    startedAt: string | null;
+    updatedAt: string | null;
+  }>;
+  generatedAt: string;
+  usageUpdatedAt: string | null;
+  campusScopeId: string | null;
+  usageTrends: {
+    week: Array<{
+      key: string;
+      label: string;
+      value: number;
+    }>;
+    month: Array<{
+      key: string;
+      label: string;
+      value: number;
+    }>;
+    year: Array<{
+      key: string;
+      label: string;
+      value: number;
+    }>;
+  };
+  incidentMonitor: {
+    available: boolean;
+    summary: {
+      total: number;
+      reported: number;
+      inProgress: number;
+      resolved: number;
+      closed: number;
+      critical: number;
+      high: number;
+    };
+    recent: Array<{
+      id: string;
+      title: string;
+      incidentType: string;
+      severity: string;
+      status: string;
+      roomCode: string | null;
+      roomName: string | null;
+      reportedAt: string | null;
+      imagesCount: number;
+    }>;
+  };
+  accessLogMonitor: {
+    available: boolean;
+    summary: {
+      last24Hours: number;
+      last7Days: number;
+      last30Days: number;
+      success24Hours: number;
+      failed24Hours: number;
+      pending24Hours: number;
+    };
+    methodBreakdown: Array<{
+      method: string;
+      count: number;
+    }>;
+    recent: Array<{
+      id: string;
+      roomCode: string | null;
+      roomName: string | null;
+      userName: string | null;
+      method: string | null;
+      action: string | null;
+      status: string | null;
+      success: boolean;
+      accessTime: string | null;
+    }>;
+  };
+}
+
 @Injectable()
 export class RoomService {
   constructor(
     @InjectModel(Room.name) private roomModel: Model<RoomDocument>,
     @InjectModel(Campus.name) private campusModel: Model<Campus>,
+    @InjectModel(AccessLog.name) private accessLogModel: Model<AccessLog>,
+    @InjectModel(Incident.name) private incidentModel: Model<Incident>,
     @InjectModel(RoomUsageState.name)
     private roomUsageStateModel: Model<RoomUsageStateDocument>,
   ) {}
@@ -703,6 +806,516 @@ export class RoomService {
       available,
       unavailable,
       maintain,
+    };
+  }
+
+  private formatDayKey(date: Date): string {
+    return date.toISOString().slice(0, 10);
+  }
+
+  private formatMonthKey(date: Date): string {
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  }
+
+  private async buildUsageTrends(baseFilter: any): Promise<RoomDashboardSummary['usageTrends']> {
+    const now = new Date();
+    const endDate = new Date(now);
+
+    const weekStart = new Date(now);
+    weekStart.setHours(0, 0, 0, 0);
+    weekStart.setDate(weekStart.getDate() - 6);
+
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+    yearStart.setHours(0, 0, 0, 0);
+
+    const [weekRows, monthRows, yearRows] = await Promise.all([
+      this.accessLogModel
+        .aggregate([
+          {
+            $match: {
+              ...baseFilter,
+              success: true,
+              roomId: { $exists: true, $ne: null },
+              accessTime: { $type: 'date', $gte: weekStart, $lte: endDate },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                day: {
+                  $dateToString: {
+                    format: '%Y-%m-%d',
+                    date: '$accessTime',
+                  },
+                },
+                roomId: '$roomId',
+              },
+            },
+          },
+          {
+            $group: {
+              _id: '$_id.day',
+              count: { $sum: 1 },
+            },
+          },
+        ])
+        .exec(),
+      this.accessLogModel
+        .aggregate([
+          {
+            $match: {
+              ...baseFilter,
+              success: true,
+              roomId: { $exists: true, $ne: null },
+              accessTime: { $type: 'date', $gte: monthStart, $lte: endDate },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                day: {
+                  $dateToString: {
+                    format: '%Y-%m-%d',
+                    date: '$accessTime',
+                  },
+                },
+                roomId: '$roomId',
+              },
+            },
+          },
+          {
+            $group: {
+              _id: '$_id.day',
+              count: { $sum: 1 },
+            },
+          },
+        ])
+        .exec(),
+      this.accessLogModel
+        .aggregate([
+          {
+            $match: {
+              ...baseFilter,
+              success: true,
+              roomId: { $exists: true, $ne: null },
+              accessTime: { $type: 'date', $gte: yearStart, $lte: endDate },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                month: {
+                  $dateToString: {
+                    format: '%Y-%m',
+                    date: '$accessTime',
+                  },
+                },
+                roomId: '$roomId',
+              },
+            },
+          },
+          {
+            $group: {
+              _id: '$_id.month',
+              count: { $sum: 1 },
+            },
+          },
+        ])
+        .exec(),
+    ]);
+
+    const weekMap = new Map<string, number>(
+      weekRows.map((row: any) => [String(row._id), Number(row.count || 0)]),
+    );
+    const monthMap = new Map<string, number>(
+      monthRows.map((row: any) => [String(row._id), Number(row.count || 0)]),
+    );
+    const yearMap = new Map<string, number>(
+      yearRows.map((row: any) => [String(row._id), Number(row.count || 0)]),
+    );
+
+    const week: Array<{ key: string; label: string; value: number }> = [];
+    const month: Array<{ key: string; label: string; value: number }> = [];
+    const year: Array<{ key: string; label: string; value: number }> = [];
+
+    for (let offset = 6; offset >= 0; offset -= 1) {
+      const date = new Date(now);
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() - offset);
+
+      const key = this.formatDayKey(date);
+      const label = `${date.getDate()}/${date.getMonth() + 1}`;
+
+      week.push({
+        key,
+        label,
+        value: weekMap.get(key) || 0,
+      });
+    }
+
+    const monthCursor = new Date(monthStart);
+    while (monthCursor <= endDate) {
+      const key = this.formatDayKey(monthCursor);
+
+      month.push({
+        key,
+        label: String(monthCursor.getDate()),
+        value: monthMap.get(key) || 0,
+      });
+
+      monthCursor.setDate(monthCursor.getDate() + 1);
+    }
+
+    for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+      const monthDate = new Date(Date.UTC(now.getFullYear(), monthIndex, 1));
+      const key = this.formatMonthKey(monthDate);
+
+      year.push({
+        key,
+        label: `T${monthIndex + 1}`,
+        value: yearMap.get(key) || 0,
+      });
+    }
+
+    return {
+      week,
+      month,
+      year,
+    };
+  }
+
+  private async buildIncidentMonitor(
+    baseFilter: any,
+  ): Promise<RoomDashboardSummary['incidentMonitor']> {
+    const [total, statusRows, severityRows, recentRows] = await Promise.all([
+      this.incidentModel.countDocuments(baseFilter),
+      this.incidentModel
+        .aggregate([
+          { $match: baseFilter },
+          { $group: { _id: '$status', count: { $sum: 1 } } },
+        ])
+        .exec(),
+      this.incidentModel
+        .aggregate([
+          { $match: baseFilter },
+          { $group: { _id: '$severity', count: { $sum: 1 } } },
+        ])
+        .exec(),
+      this.incidentModel
+        .find(baseFilter)
+        .select('title incidentType severity status reportedAt images roomId')
+        .populate('roomId', 'roomCode roomName')
+        .sort({ reportedAt: -1, createdAt: -1 })
+        .limit(8)
+        .lean()
+        .exec(),
+    ]);
+
+    const statusMap = statusRows.reduce((acc: Record<string, number>, row: any) => {
+      acc[String(row._id || 'unknown')] = Number(row.count || 0);
+      return acc;
+    }, {});
+
+    const severityMap = severityRows.reduce((acc: Record<string, number>, row: any) => {
+      acc[String(row._id || 'unknown')] = Number(row.count || 0);
+      return acc;
+    }, {});
+
+    return {
+      available: true,
+      summary: {
+        total: Number(total || 0),
+        reported: Number(statusMap.reported || 0),
+        inProgress: Number(statusMap.in_progress || 0),
+        resolved: Number(statusMap.resolved || 0),
+        closed: Number(statusMap.closed || 0),
+        critical: Number(severityMap.critical || 0),
+        high: Number(severityMap.high || 0),
+      },
+      recent: recentRows.map((row: any) => {
+        const room = row?.roomId && typeof row.roomId === 'object' ? row.roomId : null;
+
+        return {
+          id: String(row._id),
+          title: String(row.title || ''),
+          incidentType: String(row.incidentType || 'other'),
+          severity: String(row.severity || 'medium'),
+          status: String(row.status || 'reported'),
+          roomCode: room?.roomCode || null,
+          roomName: room?.roomName || null,
+          reportedAt: row?.reportedAt ? new Date(row.reportedAt).toISOString() : null,
+          imagesCount: Array.isArray(row.images) ? row.images.length : 0,
+        };
+      }),
+    };
+  }
+
+  private async buildAccessLogMonitor(
+    baseFilter: any,
+  ): Promise<RoomDashboardSummary['accessLogMonitor']> {
+    const now = new Date();
+    const start24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const start7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const start30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [last24Hours, last7Days, last30Days, statusRows24h, methodRows, recentRows] =
+      await Promise.all([
+        this.accessLogModel.countDocuments({
+          ...baseFilter,
+          accessTime: { $type: 'date', $gte: start24Hours, $lte: now },
+        }),
+        this.accessLogModel.countDocuments({
+          ...baseFilter,
+          accessTime: { $type: 'date', $gte: start7Days, $lte: now },
+        }),
+        this.accessLogModel.countDocuments({
+          ...baseFilter,
+          accessTime: { $type: 'date', $gte: start30Days, $lte: now },
+        }),
+        this.accessLogModel
+          .aggregate([
+            {
+              $match: {
+                ...baseFilter,
+                accessTime: { $type: 'date', $gte: start24Hours, $lte: now },
+              },
+            },
+            { $group: { _id: '$status', count: { $sum: 1 } } },
+          ])
+          .exec(),
+        this.accessLogModel
+          .aggregate([
+            {
+              $match: {
+                ...baseFilter,
+                accessTime: { $type: 'date', $gte: start7Days, $lte: now },
+              },
+            },
+            { $group: { _id: '$method', count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 6 },
+          ])
+          .exec(),
+        this.accessLogModel
+          .find(baseFilter)
+          .select('roomId userName method action status success accessTime')
+          .populate('roomId', 'roomCode roomName')
+          .sort({ accessTime: -1, createdAt: -1 })
+          .limit(10)
+          .lean()
+          .exec(),
+      ]);
+
+    const statusMap = statusRows24h.reduce((acc: Record<string, number>, row: any) => {
+      acc[String(row._id || 'unknown')] = Number(row.count || 0);
+      return acc;
+    }, {});
+
+    return {
+      available: true,
+      summary: {
+        last24Hours: Number(last24Hours || 0),
+        last7Days: Number(last7Days || 0),
+        last30Days: Number(last30Days || 0),
+        success24Hours: Number(statusMap.success || 0),
+        failed24Hours: Number(statusMap.failed || 0),
+        pending24Hours: Number(statusMap.pending || 0),
+      },
+      methodBreakdown: methodRows.map((row: any) => ({
+        method: String(row._id || 'unknown'),
+        count: Number(row.count || 0),
+      })),
+      recent: recentRows.map((row: any) => {
+        const room = row?.roomId && typeof row.roomId === 'object' ? row.roomId : null;
+
+        return {
+          id: String(row._id),
+          roomCode: room?.roomCode || null,
+          roomName: room?.roomName || null,
+          userName: row?.userName ? String(row.userName) : null,
+          method: row?.method ? String(row.method) : null,
+          action: row?.action ? String(row.action) : null,
+          status: row?.status ? String(row.status) : null,
+          success: Boolean(row?.success),
+          accessTime: row?.accessTime ? new Date(row.accessTime).toISOString() : null,
+        };
+      }),
+    };
+  }
+
+  async getDashboardSummary(
+    campusId?: string,
+    campusFilter?: any,
+  ): Promise<RoomDashboardSummary> {
+    const resolvedCampusId = this.resolveCampusScope(campusId, campusFilter);
+    const roomFilter: any = {};
+    const usageFilter: any = {};
+    const incidentFilter: any = {};
+    const accessLogFilter: any = {};
+
+    if (resolvedCampusId) {
+      roomFilter.campusId = resolvedCampusId;
+      usageFilter.campusId = resolvedCampusId;
+      incidentFilter.campusId = resolvedCampusId;
+      accessLogFilter.campusId = resolvedCampusId;
+    }
+
+    const [rooms, usageRows] = await Promise.all([
+      this.roomModel
+        .find(roomFilter)
+        .select('_id roomCode roomName building floor status isActive campusId')
+        .populate('campusId', 'campusCode campusName')
+        .sort({ building: 1, floor: 1, roomCode: 1 })
+        .lean()
+        .exec(),
+      this.roomUsageStateModel
+        .find(usageFilter)
+        .select(
+          '_id roomId status currentUserName currentUsageType lastAction startedAt updatedAt',
+        )
+        .sort({ updatedAt: -1, roomId: 1 })
+        .lean()
+        .exec(),
+    ]);
+
+    const normalizedUsageRows = usageRows as any[];
+
+    const latestUsageByRoomId = new Map<string, any>();
+
+    normalizedUsageRows.forEach((usageRow: any) => {
+      const roomId = usageRow?.roomId ? String(usageRow.roomId) : '';
+      if (!roomId || latestUsageByRoomId.has(roomId)) {
+        return;
+      }
+
+      latestUsageByRoomId.set(roomId, usageRow);
+    });
+
+    const rows = rooms.map((room: any) => {
+      const roomId = String(room._id);
+      const usageRow = latestUsageByRoomId.get(roomId);
+      const campus = room?.campusId && typeof room.campusId === 'object' ? room.campusId : null;
+      const usageStatus = usageRow?.status || null;
+
+      return {
+        roomId,
+        roomCode: String(room.roomCode || ''),
+        roomName: String(room.roomName || ''),
+        building: String(room.building || ''),
+        floor: Number(room.floor || 0),
+        campusId: campus?._id ? String(campus._id) : null,
+        campusName: campus?.campusName || campus?.campusCode || null,
+        roomStatus: room.status,
+        isActive: Boolean(room.isActive),
+        usageStatus,
+        isInUse: usageStatus === 'occupied',
+        currentUserName: usageRow?.currentUserName || null,
+        currentUsageType: usageRow?.currentUsageType || null,
+        lastAction: usageRow?.lastAction || null,
+        startedAt: usageRow?.startedAt ? new Date(usageRow.startedAt).toISOString() : null,
+        updatedAt: usageRow?.updatedAt ? new Date(usageRow.updatedAt).toISOString() : null,
+      };
+    });
+
+    const summary = rows.reduce(
+      (acc, row) => {
+        acc.totalRooms += 1;
+
+        if (row.isInUse) {
+          acc.roomsInUse += 1;
+        }
+
+        if (!row.isActive) {
+          acc.inactive += 1;
+        }
+
+        if (row.roomStatus === 'maintain') {
+          acc.maintenance += 1;
+        }
+
+        if (row.roomStatus === 'unavailable') {
+          acc.unavailable += 1;
+        }
+
+        if (row.roomStatus === 'available' && row.isActive && !row.isInUse) {
+          acc.availableNow += 1;
+        }
+
+        if (!row.usageStatus) {
+          acc.withoutUsageState += 1;
+        }
+
+        return acc;
+      },
+      {
+        totalRooms: 0,
+        roomsInUse: 0,
+        availableNow: 0,
+        maintenance: 0,
+        unavailable: 0,
+        inactive: 0,
+        withoutUsageState: 0,
+      },
+    );
+
+    const usageUpdatedAt = normalizedUsageRows.length > 0 && normalizedUsageRows[0]?.updatedAt
+      ? new Date(normalizedUsageRows[0].updatedAt).toISOString()
+      : null;
+
+    const emptyUsageTrends: RoomDashboardSummary['usageTrends'] = {
+      week: [],
+      month: [],
+      year: [],
+    };
+
+    const emptyIncidentMonitor: RoomDashboardSummary['incidentMonitor'] = {
+      available: true,
+      summary: {
+        total: 0,
+        reported: 0,
+        inProgress: 0,
+        resolved: 0,
+        closed: 0,
+        critical: 0,
+        high: 0,
+      },
+      recent: [],
+    };
+
+    const emptyAccessLogMonitor: RoomDashboardSummary['accessLogMonitor'] = {
+      available: true,
+      summary: {
+        last24Hours: 0,
+        last7Days: 0,
+        last30Days: 0,
+        success24Hours: 0,
+        failed24Hours: 0,
+        pending24Hours: 0,
+      },
+      methodBreakdown: [],
+      recent: [],
+    };
+
+    const [usageTrends, incidentMonitor, accessLogMonitor] = await Promise.all([
+      this.buildUsageTrends(accessLogFilter).catch(() => emptyUsageTrends),
+      this.buildIncidentMonitor(incidentFilter).catch(() => emptyIncidentMonitor),
+      this.buildAccessLogMonitor(accessLogFilter).catch(() => emptyAccessLogMonitor),
+    ]);
+
+    return {
+      summary,
+      rows,
+      generatedAt: new Date().toISOString(),
+      usageUpdatedAt,
+      campusScopeId: resolvedCampusId ? resolvedCampusId.toString() : null,
+      usageTrends,
+      incidentMonitor,
+      accessLogMonitor,
     };
   }
 

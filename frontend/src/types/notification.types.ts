@@ -1,5 +1,38 @@
 export type NotificationPriority = 'low' | 'medium' | 'high';
-export type NotificationTargetType = 'users' | 'campus' | 'all';
+export type NotificationTargetType = 'users' | 'campus' | 'role' | 'all';
+
+export interface NotificationCampusOption {
+  _id: string;
+  campusCode: string;
+  campusName: string;
+}
+
+export interface NotificationRecipientOption {
+  _id: string;
+  fullName: string;
+  email: string;
+  roleId: {
+    _id: string;
+    roleName: string;
+    roleCode: string;
+  } | null;
+  campusId: NotificationCampusOption | null;
+}
+
+export interface NotificationRoleOption {
+  _id: string;
+  roleName: string;
+  roleCode: string;
+  scope: string | null;
+  campusId: NotificationCampusOption | null;
+  memberCount: number;
+}
+
+export interface ManualNotificationTargetOptions {
+  users: NotificationRecipientOption[];
+  roles: NotificationRoleOption[];
+  defaultCampusId: string | null;
+}
 
 export interface AppNotification {
   _id: string;
@@ -38,6 +71,7 @@ export interface CreateNotificationPayload {
   priority?: NotificationPriority;
   campusId?: string;
   recipientIds?: string[];
+  roleIds?: string[];
   data?: Record<string, any>;
   dedupeKey?: string;
 }

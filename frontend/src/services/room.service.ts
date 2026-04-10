@@ -3,6 +3,7 @@ import {
   Room,
   CreateRoomDto,
   UpdateRoomDto,
+  RoomDashboardSummary,
   RoomStatistics,
   RoomImportResult,
   RoomUsageState,
@@ -73,6 +74,11 @@ class RoomService {
     }
 
     return Array.isArray(response?.data) ? response.data : [];
+  }
+
+  async getDashboardSummary(campusId?: string): Promise<RoomDashboardSummary> {
+    const params = campusId ? { campusId } : {};
+    return await apiService.get<RoomDashboardSummary>(`${this.BASE_PATH}/dashboard-summary`, { params });
   }
 
   async importRooms(file: File, mode: 'dryRun' | 'strict' = 'strict'): Promise<RoomImportResult> {

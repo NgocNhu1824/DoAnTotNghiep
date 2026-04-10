@@ -5,6 +5,7 @@ import { UpdateRoleDto } from './dto/update-role.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('roles')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -18,8 +19,8 @@ export class RolesController {
    */
   @Post()
   @RequirePermissions('roles.create')
-  async create(@Body() createRoleDto: CreateRoleDto) {
-    const role = await this.rolesService.create(createRoleDto);
+  async create(@Body() createRoleDto: CreateRoleDto, @CurrentUser() user: any) {
+    const role = await this.rolesService.create(createRoleDto, user);
     return {
       success: true,
       message: 'Role created successfully',
@@ -79,8 +80,8 @@ export class RolesController {
    */
   @Patch(':id')
   @RequirePermissions('roles.update')
-  async update(@Param('id') id: string, @Body() updateRoleDto: UpdateRoleDto) {
-    const role = await this.rolesService.update(id, updateRoleDto);
+  async update(@Param('id') id: string, @Body() updateRoleDto: UpdateRoleDto, @CurrentUser() user: any) {
+    const role = await this.rolesService.update(id, updateRoleDto, user);
     return {
       success: true,
       message: 'Role updated successfully',
@@ -95,8 +96,8 @@ export class RolesController {
    */
   @Delete(':id')
   @RequirePermissions('roles.delete')
-  async remove(@Param('id') id: string) {
-    await this.rolesService.remove(id);
+  async remove(@Param('id') id: string, @CurrentUser() user: any) {
+    await this.rolesService.remove(id, user);
     return {
       success: true,
       message: 'Role deleted successfully',

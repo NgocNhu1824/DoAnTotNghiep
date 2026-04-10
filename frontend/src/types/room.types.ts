@@ -79,6 +79,107 @@ export interface RoomUsageState {
   updatedAt?: string | null;
 }
 
+export interface RoomDashboardRow {
+  roomId: string;
+  roomCode: string;
+  roomName: string;
+  building: string;
+  floor: number;
+  campusId: string | null;
+  campusName: string | null;
+  roomStatus: 'available' | 'unavailable' | 'maintain';
+  isActive: boolean;
+  usageStatus: 'occupied' | 'vacant' | null;
+  isInUse: boolean;
+  currentUserName: string | null;
+  currentUsageType: string | null;
+  lastAction: string | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface RoomDashboardSummary {
+  summary: {
+    totalRooms: number;
+    roomsInUse: number;
+    availableNow: number;
+    maintenance: number;
+    unavailable: number;
+    inactive: number;
+    withoutUsageState: number;
+  };
+  rows: RoomDashboardRow[];
+  generatedAt: string;
+  usageUpdatedAt: string | null;
+  campusScopeId: string | null;
+  usageTrends: {
+    week: Array<{
+      key: string;
+      label: string;
+      value: number;
+    }>;
+    month: Array<{
+      key: string;
+      label: string;
+      value: number;
+    }>;
+    year: Array<{
+      key: string;
+      label: string;
+      value: number;
+    }>;
+  };
+  incidentMonitor: {
+    available: boolean;
+    summary: {
+      total: number;
+      reported: number;
+      inProgress: number;
+      resolved: number;
+      closed: number;
+      critical: number;
+      high: number;
+    };
+    recent: Array<{
+      id: string;
+      title: string;
+      incidentType: string;
+      severity: string;
+      status: string;
+      roomCode: string | null;
+      roomName: string | null;
+      reportedAt: string | null;
+      imagesCount: number;
+    }>;
+  };
+  accessLogMonitor: {
+    available: boolean;
+    summary: {
+      last24Hours: number;
+      last7Days: number;
+      last30Days: number;
+      success24Hours: number;
+      failed24Hours: number;
+      pending24Hours: number;
+    };
+    methodBreakdown: Array<{
+      method: string;
+      count: number;
+    }>;
+    recent: Array<{
+      id: string;
+      roomCode: string | null;
+      roomName: string | null;
+      userName: string | null;
+      method: string | null;
+      action: string | null;
+      status: string | null;
+      success: boolean;
+      accessTime: string | null;
+    }>;
+  };
+}
+
 export interface RoomImportError {
   rowIndex?: number;
   field?: string;

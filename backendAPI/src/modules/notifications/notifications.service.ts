@@ -420,6 +420,200 @@ export class NotificationsService {
     private readonly notificationsQueueService: NotificationsQueueService,
   ) {}
 
+  async getManualTargetOptions(
+    campusFilter: any,
+    query?: {
+      search?: string;
+      campusId?: string;
+      limit?: number;
+    },
+  ): Promise<{
+    users: Array<{
+      _id: string;
+      fullName: string;
+      email: string;
+      roleId: {
+        _id: string;
+        roleName: string;
+        roleCode: string;
+      } | null;
+      campusId: {
+        _id: string;
+        campusCode: string;
+        campusName: string;
+      } | null;
+    }>;
+    roles: Array<{
+      _id: string;
+      roleName: string;
+      roleCode: string;
+      scope: string | null;
+      campusId: {
+        _id: string;
+        campusCode: string;
+        campusName: string;
+      } | null;
+      memberCount: number;
+    }>;
+    defaultCampusId: string | null;
+  }> {
+    const allowedCampusId = this.extractObjectId(campusFilter?.campusId);
+    const requestedCampusId = this.extractObjectId(query?.campusId);
+
+    if (allowedCampusId && requestedCampusId && allowedCampusId !== requestedCampusId) {
+      throw new ForbiddenException('You cannot view recipients outside your campus scope');
+    }
+
+    const effectiveCampusId = requestedCampusId || allowedCampusId || null;
+    const rawSearch = String(query?.search || '').trim();
+    const search = rawSearch ? this.escapeRegex(rawSearch) : '';
+    const parsedLimit = Number(query?.limit);
+    const safeLimit = Math.max(
+      20,
+      Math.min(200, Math.floor(Number.isFinite(parsedLimit) ? parsedLimit : 120)),
+    );
+
+    const userQuery: any = {
+      isActive: { $ne: false },
+    };
+
+    if (effectiveCampusId) {
+      userQuery.campusId = new Types.ObjectId(effectiveCampusId);
+    }
+
+    if (search) {
+      userQuery.$or = [
+        { fullName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { employeeId: { $regex: search, $options: 'i' } },
+        { studentId: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const userRows = await this.userModel
+      .find(userQuery)
+      .select('_id fullName email roleId campusId')
+      .populate('roleId', 'roleName roleCode')
+      .populate('campusId', 'campusCode campusName')
+      .sort({ fullName: 1, email: 1 })
+      .limit(safeLimit)
+      .lean()
+      .exec();
+
+    const roleQueryParts: any[] = [{ isActive: { $ne: false } }];
+
+    if (effectiveCampusId) {
+      roleQueryParts.push({
+        $or: [
+          { scope: 'GLOBAL' },
+          { scope: 'SELF' },
+          { scope: { $exists: false } },
+          {
+            scope: 'CAMPUS',
+            campusId: new Types.ObjectId(effectiveCampusId),
+          },
+        ],
+      });
+    }
+
+    if (search) {
+      roleQueryParts.push({
+        $or: [
+          { roleName: { $regex: search, $options: 'i' } },
+          { roleCode: { $regex: search, $options: 'i' } },
+        ],
+      });
+    }
+
+    const roleQuery = roleQueryParts.length > 1 ? { $and: roleQueryParts } : roleQueryParts[0];
+
+    const roleRows = await this.roleModel
+      .find(roleQuery)
+      .select('_id roleName roleCode scope campusId roleLevel')
+      .populate('campusId', 'campusCode campusName')
+      .sort({ roleLevel: 1, roleName: 1 })
+      .limit(100)
+      .lean()
+      .exec();
+
+    const roleObjectIds = roleRows.map((role: any) => new Types.ObjectId(role._id));
+
+    const roleCounts =
+      roleObjectIds.length > 0
+        ? await this.userModel
+            .aggregate([
+              {
+                $match: {
+                  isActive: { $ne: false },
+                  roleId: { $in: roleObjectIds },
+                  ...(effectiveCampusId ? { campusId: new Types.ObjectId(effectiveCampusId) } : {}),
+                },
+              },
+              {
+                $group: {
+                  _id: '$roleId',
+                  count: { $sum: 1 },
+                },
+              },
+            ])
+            .exec()
+        : [];
+
+    const roleCountMap = roleCounts.reduce(
+      (acc: Record<string, number>, row: any) => {
+        acc[String(row._id)] = Number(row.count || 0);
+        return acc;
+      },
+      {},
+    );
+
+    return {
+      users: userRows.map((row: any) => {
+        const role = row?.roleId && typeof row.roleId === 'object' ? row.roleId : null;
+        const campus = row?.campusId && typeof row.campusId === 'object' ? row.campusId : null;
+
+        return {
+          _id: String(row._id),
+          fullName: String(row.fullName || ''),
+          email: String(row.email || ''),
+          roleId: role
+            ? {
+                _id: String(role._id),
+                roleName: String(role.roleName || ''),
+                roleCode: String(role.roleCode || ''),
+              }
+            : null,
+          campusId: campus
+            ? {
+                _id: String(campus._id),
+                campusCode: String(campus.campusCode || ''),
+                campusName: String(campus.campusName || ''),
+              }
+            : null,
+        };
+      }),
+      roles: roleRows.map((row: any) => {
+        const campus = row?.campusId && typeof row.campusId === 'object' ? row.campusId : null;
+
+        return {
+          _id: String(row._id),
+          roleName: String(row.roleName || ''),
+          roleCode: String(row.roleCode || ''),
+          scope: row?.scope ? String(row.scope) : null,
+          campusId: campus
+            ? {
+                _id: String(campus._id),
+                campusCode: String(campus.campusCode || ''),
+                campusName: String(campus.campusName || ''),
+              }
+            : null,
+          memberCount: roleCountMap[String(row._id)] || 0,
+        };
+      }),
+      defaultCampusId: effectiveCampusId,
+    };
+  }
+
   async createManualNotification(
     payload: CreateManualNotificationDto,
     currentUser: any,
@@ -427,7 +621,7 @@ export class NotificationsService {
   ): Promise<{
     created: number;
     recipientCount: number;
-    targetType: 'users' | 'campus' | 'all';
+    targetType: 'users' | 'campus' | 'all' | 'role';
     campusId: string | null;
   }> {
     const senderId = this.extractObjectId(currentUser?._id);
@@ -453,6 +647,7 @@ export class NotificationsService {
     const recipientRows = await this.resolveManualRecipients({
       targetType,
       recipientIds: payload.recipientIds,
+      roleIds: payload.roleIds,
       allowedCampusId,
       requestedCampusId,
     });
@@ -866,12 +1061,14 @@ export class NotificationsService {
   }
 
   private async resolveManualRecipients(options: {
-    targetType: 'users' | 'campus' | 'all';
+    targetType: 'users' | 'campus' | 'all' | 'role';
     recipientIds?: string[];
+    roleIds?: string[];
     allowedCampusId?: string | null;
     requestedCampusId?: string | null;
   }): Promise<Array<{ _id: Types.ObjectId; campusId?: Types.ObjectId | null }>> {
-    const { targetType, recipientIds = [], allowedCampusId, requestedCampusId } = options;
+    const { targetType, recipientIds = [], roleIds = [], allowedCampusId, requestedCampusId } =
+      options;
 
     if (targetType === 'users') {
       const normalizedIds = Array.from(
@@ -915,6 +1112,73 @@ export class NotificationsService {
       }
 
       return rows as any;
+    }
+
+    if (targetType === 'role') {
+      const normalizedRoleIds = Array.from(
+        new Set(
+          roleIds
+            .map((id) => String(id || '').trim())
+            .filter(Boolean),
+        ),
+      );
+
+      if (normalizedRoleIds.length === 0) {
+        throw new BadRequestException('Role list is required for targetType "role"');
+      }
+
+      const invalidRoleIds = normalizedRoleIds.filter((id) => !Types.ObjectId.isValid(id));
+      if (invalidRoleIds.length > 0) {
+        throw new BadRequestException(`Invalid role IDs: ${invalidRoleIds.slice(0, 5).join(', ')}`);
+      }
+
+      const roleObjectIds = normalizedRoleIds.map((id) => new Types.ObjectId(id));
+      const roleAccessQuery: any = {
+        _id: { $in: roleObjectIds },
+        isActive: { $ne: false },
+      };
+
+      const scopedCampusId = allowedCampusId || requestedCampusId;
+      if (scopedCampusId) {
+        roleAccessQuery.$or = [
+          { scope: 'GLOBAL' },
+          { scope: 'SELF' },
+          { scope: { $exists: false } },
+          {
+            scope: 'CAMPUS',
+            campusId: new Types.ObjectId(scopedCampusId),
+          },
+        ];
+      }
+
+      const accessibleRoles = await this.roleModel.find(roleAccessQuery).select('_id').lean().exec();
+      const accessibleRoleSet = new Set(accessibleRoles.map((role: any) => String(role._id)));
+      const inaccessibleRoles = normalizedRoleIds.filter((id) => !accessibleRoleSet.has(id));
+
+      if (inaccessibleRoles.length > 0) {
+        throw new BadRequestException(
+          `Some roles are invalid or inaccessible: ${inaccessibleRoles.slice(0, 5).join(', ')}`,
+        );
+      }
+
+      const roleRecipientQuery: any = {
+        isActive: { $ne: false },
+        roleId: {
+          $in: Array.from(accessibleRoleSet).map((id) => new Types.ObjectId(id)),
+        },
+      };
+
+      if (allowedCampusId) {
+        roleRecipientQuery.campusId = new Types.ObjectId(allowedCampusId);
+      } else if (requestedCampusId) {
+        roleRecipientQuery.campusId = new Types.ObjectId(requestedCampusId);
+      }
+
+      return (await this.userModel
+        .find(roleRecipientQuery)
+        .select('_id campusId')
+        .lean()
+        .exec()) as any;
     }
 
     if (targetType === 'campus') {
@@ -1069,6 +1333,10 @@ export class NotificationsService {
       createdAt: item?.createdAt || new Date(),
       updatedAt: item?.updatedAt || new Date(),
     };
+  }
+
+  private escapeRegex(value: string): string {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   private extractObjectId(value: any): string | null {

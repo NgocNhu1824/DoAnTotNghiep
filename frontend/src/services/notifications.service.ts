@@ -3,6 +3,7 @@ import {
   AppNotification,
   CreateNotificationPayload,
   CreateNotificationResult,
+  ManualNotificationTargetOptions,
   NotificationListResponse,
 } from '@/types/notification.types';
 
@@ -52,6 +53,30 @@ export const notificationsService = {
     );
 
     return res.data;
+  },
+
+  getManualTargetOptions: async (params?: {
+    search?: string;
+    campusId?: string;
+    limit?: number;
+  }): Promise<ManualNotificationTargetOptions> => {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.campusId) query.append('campusId', params.campusId);
+    if (params?.limit) query.append('limit', String(params.limit));
+
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const res = await api.get<{ success: boolean; data: ManualNotificationTargetOptions }>(
+      `/notifications/manual-target-options${suffix}`,
+    );
+
+    return (
+      res.data || {
+        users: [],
+        roles: [],
+        defaultCampusId: null,
+      }
+    );
   },
 };
 

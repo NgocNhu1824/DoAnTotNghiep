@@ -1,6 +1,224 @@
+## 1. System Design
+
+## 1.1. System Architecture
+
+The SmartHub Room IoT system in the current project is built with a clear layered structure, including the presentation layer, business layer, data layer, and device integration layer. This structure helps the system run stably, scale more easily, and remain maintainable as the number of users and devices increases.
+
+The goal of this architecture is to ensure centralized data processing at the backend, fast room status updates in real time, and smooth connection between field operations (unlocking, fingerprint verification, incident reporting) and the management workflow on web and mobile applications.
+
+### 1.1.1. Architecture Overview
+
+The overall architecture consists of five main component groups:
+
+- User interface group, including web and mobile applications.
+- Central business processing group at the Backend API.
+- Data storage group with MongoDB and optional Redis caching.
+- IoT integration group through the iot-gateway and ESP32 devices.
+- External service group, including Google login, email, incident image storage, and Face ID processing.
+
+In this model, the backend acts as the central orchestrator. All requests from web and mobile applications pass through the backend so that business rules, permissions, and system logs are applied consistently. Device-related operations are sent from the backend through the real-time channel to the iot-gateway, then forwarded to ESP32 devices and returned with response results.
+
+### 1.1.2. Internal Sub-systems
+
+#### 1.1.2.1. Identity and Access Management Sub-system
+
+This sub-system includes the Auth, Users, Roles, and Campus modules. Its main responsibility is user authentication, role-based authorization, and scope control at different levels (individual, campus, and global). The system supports both Google login and password login, and uses tokens to authenticate subsequent requests.
+
+#### 1.1.2.2. Academic and Classroom Data Sub-system
+
+This sub-system includes the Schedule, Time Slots, and Room modules. The system receives schedule data through file import, then standardizes it into internal data used for room booking flows, borrowing/returning operations, and time-based room usage checks.
+
+#### 1.1.2.3. Room Operation Sub-system
+
+This sub-system includes Booking, Transfers, Locker, and Device modules. It directly handles daily operation workflows, including creating and approving room requests, transferring teaching rooms, remotely unlocking lockers, and synchronizing classroom information with smart lock devices.
+
+#### 1.1.2.4. Monitoring and Operational Safety Sub-system
+
+This sub-system includes Access Logs, Audit Logs, Incidents, and Notifications modules. Its role is to record room access history, monitor system activity, receive and process incidents, and send notifications to the correct users. This is the core foundation for event traceability and operational control.
+
+#### 1.1.2.5. System Configuration Sub-system
+
+The Settings module manages global and campus-level operating parameters. Caching is used to reduce query load while preserving consistency when settings are updated.
+
+### 1.1.3. IoT Integration Sub-system
+
+In this project, IoT integration is organized in a three-layer processing chain:
+
+- Backend real-time layer: publishes and receives events through the Socket.IO /events channel.
+- iot-gateway layer: receives commands from the backend, forwards them to devices, receives device status, and synchronizes data back to the backend.
+- ESP32 device layer: controls relay locks, reads sensors/fingerprint input, and sends authentication and operational status results.
+
+In the fingerprint flow, the backend creates registration or verification commands with a matching key (correlationId). ESP32 sends results to the gateway, the gateway forwards results to the backend, and the backend updates logs and emits real-time events so that mobile screens are updated immediately. This design keeps the fingerprint registration flow synchronized and traceable.
+
+### 1.1.4. External Systems and Integration Services
+
+The current system integrates with the following external services:
+
+- Google login service: supports user login by institutional account.
+- SMTP email service: supports forgot-password and password reset flows.
+- Google Drive storage service: stores incident images submitted by users.
+- Face ID processing service: generates and matches face vectors.
+- FAP/Excel schedule source: imported into the system through file-based import flow.
+
+This integration approach allows the system to leverage external platforms while keeping the backend as the central control point to ensure data consistency.
+
+### 1.1.5. Communication and Data Synchronization Flow
+
+The overall communication flow is as follows:
+
+1. Users perform actions on the web or mobile application.
+2. Requests are sent to the backend for authentication, permission checks, and business processing.
+3. The backend reads and writes data in MongoDB and uses cache when needed.
+4. If a workflow is device-related, the backend sends commands to the iot-gateway.
+5. The iot-gateway forwards commands to ESP32 and receives device responses.
+6. Device status is synchronized back to the backend through IoT APIs.
+7. The backend updates logs, updates business state, and emits real-time events so the UI can refresh immediately.
+
+This mechanism ensures continuous synchronization between web, mobile, and physical devices, reducing delayed information during real-world operations.
+
+### 1.1.6. Architecture Assessment for the Thesis
+
+The current architecture is suitable for the thesis objectives for the following reasons:
+
+1. Scalability: each functional area is modularized, making it easier to extend new features.
+2. Stability: the gateway acts as an intermediate layer and supports command queueing when device connectivity is unstable.
+3. Security: the system applies role-based authorization and keeps complete logs for traceability.
+4. Real-time capability: critical data is published through real-time channels, which fits IoT use cases in educational environments.
+
+### 1.1.7. UML for Overall Architecture Diagram
+
+```plantuml
+@startuml
+title SmartHub Room IoT - Overall Architecture (Component Diagram)
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+
+actor "Web User" as WebUser
+actor "Mobile User" as MobileUser
+
+package "Client Layer" {
+  component "Web Application" as WebApp
+  component "Mobile Application" as MobileApp
+}
+
+package "Application Layer (Backend API)" {
+  component "Auth & Access\n(Auth, Users, Roles, Campus)" as AuthAccess
+  component "Academic Data\n(Schedule, Time Slots, Room)" as AcademicData
+  component "Room Operations\n(Booking, Transfers, Locker, Device)" as RoomOps
+  component "Security & Monitoring\n(Access Logs, Audit Logs, Incidents, Notifications)" as SecurityMon
+  component "Settings" as Settings
+  component "Realtime Events Gateway\n(Socket.IO /events)" as RealtimeGW
+}
+
+database "MongoDB" as Mongo
+database "Redis (optional)" as Redis
+
+package "IoT Integration Layer" {
+  component "iot-gateway" as IoTGateway
+  component "ESP32 + Smart Locker\n(Fingerprint + Relay)" as ESP32
+}
+
+package "External Systems" {
+  component "Google OAuth" as GoogleOAuth
+  component "SMTP Mail" as SMTP
+  component "Google Drive" as GDrive
+  component "Face Embedding Provider" as FaceProvider
+  component "FAP/Excel Source" as FAPExcel
+}
+
+WebUser --> WebApp
+MobileUser --> MobileApp
+
+WebApp --> AuthAccess : REST + JWT
+WebApp --> AcademicData : REST + JWT
+WebApp --> RoomOps : REST + JWT
+WebApp --> SecurityMon : REST + JWT
+
+MobileApp --> AuthAccess : REST + JWT
+MobileApp --> RoomOps : REST + JWT
+MobileApp --> SecurityMon : REST + JWT
+
+WebApp <--> RealtimeGW : Socket.IO
+MobileApp <--> RealtimeGW : Socket.IO
+
+AuthAccess --> Mongo
+AcademicData --> Mongo
+RoomOps --> Mongo
+SecurityMon --> Mongo
+Settings --> Mongo
+Settings --> Redis
+
+RoomOps --> RealtimeGW : hardware:command
+RealtimeGW --> IoTGateway : command/event bridge
+IoTGateway <--> ESP32 : command + ack + telemetry
+IoTGateway --> RoomOps : sync/init/state/heartbeat/access-log
+
+AuthAccess --> GoogleOAuth
+AuthAccess --> SMTP
+AuthAccess --> FaceProvider
+SecurityMon --> GDrive
+AcademicData <-- FAPExcel : import files
+
+@enduml
+```
+
+### 1.1.8. Explanation of Diagram Components
+
+1. Web Application
+- Main interface for administrators and operational staff.
+- Sends business requests to backend APIs and receives realtime updates.
+
+2. Mobile Application
+- Main interface for field operations (schedule checking, room unlock, incident report).
+- Uses API and realtime events to keep user state up to date.
+
+3. Auth & Access
+- Handles authentication, authorization, and scope control.
+- Integrates with Google OAuth, SMTP, and Face Embedding Provider.
+
+4. Academic Data
+- Manages schedule, time slots, and classroom data.
+- Receives schedule source data through import flow.
+
+5. Room Operations
+- Handles booking, transfer, locker, and device-related business logic.
+- Sends hardware commands to realtime gateway and receives IoT synchronization data.
+
+6. Security & Monitoring
+- Handles incidents, access logs, audit logs, and notifications.
+- Stores incident images in Google Drive when needed.
+
+7. Settings
+- Stores system and campus-level configuration.
+- Uses Redis cache to reduce repeated reads where applicable.
+
+8. Realtime Events Gateway
+- Publishes and receives realtime events via Socket.IO.
+- Connects application layer with both clients and IoT bridge.
+
+9. MongoDB
+- Main persistent storage for all core business data.
+
+10. Redis (optional)
+- Cache layer for configuration and high-frequency reads.
+
+11. iot-gateway
+- Translates backend events into device commands.
+- Collects telemetry from devices and synchronizes back to backend.
+
+12. ESP32 + Smart Locker
+- Physical device layer for lock control and fingerprint interactions.
+
+13. External Systems
+- Google OAuth: user login integration.
+- SMTP Mail: forgot/reset password emails.
+- Google Drive: incident image storage.
+- Face Embedding Provider: face vector generation and matching.
+- FAP/Excel Source: schedule import source.
+
 # 3. Use Case Design
 
-Tai lieu nay duoc chuan hoa lai voi tong cong 12 use case:
+This document has been standardized with a total of 12 use cases:
 1) UC-01 Login
 2) UC-02 Logout
 3) UC-07 Register Face ID

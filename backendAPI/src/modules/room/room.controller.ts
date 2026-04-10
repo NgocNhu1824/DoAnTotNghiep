@@ -95,6 +95,15 @@ export class RoomController {
     return await this.roomService.getRoomStatistics(campusId);
   }
 
+  @Get('dashboard-summary')
+  @RequirePermissions('rooms.read')
+  async getDashboardSummary(
+    @Query('campusId') campusId: string,
+    @Req() request: any,
+  ): Promise<any> {
+    return await this.roomService.getDashboardSummary(campusId, request.campusFilter);
+  }
+
   @Get('available')
   @RequirePermissions('rooms.read')
   async getAvailableRooms(@Query('campusId') campusId?: string) {

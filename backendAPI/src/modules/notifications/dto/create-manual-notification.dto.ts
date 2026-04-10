@@ -11,8 +11,8 @@ import {
 } from 'class-validator';
 
 export class CreateManualNotificationDto {
-  @IsIn(['users', 'campus', 'all'])
-  targetType: 'users' | 'campus' | 'all';
+  @IsIn(['users', 'campus', 'all', 'role'])
+  targetType: 'users' | 'campus' | 'all' | 'role';
 
   @IsString()
   @IsNotEmpty()
@@ -42,6 +42,12 @@ export class CreateManualNotificationDto {
   @ArrayNotEmpty()
   @IsMongoId({ each: true })
   recipientIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsMongoId({ each: true })
+  roleIds?: string[];
 
   @IsOptional()
   @IsObject()

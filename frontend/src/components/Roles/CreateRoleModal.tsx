@@ -1,89 +1,103 @@
-import React, { useState, useEffect } from 'react';
-import { Role, Permission } from '../../types/role.types';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Loader2, Search } from 'lucide-react';
 import { roleService } from '../../services/role.service';
 import { campusService } from '../../services/campus.service';
 import { Campus } from '../../types/models.types';
+import { Permission, Role } from '../../types/role.types';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { ScrollArea } from '../ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Textarea } from '../ui/textarea';
 
 interface CreateRoleModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
   editRole?: Role | null;
+  currentUserRoleLevel?: number | null;
 }
+
+const parseErrorMessage = (error: any, fallback: string): string => {
+  if (Array.isArray(error?.message)) {
+    return error.message.join(', ');
+  }
+
+  return error?.message || fallback;
+};
 
 const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
   editRole,
+  currentUserRoleLevel,
 }) => {
+  const baseRoleLevel = useMemo(() => {
+    const normalized = Number(currentUserRoleLevel);
+    if (Number.isFinite(normalized)) {
+      return Math.min(4, Math.max(0, normalized));
+    }
+    return 3;
+  }, [currentUserRoleLevel]);
+
   const [formData, setFormData] = useState({
     roleName: '',
     roleCode: '',
-    roleLevel: 3,
+    roleLevel: Math.max(3, baseRoleLevel),
     scope: 'CAMPUS' as 'GLOBAL' | 'CAMPUS' | 'SELF',
     campusId: '',
     description: '',
     isActive: true,
     canManageRoles: false,
-    canAccessWeb: false, // Default: mobile only
+    canAccessWeb: false,
   });
+
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Load permissions and populate form if editing
-  useEffect(() => {
-    if (isOpen) {
-      loadPermissions();
-      loadCampuses();
-      
-      if (editRole) {
-        setFormData({
-          roleName: editRole.roleName,
-          roleCode: editRole.roleCode || '',
-          roleLevel: editRole.roleLevel ?? 3,
-          scope: editRole.scope || 'GLOBAL',
-          campusId: editRole.campusId ? String(editRole.campusId) : '',
-          description: editRole.description || '',
-          isActive: editRole.isActive,
-          canManageRoles: editRole.canManageRoles || false,
-          canAccessWeb: editRole.canAccessWeb || false,
-        });
-        setSelectedPermissions(editRole.permissions.map(p => p.id));
-      } else {
-        resetForm();
-      }
+  const canManageRoleLevel = useCallback((roleLevel?: number): boolean => {
+    if (roleLevel === undefined || roleLevel === null) {
+      return false;
     }
-  }, [isOpen, editRole]);
 
-  const loadPermissions = async () => {
-    try {
-      const permissions = await roleService.getAllPermissions();
-      setAllPermissions(permissions);
-    } catch (err) {
-      console.error('Failed to load permissions:', err);
-      setError('Failed to load permissions');
+    const actorLevel = Number(currentUserRoleLevel);
+    if (!Number.isFinite(actorLevel)) {
+      return true;
     }
-  };
 
-  const loadCampuses = async () => {
-    try {
-      const data = await campusService.getAll();
-      setCampuses(data);
-    } catch (err) {
-      console.error('Failed to load campuses:', err);
+    return Number(roleLevel) >= actorLevel;
+  }, [currentUserRoleLevel]);
+
+  const canManageEditingRole = useMemo(() => {
+    if (!editRole) {
+      return true;
     }
-  };
 
-  const resetForm = () => {
+    return canManageRoleLevel(editRole.roleLevel);
+  }, [editRole, canManageRoleLevel]);
+
+  const resetForm = useCallback(() => {
     setFormData({
       roleName: '',
       roleCode: '',
-      roleLevel: 3,
+      roleLevel: Math.max(3, baseRoleLevel),
       scope: 'CAMPUS',
       campusId: '',
       description: '',
@@ -94,83 +108,174 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
     setSelectedPermissions([]);
     setError('');
     setSearchTerm('');
-  };
+  }, [baseRoleLevel]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadData = async () => {
+      try {
+        setLoadingData(true);
+        const [permissions, campusRows] = await Promise.all([
+          roleService.getAllPermissions(),
+          campusService.getAll(),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setAllPermissions(permissions);
+        setCampuses(campusRows);
+
+        if (editRole) {
+          setFormData({
+            roleName: editRole.roleName,
+            roleCode: editRole.roleCode || '',
+            roleLevel: Number(editRole.roleLevel ?? Math.max(3, baseRoleLevel)),
+            scope: editRole.scope || 'GLOBAL',
+            campusId: typeof editRole.campusId === 'string' ? editRole.campusId : '',
+            description: editRole.description || '',
+            isActive: Boolean(editRole.isActive),
+            canManageRoles: Boolean(editRole.canManageRoles),
+            canAccessWeb: Boolean(editRole.canAccessWeb),
+          });
+          setSelectedPermissions(editRole.permissions.map((permission) => permission.id));
+        } else {
+          resetForm();
+        }
+      } catch (loadError: any) {
+        if (cancelled) {
+          return;
+        }
+
+        setError(parseErrorMessage(loadError, 'Failed to load role options'));
+      } finally {
+        if (!cancelled) {
+          setLoadingData(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, editRole, baseRoleLevel, resetForm]);
+
+  const filteredPermissions = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    if (!normalizedSearch) {
+      return allPermissions;
+    }
+
+    return allPermissions.filter((permission) => {
+      return (
+        permission.permissionName.toLowerCase().includes(normalizedSearch) ||
+        permission.resource.toLowerCase().includes(normalizedSearch) ||
+        permission.action.toLowerCase().includes(normalizedSearch) ||
+        permission.description.toLowerCase().includes(normalizedSearch)
+      );
+    });
+  }, [allPermissions, searchTerm]);
+
+  const groupedPermissions = useMemo(() => {
+    return filteredPermissions.reduce(
+      (acc, permission) => {
+        const key = permission.resource || 'other';
+        if (!acc[key]) {
+          acc[key] = [];
+        }
+        acc[key].push(permission);
+        return acc;
+      },
+      {} as Record<string, Permission[]>,
+    );
+  }, [filteredPermissions]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
+
+    if (name === 'roleCode') {
+      setFormData((prev) => ({ ...prev, roleCode: value.toUpperCase().replace(/\s+/g, '_') }));
+      return;
+    }
+
+    if (name === 'roleLevel') {
+      setFormData((prev) => ({ ...prev, roleLevel: Number(value) }));
+      return;
+    }
+
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+  const handlePermissionToggle = (permissionId: string, checked: boolean) => {
+    setSelectedPermissions((prev) => {
+      if (checked) {
+        if (prev.includes(permissionId)) {
+          return prev;
+        }
+        return [...prev, permissionId];
+      }
+
+      return prev.filter((id) => id !== permissionId);
+    });
   };
 
-  const handlePermissionToggle = (permissionId: string) => {
-    setSelectedPermissions((prev) =>
-      prev.includes(permissionId)
-        ? prev.filter((id) => id !== permissionId)
-        : [...prev, permissionId]
-    );
-  };
-
-  const handleSelectAll = () => {
-    const filteredIds = getFilteredPermissions().map(p => p.id);
-    setSelectedPermissions(filteredIds);
+  const handleSelectAllFiltered = () => {
+    const ids = filteredPermissions.map((permission) => permission.id);
+    setSelectedPermissions((prev) => Array.from(new Set([...prev, ...ids])));
   };
 
   const handleDeselectAll = () => {
     setSelectedPermissions([]);
   };
 
-  const getFilteredPermissions = () => {
-    if (!searchTerm) return allPermissions;
-    
-    const term = searchTerm.toLowerCase();
-    return allPermissions.filter(
-      (p) =>
-        p.permissionName.toLowerCase().includes(term) ||
-        p.resource.toLowerCase().includes(term) ||
-        p.action.toLowerCase().includes(term) ||
-        p.description.toLowerCase().includes(term)
-    );
-  };
-
-  // Group permissions by resource
-  const groupedPermissions = getFilteredPermissions().reduce((acc, permission) => {
-    if (!acc[permission.resource]) {
-      acc[permission.resource] = [];
-    }
-    acc[permission.resource].push(permission);
-    return acc;
-  }, {} as Record<string, Permission[]>);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError('');
 
-    if (!formData.roleName.trim()) {
+    const normalizedRoleName = formData.roleName.trim();
+    const normalizedRoleCode = formData.roleCode.trim().toUpperCase();
+    const normalizedRoleLevel = Number(formData.roleLevel);
+
+    if (!normalizedRoleName) {
       setError('Role name cannot be empty');
       return;
     }
 
-    if (!formData.roleCode.trim()) {
+    if (!normalizedRoleCode) {
       setError('Role code cannot be empty');
       return;
     }
 
-    if (!/^[A-Z_]+$/.test(formData.roleCode.trim().toUpperCase())) {
-      setError('Role code must contain only uppercase letters and underscores (e.g., TRAINING_OFFICER)');
+    if (!/^[A-Z_]+$/.test(normalizedRoleCode)) {
+      setError('Role code must contain only uppercase letters and underscores');
       return;
     }
 
-    if (formData.roleLevel === undefined || formData.roleLevel === null) {
-      setError('Role level cannot be empty');
+    if (!Number.isFinite(normalizedRoleLevel) || normalizedRoleLevel < 0 || normalizedRoleLevel > 4) {
+      setError('Role level must be between 0 and 4');
+      return;
+    }
+
+    if (!canManageRoleLevel(normalizedRoleLevel)) {
+      setError('You can only create or update roles with level greater than or equal to your own');
+      return;
+    }
+
+    if (editRole && !canManageEditingRole) {
+      setError('You are not allowed to edit this role');
       return;
     }
 
     if (formData.scope === 'CAMPUS' && !formData.campusId) {
-      setError('Please select a campus for CAMPUS-scoped roles');
+      setError('Please select a campus for CAMPUS scope');
       return;
     }
 
@@ -182,11 +287,16 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
     setLoading(true);
 
     try {
-      const data = {
-        ...formData,
-        roleCode: formData.roleCode.trim().toUpperCase(),
-        roleLevel: Number(formData.roleLevel),
+      const payload = {
+        roleName: normalizedRoleName,
+        roleCode: normalizedRoleCode,
+        roleLevel: normalizedRoleLevel,
+        scope: formData.scope,
         campusId: formData.scope === 'CAMPUS' ? formData.campusId : null,
+        description: formData.description.trim() || undefined,
+        isActive: formData.isActive,
+        canManageRoles: formData.canManageRoles,
+        canAccessWeb: formData.canAccessWeb,
         permissionIds: selectedPermissions,
       };
 
@@ -195,286 +305,256 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
         if (!roleId) {
           throw new Error('Invalid role ID');
         }
-        await roleService.updateRole(roleId, data);
+
+        await roleService.updateRole(roleId, payload);
       } else {
-        await roleService.createRole(data);
+        await roleService.createRole(payload);
       }
 
       onSuccess();
       onClose();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'An error occurred');
+    } catch (submitError: any) {
+      setError(parseErrorMessage(submitError, 'Unable to save role'));
     } finally {
       setLoading(false);
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h2 className="text-xl font-semibold text-gray-900">
-            {editRole ? 'Edit Role' : 'Create New Role'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition"
-          >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={(open) => (!open ? onClose() : undefined)}>
+      <DialogContent className="flex max-h-[90vh] max-w-5xl flex-col overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>{editRole ? 'Update Role' : 'Create Role'}</DialogTitle>
+          <DialogDescription>
+            Configure role information, hierarchy level, and permission assignments.
+          </DialogDescription>
+        </DialogHeader>
 
-        {/* Body */}
-        <form onSubmit={handleSubmit} className="flex flex-col" style={{ maxHeight: 'calc(90vh - 140px)' }}>
-          <div className="px-6 py-4 overflow-y-auto">
-            {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded">
-                {error}
-              </div>
-            )}
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          {(error || !canManageEditingRole) && (
+            <div className="mb-5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {error || 'You are not allowed to edit this role because it is above your level'}
+            </div>
+          )}
 
-            {/* Role Information */}
-            <div className="mb-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Role Information</h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Role Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
+          {loadingData ? (
+            <div className="flex min-h-0 flex-1 items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="roleName">Role Name</Label>
+                  <Input
+                    id="roleName"
                     name="roleName"
                     value={formData.roleName}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Example: Manager, Supervisor"
+                    placeholder="Example: Training Officer"
                     required
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Role Code <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
+                <div className="space-y-2">
+                  <Label htmlFor="roleCode">Role Code</Label>
+                  <Input
+                    id="roleCode"
                     name="roleCode"
                     value={formData.roleCode}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="E.g.: TRAINING_OFFICER"
+                    placeholder="TRAINING_OFFICER"
                     required
                   />
                 </div>
+              </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Level <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      name="roleLevel"
-                      min={0}
-                      max={4}
-                      value={formData.roleLevel}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="roleLevel">Role Level</Label>
+                  <Input
+                    id="roleLevel"
+                    name="roleLevel"
+                    type="number"
+                    min={Number.isFinite(Number(currentUserRoleLevel)) ? Number(currentUserRoleLevel) : 0}
+                    max={4}
+                    value={formData.roleLevel}
+                    onChange={handleInputChange}
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Lower number means higher authority. You can assign level greater than or equal to yours.
+                  </p>
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Scope <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      name="scope"
-                      value={formData.scope}
-                      onChange={handleSelectChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="GLOBAL">GLOBAL</option>
-                      <option value="CAMPUS">CAMPUS</option>
-                      <option value="SELF">SELF</option>
-                    </select>
-                  </div>
+                <div className="space-y-2">
+                  <Label>Scope</Label>
+                  <Select
+                    value={formData.scope}
+                    onValueChange={(value) =>
+                      setFormData((prev) => ({ ...prev, scope: value as 'GLOBAL' | 'CAMPUS' | 'SELF' }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select scope" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="GLOBAL">GLOBAL</SelectItem>
+                      <SelectItem value="CAMPUS">CAMPUS</SelectItem>
+                      <SelectItem value="SELF">SELF</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {formData.scope === 'CAMPUS' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Campus <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      name="campusId"
+                  <div className="space-y-2">
+                    <Label>Campus</Label>
+                    <Select
                       value={formData.campusId}
-                      onChange={handleSelectChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
+                      onValueChange={(value) => setFormData((prev) => ({ ...prev, campusId: value }))}
                     >
-                      <option value="">Select campus</option>
-                      {campuses.map((campus) => (
-                        <option key={campus._id} value={campus._id}>
-                          {campus.campusName}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select campus" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {campuses.map((campus) => (
+                          <SelectItem key={campus._id} value={campus._id}>
+                            {campus.campusCode} - {campus.campusName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
-                  <textarea
-                    name="description"
-                    value={formData.description}
-                    onChange={handleInputChange}
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Describe this role and responsibilities..."
-                  />
-                </div>
-
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="isActive"
-                    checked={formData.isActive}
-                    onChange={(e) => setFormData(prev => ({ ...prev, isActive: e.target.checked }))}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <label htmlFor="isActive" className="ml-2 text-sm text-gray-700">
-                    Activate role
-                  </label>
-                </div>
-
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="canManageRoles"
-                    checked={formData.canManageRoles}
-                    onChange={(e) => setFormData(prev => ({ ...prev, canManageRoles: e.target.checked }))}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <label htmlFor="canManageRoles" className="ml-2 text-sm text-gray-700">
-                    Allow role management
-                  </label>
-                </div>
-
-                <div className="flex items-center p-3 bg-blue-50 border border-blue-200 rounded-md">
-                  <input
-                    type="checkbox"
-                    id="canAccessWeb"
-                    checked={formData.canAccessWeb}
-                    onChange={(e) => setFormData(prev => ({ ...prev, canAccessWeb: e.target.checked }))}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <label htmlFor="canAccessWeb" className="ml-2 text-sm font-medium text-blue-900">
-                    🌐 Web access enabled
-                    <span className="block text-xs text-blue-700 mt-0.5">
-                      If not selected, this role can only be used on the mobile app
-                    </span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            {/* Permissions Section */}
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-medium text-gray-900">
-                  Select Permissions ({selectedPermissions.length}/{allPermissions.length})
-                </h3>
-                <div className="space-x-2">
-                  <button
-                    type="button"
-                    onClick={handleSelectAll}
-                    className="text-sm text-blue-600 hover:text-blue-800"
-                  >
-                    Select all
-                  </button>
-                  <span className="text-gray-300">|</span>
-                  <button
-                    type="button"
-                    onClick={handleDeselectAll}
-                    className="text-sm text-gray-600 hover:text-gray-800"
-                  >
-                    Deselect all
-                  </button>
-                </div>
               </div>
 
-              {/* Search */}
-              <div className="mb-4">
-                <input
-                  type="text"
-                  placeholder="Search permissions..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <div className="space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  name="description"
+                  value={formData.description}
+                  onChange={handleInputChange}
+                  placeholder="Describe this role and responsibilities"
+                  className="min-h-[90px]"
                 />
               </div>
 
-              {/* Permissions Grid by Resource */}
-              <div className="space-y-4 max-h-96 overflow-y-auto border border-gray-200 rounded-md p-4">
-                {Object.keys(groupedPermissions).sort().map((resource) => (
-                  <div key={resource} className="border-b border-gray-100 pb-3 last:border-b-0">
-                    <h4 className="font-medium text-gray-900 mb-2 capitalize">{resource}</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {groupedPermissions[resource].map((permission) => (
-                        <label
-                          key={permission.id}
-                          className="flex items-start space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedPermissions.includes(permission.id)}
-                            onChange={() => handlePermissionToggle(permission.id)}
-                            className="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900">
-                              {permission.permissionName}
-                            </p>
-                            <p className="text-xs text-gray-500">{permission.description}</p>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <label className="flex items-center gap-2 rounded-md border p-3">
+                  <Checkbox
+                    checked={formData.isActive}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({ ...prev, isActive: checked === true }))
+                    }
+                  />
+                  <span className="text-sm">Role is active</span>
+                </label>
+
+                <label className="flex items-center gap-2 rounded-md border p-3">
+                  <Checkbox
+                    checked={formData.canManageRoles}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({ ...prev, canManageRoles: checked === true }))
+                    }
+                  />
+                  <span className="text-sm">Allow role management</span>
+                </label>
+
+                <label className="flex items-center gap-2 rounded-md border p-3">
+                  <Checkbox
+                    checked={formData.canAccessWeb}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({ ...prev, canAccessWeb: checked === true }))
+                    }
+                  />
+                  <span className="text-sm">Can access web app</span>
+                </label>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-medium">Permissions</h3>
+                    <Badge variant="secondary">
+                      {selectedPermissions.length}/{allPermissions.length}
+                    </Badge>
                   </div>
-                ))}
+
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={handleSelectAllFiltered}>
+                      Select visible
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={handleDeselectAll}>
+                      Clear all
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search permissions"
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+
+                <ScrollArea className="h-64 rounded-md border p-3 md:h-72">
+                  <div className="space-y-4">
+                    {Object.keys(groupedPermissions)
+                      .sort()
+                      .map((resource) => (
+                        <div key={resource} className="space-y-2">
+                          <h4 className="text-sm font-semibold uppercase text-muted-foreground">{resource}</h4>
+                          <div className="space-y-2">
+                            {groupedPermissions[resource].map((permission) => {
+                              const checked = selectedPermissions.includes(permission.id);
+
+                              return (
+                                <label
+                                  key={permission.id}
+                                  className="flex cursor-pointer items-start gap-3 rounded-md border p-2 hover:bg-muted/40"
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(value) =>
+                                      handlePermissionToggle(permission.id, value === true)
+                                    }
+                                  />
+                                  <div className="space-y-1">
+                                    <p className="text-sm font-medium leading-none">{permission.permissionName}</p>
+                                    <p className="text-xs text-muted-foreground">{permission.description}</p>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+
+                    {filteredPermissions.length === 0 && (
+                      <p className="text-sm text-muted-foreground">No permissions found</p>
+                    )}
+                  </div>
+                </ScrollArea>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Footer */}
-          <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3 bg-gray-50">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition"
-            >
+          <DialogFooter className="mt-5 shrink-0 border-t pt-4">
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 transition"
-            >
-              {loading ? 'Processing...' : editRole ? 'Update' : 'Create role'}
-            </button>
-          </div>
+            </Button>
+            <Button type="submit" disabled={loading || loadingData || !canManageEditingRole}>
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {editRole ? 'Update Role' : 'Create Role'}
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 

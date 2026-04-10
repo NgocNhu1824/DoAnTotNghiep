@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -10,6 +11,7 @@ import { Role } from '@/database/schemas/role.schema';
 import { Campus } from '@/database/schemas/campus.schema';
 import { Permission } from '@/database/schemas/permission.schema';
 import { RolePermission } from '@/database/schemas/role-permission.schema';
+import { User } from '@/database/schemas/user.schema';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 
@@ -17,6 +19,7 @@ import { UpdateRoleDto } from './dto/update-role.dto';
 export class RolesService {
   constructor(
     @InjectModel(Role.name) private roleModel: Model<Role>,
+    @InjectModel(User.name) private userModel: Model<User>,
     @InjectModel(Campus.name) private campusModel: Model<Campus>,
     @InjectModel(Permission.name) private permissionModel: Model<Permission>,
     @InjectModel(RolePermission.name)
@@ -26,7 +29,7 @@ export class RolesService {
   /**
    * Create new role with permissions
    */
-  async create(createRoleDto: CreateRoleDto): Promise<any> {
+  async create(createRoleDto: CreateRoleDto, currentUser: any): Promise<any> {
     const {
       roleName,
       roleCode,
@@ -39,6 +42,12 @@ export class RolesService {
       canAccessWeb = false,
       canManageRoles = false,
     } = createRoleDto;
+
+    await this.assertCanManageRoleLevel(
+      currentUser,
+      Number(roleLevel),
+      'create roles with this level',
+    );
 
     const normalizedRoleCode = roleCode.trim().toUpperCase();
 
@@ -209,7 +218,7 @@ export class RolesService {
   /**
    * Update role and its permissions
    */
-  async update(id: string, updateRoleDto: UpdateRoleDto): Promise<any> {
+  async update(id: string, updateRoleDto: UpdateRoleDto, currentUser: any): Promise<any> {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid role ID');
     }
@@ -219,6 +228,12 @@ export class RolesService {
     if (!role) {
       throw new NotFoundException('Role not found');
     }
+
+    await this.assertCanManageRoleLevel(
+      currentUser,
+      Number(role.roleLevel),
+      'update this role',
+    );
 
     const {
       roleName,
@@ -232,6 +247,14 @@ export class RolesService {
       canAccessWeb,
       canManageRoles,
     } = updateRoleDto;
+
+    if (roleLevel !== undefined) {
+      await this.assertCanManageRoleLevel(
+        currentUser,
+        Number(roleLevel),
+        'set role level lower than your authority',
+      );
+    }
 
     // Check if new role name already exists (excluding current role)
     if (roleName && roleName !== role.roleName) {
@@ -318,7 +341,7 @@ export class RolesService {
   /**
    * Delete role
    */
-  async remove(id: string): Promise<void> {
+  async remove(id: string, currentUser: any): Promise<void> {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid role ID');
     }
@@ -327,6 +350,17 @@ export class RolesService {
 
     if (!role) {
       throw new NotFoundException('Role not found');
+    }
+
+    await this.assertCanManageRoleLevel(
+      currentUser,
+      Number(role.roleLevel),
+      'delete this role',
+    );
+
+    const roleInUse = await this.userModel.exists({ roleId: role._id });
+    if (roleInUse) {
+      throw new BadRequestException('Cannot delete role because it is assigned to one or more users');
     }
 
     // Remove all role-permission mappings
@@ -364,5 +398,62 @@ export class RolesService {
       action: perm.action,
       description: perm.description,
     }));
+  }
+
+  private async assertCanManageRoleLevel(
+    currentUser: any,
+    targetRoleLevel: number,
+    actionDescription: string,
+  ): Promise<void> {
+    if (!Number.isFinite(targetRoleLevel)) {
+      throw new BadRequestException('Invalid role level');
+    }
+
+    const actorRoleLevel = await this.resolveCurrentUserRoleLevel(currentUser);
+
+    // Lower numeric value means higher authority (0 is highest).
+    if (targetRoleLevel < actorRoleLevel) {
+      throw new ForbiddenException(
+        `You can only ${actionDescription} when target roleLevel is greater than or equal to your own`,
+      );
+    }
+  }
+
+  private async resolveCurrentUserRoleLevel(currentUser: any): Promise<number> {
+    const directRoleLevel = Number(currentUser?.roleLevel);
+    if (Number.isFinite(directRoleLevel)) {
+      return directRoleLevel;
+    }
+
+    const roleId = this.extractObjectId(currentUser?.roleId);
+    if (roleId) {
+      const role = await this.roleModel.findById(roleId).select('roleLevel').lean().exec();
+      const resolvedLevel = Number((role as any)?.roleLevel);
+      if (Number.isFinite(resolvedLevel)) {
+        return resolvedLevel;
+      }
+    }
+
+    throw new ForbiddenException('Unable to determine your role level for this action');
+  }
+
+  private extractObjectId(value: any): string | null {
+    if (!value) {
+      return null;
+    }
+
+    if (typeof value === 'string') {
+      return Types.ObjectId.isValid(value) ? value : null;
+    }
+
+    if (value instanceof Types.ObjectId) {
+      return value.toString();
+    }
+
+    if (typeof value === 'object' && value._id) {
+      return this.extractObjectId(value._id);
+    }
+
+    return null;
   }
 }

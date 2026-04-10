@@ -36,6 +36,27 @@ export class NotificationsController {
     };
   }
 
+  @Get('manual-target-options')
+  @RequirePermissions('notifications.create')
+  @RequireScopes('CAMPUS', 'GLOBAL')
+  async getManualTargetOptions(
+    @Query('search') search: string,
+    @Query('campusId') campusId: string,
+    @Query('limit') limit: string,
+    @Req() request: any,
+  ) {
+    const data = await this.notificationsService.getManualTargetOptions(request.campusFilter, {
+      search,
+      campusId,
+      limit: Number(limit),
+    });
+
+    return {
+      success: true,
+      data,
+    };
+  }
+
   @Get()
   @RequirePermissions('notifications.read')
   @RequireScopes('SELF', 'CAMPUS', 'GLOBAL')
