@@ -96,6 +96,9 @@ const ScheduleManagementPage: React.FC = () => {
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isRoomDevicesModalOpen, setIsRoomDevicesModalOpen] = useState(false);
+  const [isRoomDevicesLoading, setIsRoomDevicesLoading] = useState(false);
+  const [selectedDeviceRoom, setSelectedDeviceRoom] = useState<Room | null>(null);
   
   // Import
   const [isImporting, setIsImporting] = useState(false);
@@ -348,6 +351,22 @@ const ScheduleManagementPage: React.FC = () => {
     }
   };
 
+  const handleOpenRoomDevices = async (room: Room) => {
+    setSelectedDeviceRoom(room);
+    setIsRoomDevicesModalOpen(true);
+
+    try {
+      setIsRoomDevicesLoading(true);
+      const detail = await roomService.getRoomById(room._id);
+      setSelectedDeviceRoom(detail || room);
+    } catch {
+      setSelectedDeviceRoom(room);
+      toast.error('Unable to load room devices');
+    } finally {
+      setIsRoomDevicesLoading(false);
+    }
+  };
+
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -517,6 +536,20 @@ const ScheduleManagementPage: React.FC = () => {
       lecturerName: lecturer?.fullName || 'N/A',
       timeRange: `${schedule.startTime} - ${schedule.endTime}`,
       roomCode: room?.roomCode || 'N/A',
+    };
+  };
+
+  const getDeviceStatusView = (status?: 'ok' | 'broken') => {
+    if (status === 'broken') {
+      return {
+        text: 'Broken',
+        className: 'bg-red-50 text-red-700 border-red-200',
+      };
+    }
+
+    return {
+      text: 'Active',
+      className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     };
   };
 
@@ -706,6 +739,17 @@ const ScheduleManagementPage: React.FC = () => {
                         )}>
                           <div className="font-semibold">{room.roomCode}</div>
                           <div className="text-xs text-muted-foreground">{room.roomName}</div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 h-7 px-2 text-[11px]"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleOpenRoomDevices(room);
+                            }}
+                          >
+                            View Devices
+                          </Button>
                         </td>
                         {row.map((cell, cellIndex) => {
                           const slot = filteredTimeSlots[cellIndex];
@@ -807,6 +851,18 @@ const ScheduleManagementPage: React.FC = () => {
                   <div className="font-semibold mb-3">
                     {room.roomCode} - {room.roomName}
                   </div>
+                  <div className="mb-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() => {
+                        void handleOpenRoomDevices(room);
+                      }}
+                    >
+                      View Devices
+                    </Button>
+                  </div>
                   <div className="space-y-2">
                     {row.map((cell, cellIndex) => {
                       const slot = filteredTimeSlots[cellIndex];
@@ -854,6 +910,96 @@ const ScheduleManagementPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      <Dialog
+        open={isRoomDevicesModalOpen}
+        onOpenChange={(open) => {
+          setIsRoomDevicesModalOpen(open);
+          if (!open) {
+            setSelectedDeviceRoom(null);
+            setIsRoomDevicesLoading(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              Room Devices: {selectedDeviceRoom?.roomCode || '--'}
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedDeviceRoom && (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-slate-50/80 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-base font-semibold text-slate-900">{selectedDeviceRoom.roomName}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Capacity: {selectedDeviceRoom.capacity || 0} seats
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="border-slate-300 text-slate-700">
+                    Total Devices: {selectedDeviceRoom.devices?.length || 0}
+                  </Badge>
+                </div>
+              </div>
+
+              {isRoomDevicesLoading ? (
+                <div className="rounded-md border bg-white px-3 py-8 text-center text-sm text-muted-foreground">
+                  Loading room devices...
+                </div>
+              ) : !selectedDeviceRoom.devices || selectedDeviceRoom.devices.length === 0 ? (
+                <div className="rounded-md border bg-white px-3 py-8 text-center text-sm text-muted-foreground">
+                  No devices found in this room.
+                </div>
+              ) : (
+                <div className="rounded-lg border bg-white overflow-hidden shadow-sm">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-100/70">
+                      <tr>
+                        <th className="border-b px-4 py-3 text-left font-semibold text-slate-700">Device Code</th>
+                        <th className="border-b px-4 py-3 text-left font-semibold text-slate-700">Device Name</th>
+                        <th className="border-b px-4 py-3 text-center font-semibold text-slate-700">Quantity</th>
+                        <th className="border-b px-4 py-3 text-center font-semibold text-slate-700">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedDeviceRoom.devices.map((device, index) => (
+                        <tr key={device._id || `${device.deviceCode}-${index}`} className="hover:bg-slate-50/70">
+                          <td className="border-b px-4 py-3 font-medium text-slate-800">{device.deviceCode}</td>
+                          <td className="border-b px-4 py-3 text-slate-700">{device.deviceName}</td>
+                          <td className="border-b px-4 py-3 text-center text-slate-700">{device.quantity ?? 0}</td>
+                          <td className="border-b px-4 py-3 text-center">
+                            <Badge
+                              variant="outline"
+                              className={getDeviceStatusView(device.deviceStatus).className}
+                            >
+                              {getDeviceStatusView(device.deviceStatus).text}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsRoomDevicesModalOpen(false);
+                setSelectedDeviceRoom(null);
+                setIsRoomDevicesLoading(false);
+              }}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modals */}
       <ViewScheduleModal
