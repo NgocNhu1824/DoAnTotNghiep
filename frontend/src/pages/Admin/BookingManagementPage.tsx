@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ReactPaginate from 'react-paginate';
+import { Eye, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import bookingService from '@/services/booking.service';
+import { campusService } from '@/services/campus.service';
 import wsService from '@/services/websocket.service';
 import { Booking, BookingStatus } from '@/types/booking.types';
+import { Campus } from '@/types/models.types';
 import { useToast } from '@/hooks/use-toast';
 import PermissionGuard from '@/components/PermissionGuard';
 import { PERMISSIONS } from '@/utils/permissions';
@@ -89,6 +92,42 @@ const getTimeSlotMeta = (startTime: string, endTime: string): { type: string; sl
 
 const LEGACY_AUTO_CANCEL_REASON = 'lecturer cancelled booking';
 const DETAIL_TEXT_LIMIT = 500;
+const DEFAULT_CAMPUS_NAME = 'fpt university can tho';
+const ITEMS_PER_PAGE = 10;
+
+const normalizeText = (value: string): string => {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+};
+
+const findDefaultCampusId = (items: Campus[]): string => {
+  const exactMatch = items.find((campus) => normalizeText(campus.campusName) === DEFAULT_CAMPUS_NAME);
+  if (exactMatch) {
+    return exactMatch._id;
+  }
+
+  const fuzzyMatch = items.find((campus) => {
+    const normalized = normalizeText(campus.campusName);
+    return normalized.includes('fpt') && normalized.includes('can tho');
+  });
+
+  return fuzzyMatch?._id || 'all';
+};
+
+const extractBookingCampusId = (booking: Booking): string => {
+  if (typeof booking.campusId === 'string') {
+    return booking.campusId;
+  }
+
+  if (booking.campusId && typeof booking.campusId === 'object' && '_id' in booking.campusId) {
+    return String((booking.campusId as { _id: string })._id);
+  }
+
+  return '';
+};
 
 const getLimitedDetailText = (value: string, fallback = 'No details provided'): string => {
   const text = (value || '').trim();
@@ -157,9 +196,12 @@ const compareBookingsByPriority = (a: Booking, b: Booking): number => {
 
 const BookingManagementPage: React.FC = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
   const [searchLecturer, setSearchLecturer] = useState('');
+  const [campusFilter, setCampusFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | BookingStatus>('all');
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -170,6 +212,7 @@ const BookingManagementPage: React.FC = () => {
   const [purposeDetailBooking, setPurposeDetailBooking] = useState<Booking | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectReasonError, setRejectReasonError] = useState('');
+  const hasInitializedCampusFilter = useRef(false);
   const { toast } = useToast();
 
   const fetchBookings = useCallback(async () => {
@@ -193,6 +236,27 @@ const BookingManagementPage: React.FC = () => {
   }, [fetchBookings]);
 
   useEffect(() => {
+    const loadCampuses = async () => {
+      try {
+        const campusRows = await campusService.getAll();
+        const normalizedRows = Array.isArray(campusRows) ? campusRows : [];
+        setCampuses(normalizedRows);
+
+        if (!hasInitializedCampusFilter.current) {
+          setCampusFilter(findDefaultCampusId(normalizedRows));
+          hasInitializedCampusFilter.current = true;
+        }
+      } catch {
+        if (!hasInitializedCampusFilter.current) {
+          hasInitializedCampusFilter.current = true;
+        }
+      }
+    };
+
+    void loadCampuses();
+  }, []);
+
+  useEffect(() => {
     const socket = wsService.connect();
     const onBookingUpdated = () => fetchBookings();
     wsService.on('booking:updated', onBookingUpdated);
@@ -208,6 +272,9 @@ const BookingManagementPage: React.FC = () => {
   const filteredBookings = useMemo(() => {
     return bookings
       .filter((booking) => {
+      const matchCampus =
+        campusFilter === 'all' || extractBookingCampusId(booking) === campusFilter;
+
       const matchStatus = statusFilter === 'all' ? true : booking.status === statusFilter;
 
       const keyword = searchLecturer.trim().toLowerCase();
@@ -222,10 +289,27 @@ const BookingManagementPage: React.FC = () => {
         lecturerEmail.includes(keyword) ||
         booking.purpose.toLowerCase().includes(keyword);
 
-        return matchStatus && matchSearch;
+          return matchCampus && matchStatus && matchSearch;
       })
       .sort(compareBookingsByPriority);
-  }, [bookings, statusFilter, searchLecturer]);
+        }, [bookings, campusFilter, statusFilter, searchLecturer]);
+
+  const paginatedBookings = useMemo(() => {
+    const start = currentPage * ITEMS_PER_PAGE;
+    return filteredBookings.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredBookings, currentPage]);
+
+  const pageCount = Math.ceil(filteredBookings.length / ITEMS_PER_PAGE);
+
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [searchLecturer, campusFilter, statusFilter]);
+
+  useEffect(() => {
+    if (pageCount > 0 && currentPage > pageCount - 1) {
+      setCurrentPage(pageCount - 1);
+    }
+  }, [currentPage, pageCount]);
 
   const statistics = useMemo(() => {
     return bookings.reduce(
@@ -416,7 +500,7 @@ const BookingManagementPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Booking Management</h1>
           <p className="text-muted-foreground mt-2">Booking Management</p>
@@ -460,7 +544,7 @@ const BookingManagementPage: React.FC = () => {
         <CardHeader>
           <CardTitle>Filters</CardTitle>
         </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
+          <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-2">
             <Label>Search lecturer</Label>
             <div className="flex items-center gap-2">
@@ -471,6 +555,23 @@ const BookingManagementPage: React.FC = () => {
               />
                 <Search className="h-4 w-4 text-muted-foreground" />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Campus</Label>
+            <Select value={campusFilter} onValueChange={setCampusFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="All campuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All campuses</SelectItem>
+                {campuses.map((campus) => (
+                  <SelectItem key={campus._id} value={campus._id}>
+                    {campus.campusName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
@@ -500,17 +601,17 @@ const BookingManagementPage: React.FC = () => {
           <CardTitle>Booking List ({filteredBookings.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border">
-            <Table className="table-fixed">
+          <div className="w-full overflow-x-auto rounded-md border">
+            <Table className="min-w-[1100px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Time Slot</TableHead>
-                  <TableHead>Room</TableHead>
-                  <TableHead>Lecturer</TableHead>
-                  <TableHead>Purpose</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Reason Rejected</TableHead>
+                  <TableHead className="min-w-[110px]">Date</TableHead>
+                  <TableHead className="min-w-[170px]">Time Slot</TableHead>
+                  <TableHead className="min-w-[150px]">Room</TableHead>
+                  <TableHead className="min-w-[200px]">Lecturer</TableHead>
+                  <TableHead className="min-w-[84px] text-center">Purpose</TableHead>
+                  <TableHead className="min-w-[110px]">Status</TableHead>
+                  <TableHead className="min-w-[140px] text-center">Reason Rejected</TableHead>
                   <TableHead className="min-w-[190px] text-center">Processing</TableHead>
                   <TableHead className="w-[84px] text-center">Delete</TableHead>
                 </TableRow>
@@ -529,7 +630,7 @@ const BookingManagementPage: React.FC = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredBookings.map((booking) => {
+                  paginatedBookings.map((booking) => {
                     const room = typeof booking.roomId === 'object' ? booking.roomId : null;
                     const lecturer = typeof booking.lecturerId === 'object' ? booking.lecturerId : null;
 
@@ -555,16 +656,17 @@ const BookingManagementPage: React.FC = () => {
                           <div className="font-medium truncate" title={lecturer?.fullName || 'N/A'}>{lecturer?.fullName || 'N/A'}</div>
                           <div className="text-xs text-muted-foreground truncate" title={lecturer?.email || ''}>{lecturer?.email || ''}</div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-center">
                           <Button
-                            variant="outline"
-                            size="sm"
+                            variant="ghost"
+                            size="icon"
+                            title="View purpose details"
                             onClick={() => {
                               setPurposeDetailBooking(booking);
                               setPurposeDetailDialogOpen(true);
                             }}
                           >
-                            View details
+                            <Eye className="h-4 w-4" />
                           </Button>
                         </TableCell>
                         <TableCell>
@@ -572,14 +674,15 @@ const BookingManagementPage: React.FC = () => {
                             {STATUS_LABEL[booking.status]}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-center">
                           {booking.status === 'rejected' || booking.status === 'cancelled' ? (
                             <Button
-                              variant="outline"
-                              size="sm"
+                              variant="ghost"
+                              size="icon"
+                              title="View rejection reason"
                               onClick={() => openReasonDetailDialog(booking)}
                             >
-                              View details
+                              <Eye className="h-4 w-4" />
                             </Button>
                           ) : (
                             <span className="text-xs text-muted-foreground">--</span>
@@ -610,6 +713,27 @@ const BookingManagementPage: React.FC = () => {
               </TableBody>
             </Table>
           </div>
+
+          {pageCount > 1 && (
+            <div className="mt-6 flex justify-center">
+              <ReactPaginate
+                previousLabel="← Prev"
+                nextLabel="Next →"
+                breakLabel="..."
+                pageCount={pageCount}
+                marginPagesDisplayed={2}
+                pageRangeDisplayed={3}
+                onPageChange={({ selected }) => setCurrentPage(selected)}
+                forcePage={currentPage}
+                containerClassName="flex items-center gap-2"
+                pageClassName="px-3 py-1 rounded-md border text-sm font-medium text-muted-foreground hover:bg-muted"
+                activeClassName="border-primary bg-primary text-primary-foreground"
+                previousClassName="px-3 py-1 rounded-md border text-sm font-medium hover:bg-muted"
+                nextClassName="px-3 py-1 rounded-md border text-sm font-medium hover:bg-muted"
+                disabledClassName="opacity-50 cursor-not-allowed"
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 

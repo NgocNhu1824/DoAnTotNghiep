@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Plus, Search, Trash2 } from 'lucide-react';
 import { useToast } from '../../hooks/use-toast';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -37,6 +37,22 @@ const extractRoomId = (roomId: Device['roomId']): string => {
   return typeof roomId === 'object' ? roomId._id : roomId;
 };
 
+type DeviceDraftItem = {
+  id: string;
+  deviceCode: string;
+  deviceName: string;
+  quantity: number;
+  deviceStatus: DeviceStatus;
+};
+
+const createDeviceDraftItem = (): DeviceDraftItem => ({
+  id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  deviceCode: '',
+  deviceName: '',
+  quantity: 1,
+  deviceStatus: 'ok',
+});
+
 const DeviceManagementPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -52,6 +68,10 @@ const DeviceManagementPage: React.FC = () => {
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+
+  const [createRoomId, setCreateRoomId] = useState('');
+  const [createItems, setCreateItems] = useState<DeviceDraftItem[]>([createDeviceDraftItem()]);
 
   const [formData, setFormData] = useState<CreateDeviceDto>({
     deviceCode: '',
@@ -132,14 +152,8 @@ const DeviceManagementPage: React.FC = () => {
   };
 
   const openCreate = () => {
-    setFormData({
-      deviceCode: '',
-      deviceName: '',
-      deviceStatus: 'ok',
-      quantity: 1,
-      roomId: '',
-      isActive: true,
-    });
+    setCreateRoomId('');
+    setCreateItems([createDeviceDraftItem()]);
     setIsCreateOpen(true);
   };
 
@@ -162,29 +176,109 @@ const DeviceManagementPage: React.FC = () => {
     setIsViewOpen(true);
   };
 
+  const addCreateItem = () => {
+    setCreateItems((prev) => [...prev, createDeviceDraftItem()]);
+  };
+
+  const removeCreateItem = (id: string) => {
+    setCreateItems((prev) => {
+      if (prev.length <= 1) {
+        return prev;
+      }
+      return prev.filter((item) => item.id !== id);
+    });
+  };
+
+  const updateCreateItem = <K extends keyof Omit<DeviceDraftItem, 'id'>>(
+    id: string,
+    key: K,
+    value: DeviceDraftItem[K],
+  ) => {
+    setCreateItems((prev) => prev.map((item) => (item.id === id ? { ...item, [key]: value } : item)));
+  };
+
   const handleSubmitCreate = async () => {
-    if (!formData.roomId) {
+    if (!createRoomId) {
       toast({
         title: 'Missing information',
-        description: 'Please select a room for this device',
+        description: 'Please select a room before adding devices',
         variant: 'destructive',
       });
       return;
     }
+
+    const normalizedItems = createItems.map((item) => ({
+      ...item,
+      deviceCode: item.deviceCode.trim(),
+      deviceName: item.deviceName.trim(),
+      quantity: Number(item.quantity) || 0,
+    }));
+
+    const hasInvalidItem = normalizedItems.some(
+      (item) => !item.deviceCode || !item.deviceName || !Number.isFinite(item.quantity) || item.quantity < 1,
+    );
+
+    if (hasInvalidItem) {
+      toast({
+        title: 'Missing information',
+        description: 'Please complete all device items (code, name, quantity >= 1)',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const uniqueCodes = new Set(normalizedItems.map((item) => item.deviceCode.toLowerCase()));
+    if (uniqueCodes.size !== normalizedItems.length) {
+      toast({
+        title: 'Duplicate device code',
+        description: 'Each item in this batch must have a unique device code',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setCreateLoading(true);
+
     try {
-      const created = await deviceService.create(formData);
-      setDevices((prev) => [created, ...prev]);
+      const createdDevices: Device[] = [];
+
+      for (let index = 0; index < normalizedItems.length; index += 1) {
+        const item = normalizedItems[index];
+        const payload: CreateDeviceDto = {
+          deviceCode: item.deviceCode,
+          deviceName: item.deviceName,
+          quantity: item.quantity,
+          deviceStatus: item.deviceStatus,
+          roomId: createRoomId,
+          isActive: true,
+        };
+
+        try {
+          const created = await deviceService.create(payload);
+          createdDevices.push(created);
+        } catch (error: any) {
+          if (createdDevices.length > 0) {
+            setDevices((prev) => [...createdDevices.reverse(), ...prev]);
+          }
+
+          throw new Error(error?.message || `Failed to create item #${index + 1}`);
+        }
+      }
+
+      setDevices((prev) => [...createdDevices.reverse(), ...prev]);
       toast({
         title: 'Success',
-        description: 'Device created successfully',
+        description: `${createdDevices.length} devices created successfully`,
       });
       setIsCreateOpen(false);
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: error?.message || 'Failed to create device',
+        description: error?.message || 'Failed to create devices',
         variant: 'destructive',
       });
+    } finally {
+      setCreateLoading(false);
     }
   };
 
@@ -395,47 +489,15 @@ const DeviceManagementPage: React.FC = () => {
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Device</DialogTitle>
-            <DialogDescription>The device will be assigned to a specific room.</DialogDescription>
+            <DialogTitle>Add Multiple Devices</DialogTitle>
+            <DialogDescription>
+              Select a room first, then add one or more device items.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="space-y-2">
-              <Label>Device Code</Label>
-              <Input value={formData.deviceCode} onChange={(e) => setFormData({ ...formData, deviceCode: e.target.value })} />
-            </div>
-            <div className="space-y-2">
-              <Label>Device Name</Label>
-              <Input value={formData.deviceName} onChange={(e) => setFormData({ ...formData, deviceName: e.target.value })} />
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Quantity</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={formData.quantity}
-                  onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Status</Label>
-                <Select
-                  value={formData.deviceStatus || 'ok'}
-                  onValueChange={(value) => setFormData({ ...formData, deviceStatus: value as DeviceStatus })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ok">Operational</SelectItem>
-                    <SelectItem value="broken">Broken</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2">
               <Label>Room</Label>
-              <Select value={formData.roomId} onValueChange={(value) => setFormData({ ...formData, roomId: value })}>
+              <Select value={createRoomId} onValueChange={setCreateRoomId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select room" />
                 </SelectTrigger>
@@ -448,10 +510,93 @@ const DeviceManagementPage: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="flex items-center justify-between">
+              <Label>Device Items ({createItems.length})</Label>
+              <Button type="button" variant="outline" size="sm" onClick={addCreateItem}>
+                <Plus className="mr-1 h-4 w-4" />
+                Add item
+              </Button>
+            </div>
+
+            {!createRoomId && (
+              <p className="text-sm text-muted-foreground">Please select a room to start adding device items.</p>
+            )}
+
+            <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
+              {createItems.map((item, index) => (
+                <div key={item.id} className="rounded-md border p-3">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-sm font-medium">Item #{index + 1}</p>
+                    {createItems.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeCreateItem(item.id)}
+                        title="Remove item"
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Device Code</Label>
+                      <Input
+                        value={item.deviceCode}
+                        onChange={(e) => updateCreateItem(item.id, 'deviceCode', e.target.value)}
+                        disabled={!createRoomId || createLoading}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Device Name</Label>
+                      <Input
+                        value={item.deviceName}
+                        onChange={(e) => updateCreateItem(item.id, 'deviceName', e.target.value)}
+                        disabled={!createRoomId || createLoading}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Quantity</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={item.quantity}
+                        onChange={(e) => updateCreateItem(item.id, 'quantity', Number(e.target.value) || 1)}
+                        disabled={!createRoomId || createLoading}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Status</Label>
+                      <Select
+                        value={item.deviceStatus}
+                        onValueChange={(value) => updateCreateItem(item.id, 'deviceStatus', value as DeviceStatus)}
+                        disabled={!createRoomId || createLoading}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ok">Operational</SelectItem>
+                          <SelectItem value="broken">Broken</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmitCreate}>Create Device</Button>
+            <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={createLoading}>Cancel</Button>
+            <Button onClick={handleSubmitCreate} disabled={createLoading}>
+              {createLoading ? 'Creating...' : 'Create Devices'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

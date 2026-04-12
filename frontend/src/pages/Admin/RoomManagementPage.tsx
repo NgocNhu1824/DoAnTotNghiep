@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactPaginate from 'react-paginate';
 import { AxiosError } from 'axios';
 import { Loader2, Search, Upload } from 'lucide-react';
@@ -43,6 +43,30 @@ const STATUS_BADGE_MAP: Record<string, { label: string; className: string }> = {
   maintain: { label: 'Maintain', className: 'bg-amber-50 text-amber-600 border-amber-100' },
 };
 
+const DEFAULT_CAMPUS_NAME = 'fpt university can tho';
+
+const normalizeText = (value: string): string => {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+};
+
+const findDefaultCampusId = (items: Campus[]): string => {
+  const exactMatch = items.find((campus) => normalizeText(campus.campusName) === DEFAULT_CAMPUS_NAME);
+  if (exactMatch) {
+    return exactMatch._id;
+  }
+
+  const fuzzyMatch = items.find((campus) => {
+    const normalized = normalizeText(campus.campusName);
+    return normalized.includes('fpt') && normalized.includes('can tho');
+  });
+
+  return fuzzyMatch?._id || 'all';
+};
+
 const RoomManagementPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -63,6 +87,7 @@ const RoomManagementPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [buildingFilter, setBuildingFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const hasInitializedCampusFilter = useRef(false);
   const { toast } = useToast();
 
   // =========================
@@ -76,7 +101,13 @@ const RoomManagementPage: React.FC = () => {
         campusService.getAll(),
       ]);
       setRooms(Array.isArray(roomRes) ? roomRes : []);
-      setCampuses(Array.isArray(campusRes) ? campusRes : []);
+      const normalizedCampuses = Array.isArray(campusRes) ? campusRes : [];
+      setCampuses(normalizedCampuses);
+
+      if (!hasInitializedCampusFilter.current) {
+        setCampusFilter(findDefaultCampusId(normalizedCampuses));
+        hasInitializedCampusFilter.current = true;
+      }
     } catch (err) {
       const axiosError = err as AxiosError;
       console.error('Fetch error:', axiosError);
@@ -86,6 +117,9 @@ const RoomManagementPage: React.FC = () => {
         variant: 'destructive',
       });
     } finally {
+      if (!hasInitializedCampusFilter.current) {
+        hasInitializedCampusFilter.current = true;
+      }
       setLoading(false);
     }
   };
