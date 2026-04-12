@@ -16,6 +16,7 @@ import { Alert, AlertDescription } from '../../components/ui/alert';
 import PermissionGuard from '../../components/PermissionGuard';
 import { PERMISSIONS } from '../../utils/permissions';
 import roomService from '../../services/room.service';
+import { campusService } from '../../services/campus.service';
 import { timeSlotService } from '../../services/time-slot.service';
 import { scheduleService, QueryScheduleParams } from '../../services/schedule.service';
 import bookingService from '../../services/booking.service';
@@ -37,6 +38,28 @@ interface ScheduleCell {
 
 type DisplaySchedule = Schedule & {
   _virtualBooking?: boolean;
+};
+
+type CampusFilterOption = {
+  _id: string;
+  campusName: string;
+  campusCode?: string;
+};
+
+const isFptCampus = (campus: CampusFilterOption) => {
+  const normalizedCode = String(campus.campusCode || '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  const normalizedName = String(campus.campusName || '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+
+  return (
+    normalizedCode.includes('fpt') ||
+    normalizedCode.includes('fuct') ||
+    normalizedName.includes('fpt') ||
+    normalizedName.includes('cantho')
+  );
 };
 
 const isVirtualBookingSchedule = (schedule: Schedule | null): schedule is DisplaySchedule => {
@@ -90,7 +113,9 @@ const ScheduleManagementPage: React.FC = () => {
   
   // Filters
   const [roomSearch, setRoomSearch] = useState<string>('');
+  const [campusFilter, setCampusFilter] = useState<string>('all');
   const [slotTypeFilter, setSlotTypeFilter] = useState<'OLDSLOT' | 'NEWSLOT'>('NEWSLOT');
+  const [campusOptions, setCampusOptions] = useState<CampusFilterOption[]>([]);
   
   // Modals
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
@@ -143,13 +168,58 @@ const ScheduleManagementPage: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [roomsData, slotsData] = await Promise.all([
+      const [roomsData, slotsData, campusesData] = await Promise.all([
         roomService.getAllRooms({ isActive: true }),
         timeSlotService.getAll({ isActive: true }),
+        campusService.getAll().catch(() => []),
       ]);
 
       setRooms(roomsData);
       setTimeSlots(slotsData);
+
+      const normalizedCampuses = Array.isArray(campusesData)
+        ? campusesData
+            .map((campus: any) => ({
+              _id: String(campus?._id || ''),
+              campusName: String(campus?.campusName || '').trim(),
+              campusCode: campus?.campusCode ? String(campus.campusCode) : undefined,
+            }))
+            .filter((campus: CampusFilterOption) => Boolean(campus._id) && Boolean(campus.campusName))
+        : [];
+
+      if (normalizedCampuses.length > 0) {
+        setCampusOptions(normalizedCampuses);
+      } else {
+        const roomCampuses = roomsData.reduce<CampusFilterOption[]>((acc, room) => {
+          if (typeof room.campusId !== 'object' || !room.campusId) {
+            return acc;
+          }
+
+          const campusId = String(room.campusId._id || '').trim();
+          const campusName = String(room.campusId.campusName || '').trim();
+
+          if (!campusId || !campusName) {
+            return acc;
+          }
+
+          acc.push({
+            _id: campusId,
+            campusName,
+            campusCode: room.campusId.campusCode ? String(room.campusId.campusCode) : undefined,
+          });
+
+          return acc;
+        }, []);
+
+        const unique = new Map<string, CampusFilterOption>();
+        roomCampuses.forEach((campus) => {
+          if (!unique.has(campus._id)) {
+            unique.set(campus._id, campus);
+          }
+        });
+
+        setCampusOptions(Array.from(unique.values()));
+      }
     } catch (error: any) {
       console.error('Error fetching data:', error);
       toast.error('Unable to load rooms and time slots');
@@ -157,6 +227,19 @@ const ScheduleManagementPage: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (campusOptions.length === 0) {
+      return;
+    }
+
+    const fptCampus = campusOptions.find(isFptCampus);
+    if (!fptCampus) {
+      return;
+    }
+
+    setCampusFilter((prev) => (prev === 'all' ? fptCampus._id : prev));
+  }, [campusOptions]);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -220,13 +303,23 @@ const ScheduleManagementPage: React.FC = () => {
   // Filter rooms
   const filteredRooms = useMemo(() => {
     return rooms.filter((room) => {
+      const roomCampusId =
+        typeof room.campusId === 'object'
+          ? room.campusId?._id
+          : room.campusId;
+      const matchesCampus = campusFilter === 'all' || roomCampusId === campusFilter;
       const matchesSearch =
         roomSearch === '' ||
         room.roomCode.toLowerCase().includes(roomSearch.toLowerCase()) ||
         room.roomName.toLowerCase().includes(roomSearch.toLowerCase());
-      return matchesSearch;
+      return matchesCampus && matchesSearch;
     });
-  }, [rooms, roomSearch]);
+  }, [rooms, roomSearch, campusFilter]);
+
+  const selectedCampusLabel = useMemo(() => {
+    if (campusFilter === 'all') return '';
+    return campusOptions.find((campus) => campus._id === campusFilter)?.campusName || '';
+  }, [campusFilter, campusOptions]);
 
   const filteredTimeSlots = useMemo(() => {
     return timeSlots.filter((slot) => slot.slotType === slotTypeFilter).sort((a, b) => {
@@ -558,15 +651,15 @@ const ScheduleManagementPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-3xl font-bold tracking-tight">View all activities</h1>
           <p className="text-muted-foreground mt-2">
             Search, filter, and monitor schedules by room and time slot for the selected day
           </p>
         </div>
         <PermissionGuard permissions={[PERMISSIONS.SCHEDULES_CREATE]}>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
             <input
               ref={fileInputRef}
               type="file"
@@ -574,7 +667,7 @@ const ScheduleManagementPage: React.FC = () => {
               onChange={handleImport}
               className="hidden"
             />
-            <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+            <Button className="w-full sm:w-auto" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
               <Upload className="h-4 w-4 mr-2" />
               {isImporting ? 'Importing...' : 'Import Excel/CSV'}
             </Button>
@@ -585,7 +678,7 @@ const ScheduleManagementPage: React.FC = () => {
       {/* Filters */}
       <Card>
         <CardContent className="space-y-4 p-4 md:p-6">
-          <div className="grid grid-cols-1 items-end gap-4 lg:grid-cols-[minmax(260px,1fr)_220px_220px]">
+          <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_minmax(280px,340px)_220px_220px]">
             <div className="space-y-2">
               <Label htmlFor="room-search">Search</Label>
               <div className="relative">
@@ -602,6 +695,28 @@ const ScheduleManagementPage: React.FC = () => {
             </div>
 
             <div className="space-y-2">
+              <Label>Campus</Label>
+              <Select value={campusFilter} onValueChange={setCampusFilter}>
+                <SelectTrigger className="w-full [&>span]:truncate">
+                  <SelectValue placeholder="All campuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All campuses</SelectItem>
+                  {campusOptions.map((campus) => (
+                    <SelectItem key={campus._id} value={campus._id}>
+                      <span
+                        className="block max-w-[320px] truncate"
+                        title={campus.campusCode ? `${campus.campusCode} - ${campus.campusName}` : campus.campusName}
+                      >
+                        {campus.campusCode ? `${campus.campusCode} - ${campus.campusName}` : campus.campusName}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="schedule-date">Date</Label>
               <Input
                 id="schedule-date"
@@ -614,7 +729,7 @@ const ScheduleManagementPage: React.FC = () => {
             <div className="space-y-2">
               <Label>Slot Type</Label>
               <Select value={slotTypeFilter} onValueChange={(value: 'OLDSLOT' | 'NEWSLOT') => setSlotTypeFilter(value)}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select slot type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -630,6 +745,16 @@ const ScheduleManagementPage: React.FC = () => {
               {slotTypeFilter === 'OLDSLOT' ? 'Old slot' : 'New slot'}
             </Badge>
 
+            {campusFilter !== 'all' && selectedCampusLabel && (
+              <Badge variant="secondary" className="max-w-[320px] gap-1" title={selectedCampusLabel}>
+                <span className="truncate">Campus: {selectedCampusLabel}</span>
+                <X
+                  className="h-3 w-3 cursor-pointer"
+                  onClick={() => setCampusFilter('all')}
+                />
+              </Badge>
+            )}
+
             {roomSearch && (
               <Badge variant="secondary" className="gap-1">
                 Search: "{roomSearch}"
@@ -640,11 +765,12 @@ const ScheduleManagementPage: React.FC = () => {
               </Badge>
             )}
 
-            {(roomSearch || slotTypeFilter !== 'NEWSLOT') && (
+            {(roomSearch || slotTypeFilter !== 'NEWSLOT' || campusFilter !== 'all') && (
               <Button 
                 variant="ghost" 
                 size="sm"
                 onClick={() => {
+                  setCampusFilter('all');
                   setSlotTypeFilter('NEWSLOT');
                   setRoomSearch('');
                 }}
@@ -657,7 +783,7 @@ const ScheduleManagementPage: React.FC = () => {
       </Card>
 
       {/* Schedule Grid Table - Desktop */}
-      <Card>
+      <Card className="hidden sm:block">
         <CardHeader>
           <CardTitle>View all activities</CardTitle>
           <CardDescription>Display schedules by room and slot for the selected date</CardDescription>
@@ -718,6 +844,7 @@ const ScheduleManagementPage: React.FC = () => {
                           variant="outline" 
                           size="sm"
                           onClick={() => {
+                            setCampusFilter('all');
                             setRoomSearch('');
                             setSlotTypeFilter('NEWSLOT');
                           }}
@@ -835,6 +962,7 @@ const ScheduleManagementPage: React.FC = () => {
                   variant="outline" 
                   size="sm"
                   onClick={() => {
+                    setCampusFilter('all');
                     setRoomSearch('');
                     setSlotTypeFilter('NEWSLOT');
                   }}

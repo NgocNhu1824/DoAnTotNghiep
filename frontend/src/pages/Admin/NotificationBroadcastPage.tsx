@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, Megaphone, Send, Shield, Users } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../hooks/use-toast';
 import { campusService } from '../../services/campus.service';
 import notificationsService from '../../services/notifications.service';
@@ -41,22 +40,6 @@ const buildRoleLabel = (role: NotificationRoleOption): string => {
   return `${role.roleName} (${role.roleCode})${scope}`;
 };
 
-const isFptCtCampus = (campus: Campus): boolean => {
-  const normalizedCode = String(campus.campusCode || '')
-    .toLowerCase()
-    .replace(/\s+/g, '');
-  const normalizedName = String(campus.campusName || '')
-    .toLowerCase()
-    .replace(/\s+/g, '');
-
-  return (
-    normalizedCode.includes('fuct') ||
-    normalizedCode.includes('fptct') ||
-    normalizedName.includes('fptct') ||
-    normalizedName.includes('cantho')
-  );
-};
-
 const parseErrorMessage = (error: any, fallback: string): string => {
   if (Array.isArray(error?.message)) {
     return error.message.join(', ');
@@ -66,7 +49,6 @@ const parseErrorMessage = (error: any, fallback: string): string => {
 };
 
 const NotificationBroadcastPage: React.FC = () => {
-  const { user } = useAuth();
   const { toast } = useToast();
 
   const [targetType, setTargetType] = useState<NotificationTargetType>('users');
@@ -106,27 +88,14 @@ const NotificationBroadcastPage: React.FC = () => {
 
         const nextCampuses = Array.isArray(rows) ? rows : [];
         setCampuses(nextCampuses);
-
-        const fptCtCampus = nextCampuses.find(isFptCtCampus);
-        const userCampusId = user?.campusId?._id || '';
-        const defaultCampusId = fptCtCampus?._id || userCampusId || nextCampuses[0]?._id || '';
-
-        if (defaultCampusId) {
-          setCampusId((prev) => prev || defaultCampusId);
-        }
       } catch (error: any) {
         if (cancelled) {
           return;
         }
 
-        const userCampusId = user?.campusId?._id || '';
-        if (userCampusId) {
-          setCampusId((prev) => prev || userCampusId);
-        }
-
         toast({
           title: 'Cannot load campus list',
-          description: parseErrorMessage(error, 'Using default campus context'),
+          description: parseErrorMessage(error, 'Please select campus manually before sending'),
           variant: 'destructive',
         });
       } finally {
@@ -141,7 +110,7 @@ const NotificationBroadcastPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [toast, user?.campusId?._id]);
+  }, [toast]);
 
   useEffect(() => {
     if (targetType !== 'users' && targetType !== 'role') {
@@ -184,10 +153,6 @@ const NotificationBroadcastPage: React.FC = () => {
           });
           return next;
         });
-
-        if (options.defaultCampusId) {
-          setCampusId((prev) => prev || options.defaultCampusId || '');
-        }
       } catch (error: any) {
         if (cancelled) {
           return;
@@ -413,14 +378,14 @@ const NotificationBroadcastPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-3xl font-bold tracking-tight">Send Notifications</h1>
           <p className="mt-1 text-muted-foreground">
             Create and broadcast notifications by specific users, whole campus, or role type
           </p>
         </div>
-        <Button variant="outline" onClick={resetForm} disabled={sending}>
+        <Button className="w-full sm:w-auto" variant="outline" onClick={resetForm} disabled={sending}>
           Reset Form
         </Button>
       </div>
@@ -434,14 +399,14 @@ const NotificationBroadcastPage: React.FC = () => {
           <CardDescription>Define target scope, notification type, and message content</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-2">
               <Label>Target type</Label>
               <Select
                 value={targetType}
                 onValueChange={(value) => setTargetType(value as NotificationTargetType)}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select target type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -458,7 +423,7 @@ const NotificationBroadcastPage: React.FC = () => {
                 value={priority}
                 onValueChange={(value) => setPriority(value as NotificationPriority)}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select priority" />
                 </SelectTrigger>
                 <SelectContent>
@@ -472,12 +437,12 @@ const NotificationBroadcastPage: React.FC = () => {
             <div className="space-y-2">
               <Label>Notification type</Label>
               <Select value={type} onValueChange={setType}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select notification type" />
                 </SelectTrigger>
                 <SelectContent>
                   {NOTIFICATION_TYPE_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
+                    <SelectItem key={option.value} value={option.value} title={option.label}>
                       {option.label}
                     </SelectItem>
                   ))}
@@ -488,15 +453,19 @@ const NotificationBroadcastPage: React.FC = () => {
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>Campus (default: FPT CT)</Label>
+              <Label>Campus</Label>
               {campuses.length > 0 ? (
                 <Select value={campusId} onValueChange={setCampusId} disabled={loadingCampuses}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select campus" />
                   </SelectTrigger>
                   <SelectContent>
                     {campuses.map((campus) => (
-                      <SelectItem key={campus._id} value={campus._id}>
+                      <SelectItem
+                        key={campus._id}
+                        value={campus._id}
+                        title={`${campus.campusCode} - ${campus.campusName}`}
+                      >
                         {campus.campusCode} - {campus.campusName}
                       </SelectItem>
                     ))}
@@ -563,10 +532,11 @@ const NotificationBroadcastPage: React.FC = () => {
                 placeholder="Search by name or email"
                 className="md:max-w-md"
               />
-              <div className="flex items-center gap-2">
+              <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
                 <Button
                   type="button"
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={handleSelectDisplayedRecipients}
                   disabled={displayedRecipientIds.length === 0 || areAllDisplayedRecipientsSelected}
                 >
@@ -575,6 +545,7 @@ const NotificationBroadcastPage: React.FC = () => {
                 <Button
                   type="button"
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={handleClearSelectedRecipients}
                   disabled={selectedRecipientIds.length === 0}
                 >
@@ -609,14 +580,14 @@ const NotificationBroadcastPage: React.FC = () => {
                           checked={checked}
                           onCheckedChange={(value) => toggleRecipient(recipient, value === true)}
                         />
-                        <div className="space-y-1">
+                        <div className="min-w-0 space-y-1">
                           <Label
                             htmlFor={`recipient-${recipient._id}`}
-                            className="cursor-pointer font-medium"
+                            className="cursor-pointer break-words font-medium"
                           >
                             {recipient.fullName}
                           </Label>
-                          <p className="text-xs text-muted-foreground">{buildUserLabel(recipient)}</p>
+                          <p className="break-words text-xs text-muted-foreground">{buildUserLabel(recipient)}</p>
                         </div>
                       </div>
                     );
@@ -657,10 +628,11 @@ const NotificationBroadcastPage: React.FC = () => {
                 placeholder="Search by role name or code"
                 className="md:max-w-md"
               />
-              <div className="flex items-center gap-2">
+              <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
                 <Button
                   type="button"
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={handleSelectDisplayedRoles}
                   disabled={displayedRoleIds.length === 0 || areAllDisplayedRolesSelected}
                 >
@@ -669,6 +641,7 @@ const NotificationBroadcastPage: React.FC = () => {
                 <Button
                   type="button"
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={handleClearSelectedRoles}
                   disabled={selectedRoleIds.length === 0}
                 >
@@ -703,11 +676,11 @@ const NotificationBroadcastPage: React.FC = () => {
                           checked={checked}
                           onCheckedChange={(value) => toggleRole(role, value === true)}
                         />
-                        <div className="space-y-1">
+                        <div className="min-w-0 space-y-1">
                           <Label htmlFor={`role-${role._id}`} className="cursor-pointer font-medium">
                             {role.roleName}
                           </Label>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="break-words text-xs text-muted-foreground">
                             {buildRoleLabel(role)} - {role.memberCount} users
                           </p>
                         </div>
@@ -734,7 +707,7 @@ const NotificationBroadcastPage: React.FC = () => {
       )}
 
       <div className="flex justify-end">
-        <Button type="button" onClick={handleSend} disabled={sending} className="min-w-44">
+        <Button type="button" onClick={handleSend} disabled={sending} className="w-full sm:w-auto sm:min-w-44">
           {sending ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -755,7 +728,7 @@ const NotificationBroadcastPage: React.FC = () => {
             <CardTitle>Latest send summary</CardTitle>
             <CardDescription>Backend response for the latest notification dispatch</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-4">
+          <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryItem label="Created" value={String(result.created)} />
             <SummaryItem label="Recipients" value={String(result.recipientCount)} />
             <SummaryItem label="Target type" value={result.targetType} />
@@ -771,7 +744,7 @@ const SummaryItem: React.FC<{ label: string; value: string }> = ({ label, value 
   return (
     <div className="rounded-lg border p-3">
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold">{value}</p>
+      <p className="mt-1 break-words text-lg font-semibold">{value}</p>
     </div>
   );
 };

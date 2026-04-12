@@ -1,13 +1,15 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { scheduleService } from '@/services/schedule.service';
 import transferService from '@/services/transfer.service';
 import { TransferRecord } from '@/types/transfer.types';
 import { userService } from '@/services/user.service';
 import { lockerService } from '@/services/locker.service';
+import roomService from '@/services/room.service';
 import { wsService } from '@/services/websocket.service';
 import { UserListItem } from '@/types/models.types';
 import { LockerEntity } from '@/types/locker.type';
+import { Room } from '@/types/room.types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,8 +37,14 @@ const normalizeDisplayText = (value: unknown): string => {
 
 const isLikelyObjectId = (value: string): boolean => /^[a-f\d]{24}$/i.test(value);
 
-const getScheduleRoomCode = (schedule: any): string => {
-  if (!schedule || typeof schedule !== 'object') return '-';
+type TransferRoomMeta = {
+  key: string;
+  roomCode: string;
+  roomName: string;
+};
+
+const getScheduleRoomMeta = (schedule: any): TransferRoomMeta | null => {
+  if (!schedule || typeof schedule !== 'object') return null;
 
   const nestedRoom = schedule.room && typeof schedule.room === 'object' ? schedule.room : null;
   const objectRoomId = schedule.roomId && typeof schedule.roomId === 'object' ? schedule.roomId : null;
@@ -44,24 +52,38 @@ const getScheduleRoomCode = (schedule: any): string => {
   const roomCode =
     normalizeDisplayText(nestedRoom?.roomCode) ||
     normalizeDisplayText(objectRoomId?.roomCode);
+  const roomName =
+    normalizeDisplayText(nestedRoom?.roomName) ||
+    normalizeDisplayText(objectRoomId?.roomName);
 
-  if (roomCode) return roomCode;
+  const roomKey =
+    normalizeDisplayText(nestedRoom?.id) ||
+    normalizeDisplayText(nestedRoom?._id) ||
+    normalizeDisplayText(objectRoomId?.id) ||
+    normalizeDisplayText(objectRoomId?._id) ||
+    normalizeDisplayText(schedule.roomId);
 
-  const rawRoomId = normalizeDisplayText(schedule.roomId);
-  if (rawRoomId && !isLikelyObjectId(rawRoomId)) {
-    return rawRoomId;
+  const fallbackCode =
+    roomCode ||
+    (roomKey && !isLikelyObjectId(roomKey) ? roomKey : '');
+
+  if (!roomKey && !fallbackCode) {
+    return null;
   }
 
-  return '-';
+  return {
+    key: roomKey || fallbackCode,
+    roomCode: fallbackCode || '-',
+    roomName,
+  };
 };
 
-const getTransferRoomCode = (transfer: TransferRecord | null): string => {
-  if (!transfer) return '-';
-  return getScheduleRoomCode(transfer.sourceSchedule) !== '-'
-    ? getScheduleRoomCode(transfer.sourceSchedule)
-    : getScheduleRoomCode(transfer.targetSchedule) !== '-'
-      ? getScheduleRoomCode(transfer.targetSchedule)
-      : getScheduleRoomCode(transfer.targetBooking as any);
+const getTransferRoomMeta = (transfer: TransferRecord | null): TransferRoomMeta | null => {
+  if (!transfer) return null;
+
+  return getScheduleRoomMeta(transfer.sourceSchedule)
+    || getScheduleRoomMeta(transfer.targetSchedule)
+    || getScheduleRoomMeta(transfer.targetBooking as any);
 };
 
 const AdminTransferListPage: React.FC = () => {
@@ -72,11 +94,14 @@ const AdminTransferListPage: React.FC = () => {
   const [selected, setSelected] = useState<TransferRecord | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'all' | string>('all');
+  const [filterRoom, setFilterRoom] = useState<'all' | string>('all');
   const [keyword, setKeyword] = useState('');
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [lockers, setLockers] = useState<LockerEntity[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
   const [lockersLoading, setLockersLoading] = useState(true);
+  const [roomsLoading, setRoomsLoading] = useState(true);
   // Cache for dynamically fetched lockers not in the initial list
   const [extraLockers, setExtraLockers] = useState<Record<string, LockerEntity>>({});
   const fetchingLockerIds = useRef<Set<string>>(new Set());
@@ -138,6 +163,94 @@ const AdminTransferListPage: React.FC = () => {
       return null;
     }
     return resolved;
+  };
+
+  const roomDirectory = useMemo(
+    () =>
+      rooms.reduce(
+        (acc, room) => {
+          acc[String(room._id)] = {
+            roomCode: room.roomCode,
+            roomName: room.roomName,
+          };
+          return acc;
+        },
+        {} as Record<string, { roomCode: string; roomName: string }>,
+      ),
+    [rooms],
+  );
+
+  const resolveRoomMeta = (schedule: any): TransferRoomMeta | null => {
+    const direct = getScheduleRoomMeta(schedule);
+    if (direct && direct.roomCode !== '-') {
+      return direct;
+    }
+
+    if (!schedule || typeof schedule !== 'object') {
+      return direct;
+    }
+
+    const roomId =
+      schedule.roomId && typeof schedule.roomId === 'object'
+        ? normalizeDisplayText(schedule.roomId._id || schedule.roomId.id)
+        : normalizeDisplayText(schedule.roomId);
+
+    if (!roomId) {
+      return direct;
+    }
+
+    const mapped = roomDirectory[roomId];
+    if (!mapped) {
+      return direct;
+    }
+
+    return {
+      key: roomId,
+      roomCode: mapped.roomCode || '-',
+      roomName: mapped.roomName || '',
+    };
+  };
+
+  const getRoomLabel = (roomMeta: TransferRoomMeta | null): string => {
+    if (!roomMeta) return '-';
+    return roomMeta.roomName ? `${roomMeta.roomCode} - ${roomMeta.roomName}` : roomMeta.roomCode;
+  };
+
+  const getTransferRoomInfo = (transfer: TransferRecord | null) => {
+    if (!transfer) {
+      return {
+        primary: '-',
+        secondary: '',
+        keys: [] as string[],
+      };
+    }
+
+    const sourceRoomMeta = resolveRoomMeta(transfer.sourceSchedule);
+    const targetRoomMeta = resolveRoomMeta(transfer.targetSchedule || transfer.targetBooking);
+    const keys = [sourceRoomMeta?.key, targetRoomMeta?.key].filter(Boolean) as string[];
+
+    if (sourceRoomMeta && targetRoomMeta && sourceRoomMeta.key !== targetRoomMeta.key) {
+      return {
+        primary: getRoomLabel(sourceRoomMeta),
+        secondary: `Target: ${getRoomLabel(targetRoomMeta)}`,
+        keys,
+      };
+    }
+
+    const singleRoomMeta = sourceRoomMeta || targetRoomMeta;
+    if (!singleRoomMeta) {
+      return {
+        primary: roomsLoading ? 'Loading...' : '-',
+        secondary: '',
+        keys,
+      };
+    }
+
+    return {
+      primary: getRoomLabel(singleRoomMeta),
+      secondary: '',
+      keys,
+    };
   };
 
 
@@ -241,6 +354,12 @@ const AdminTransferListPage: React.FC = () => {
       .then(setLockers)
       .catch(() => setLockers([]))
       .finally(() => setLockersLoading(false));
+
+    roomService
+      .getAllRooms()
+      .then(setRooms)
+      .catch(() => setRooms([]))
+      .finally(() => setRoomsLoading(false));
   }, []);
 
   useEffect(() => {
@@ -305,18 +424,46 @@ const AdminTransferListPage: React.FC = () => {
     void openFocusedTransfer();
   }, [searchParams, setSearchParams, filterStatus]);
 
+  const roomOptions = useMemo(() => {
+    const uniqueRooms = new Map<string, { key: string; label: string }>();
+
+    transfers.forEach((transfer) => {
+      const sourceRoomMeta = resolveRoomMeta(transfer.sourceSchedule);
+      const targetRoomMeta = resolveRoomMeta(transfer.targetSchedule || transfer.targetBooking);
+
+      [sourceRoomMeta, targetRoomMeta].forEach((roomMeta) => {
+        if (!roomMeta?.key) {
+          return;
+        }
+
+        if (!uniqueRooms.has(roomMeta.key)) {
+          uniqueRooms.set(roomMeta.key, {
+            key: roomMeta.key,
+            label: getRoomLabel(roomMeta),
+          });
+        }
+        });
+    });
+
+    return Array.from(uniqueRooms.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [transfers, roomDirectory]);
+
   // Search & filter
   const normalizedKeyword = keyword.trim().toLowerCase();
   const filteredTransfers = transfers.filter((tr) => {
+    const roomInfo = getTransferRoomInfo(tr);
     const matchesKeyword =
       !normalizedKeyword ||
       (getTransferUserDisplay(tr, 'from') || '').toLowerCase().includes(normalizedKeyword) ||
       (getTransferUserDisplay(tr, 'to') || '').toLowerCase().includes(normalizedKeyword) ||
+      roomInfo.primary.toLowerCase().includes(normalizedKeyword) ||
+      roomInfo.secondary.toLowerCase().includes(normalizedKeyword) ||
       (getTransferLockerDisplay(tr) || '').toLowerCase().includes(normalizedKeyword) ||
       (tr.reason || '').toLowerCase().includes(normalizedKeyword) ||
       (tr.notes || '').toLowerCase().includes(normalizedKeyword);
+    const matchesRoom = filterRoom === 'all' || roomInfo.keys.includes(filterRoom);
     const matchesStatus = filterStatus === 'all' || tr.status === filterStatus;
-    return matchesKeyword && matchesStatus;
+    return matchesKeyword && matchesStatus && matchesRoom;
   });
 
   if (loading) {
@@ -329,12 +476,12 @@ const AdminTransferListPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-3xl font-bold tracking-tight">Transfer Management</h1>
           <p className="mt-1 text-muted-foreground">Monitor and review transfer requests</p>
         </div>
-        <Button variant="outline" onClick={() => fetchTransfers(true)} disabled={refreshing}>
+        <Button className="w-full sm:w-auto" variant="outline" onClick={() => fetchTransfers(true)} disabled={refreshing}>
           <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
           Reload
         </Button>
@@ -343,20 +490,20 @@ const AdminTransferListPage: React.FC = () => {
       <Card>
         <CardHeader>
           <CardTitle>Filters</CardTitle>
-          <CardDescription>Search transfers and narrow down by status</CardDescription>
+          <CardDescription>Search transfers and narrow down by status and room</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          <div className="relative md:col-span-2">
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="relative md:col-span-2 xl:col-span-2">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
-              placeholder="Search by user, locker, reason..."
+              placeholder="Search by user, room, locker, reason..."
               className="pl-9"
             />
           </div>
           <Select value={filterStatus} onValueChange={(value) => setFilterStatus(value as any)}>
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
             <SelectContent>
@@ -365,6 +512,19 @@ const AdminTransferListPage: React.FC = () => {
               <SelectItem value="approved">Approved</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
               <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={filterRoom} onValueChange={(value) => setFilterRoom(value as 'all' | string)}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Filter by room" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All rooms</SelectItem>
+              {roomOptions.map((roomOption) => (
+                <SelectItem key={roomOption.key} value={roomOption.key} title={roomOption.label}>
+                  {roomOption.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </CardContent>
@@ -376,11 +536,13 @@ const AdminTransferListPage: React.FC = () => {
           <CardDescription>Total: {filteredTransfers.length}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
+          <div className="overflow-x-auto">
+          <Table className="min-w-[980px]">
             <TableHeader>
               <TableRow>
                 <TableHead>#</TableHead>
                 <TableHead>Locker</TableHead>
+                <TableHead>Room</TableHead>
                 <TableHead>From</TableHead>
                 <TableHead>To</TableHead>
                 <TableHead>Status</TableHead>
@@ -391,7 +553,7 @@ const AdminTransferListPage: React.FC = () => {
             <TableBody>
               {filteredTransfers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
                     No transfers found
                   </TableCell>
                 </TableRow>
@@ -402,42 +564,71 @@ const AdminTransferListPage: React.FC = () => {
                       const fromDisplay = getTransferUserDisplay(tr, 'from');
                       const toDisplay = getTransferUserDisplay(tr, 'to');
                       const lockerDisplay = getTransferLockerDisplay(tr);
+                      const roomInfo = getTransferRoomInfo(tr);
                       const showUserSpinner = usersLoading && (!fromDisplay || !toDisplay);
                       const showLockerSpinner = lockersLoading && !lockerDisplay;
+                      const lockerPrimary = lockerDisplay?.split('|')[0]?.trim() || '';
+                      const lockerSecondary = lockerDisplay?.includes('|')
+                        ? lockerDisplay.split('|').slice(1).join('|').trim()
+                        : '';
 
                       return (
                         <>
                     <TableCell>{idx + 1}</TableCell>
                     <TableCell>
-                      {lockerDisplay || (showLockerSpinner ? (
+                      {lockerDisplay ? (
+                        <div className="max-w-[220px]">
+                          <div className="truncate font-medium" title={lockerPrimary}>{lockerPrimary}</div>
+                          {lockerSecondary && (
+                            <div className="truncate text-xs text-muted-foreground" title={lockerSecondary}>{lockerSecondary}</div>
+                          )}
+                        </div>
+                      ) : showLockerSpinner ? (
                         <span className="inline-flex items-center gap-1 text-primary">
                           <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                         </span>
-                      ) : '-')}
+                      ) : '-'}
                     </TableCell>
                     <TableCell>
+                      <div className="max-w-[240px]">
+                      <div className="truncate font-medium" title={roomInfo.primary}>{roomInfo.primary}</div>
+                      {roomInfo.secondary && (
+                        <div className="truncate text-xs text-muted-foreground" title={roomInfo.secondary}>{roomInfo.secondary}</div>
+                      )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="max-w-[180px] truncate" title={fromDisplay || ''}>
                       {fromDisplay || (showUserSpinner ? (
                         <span className="inline-flex items-center gap-1 text-primary">
                           <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                         </span>
                       ) : '-')}
+                      </div>
                     </TableCell>
                     <TableCell>
+                      <div className="max-w-[180px] truncate" title={toDisplay || ''}>
                       {toDisplay || (showUserSpinner ? (
                         <span className="inline-flex items-center gap-1 text-primary">
                           <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                         </span>
                       ) : '-')}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={getStatusBadgeClass(tr.status)}>
                         {tr.status}
                       </Badge>
                     </TableCell>
-                    <TableCell>{tr.createdAt ? new Date(tr.createdAt).toLocaleDateString() : '-'}</TableCell>
+                    <TableCell className="whitespace-nowrap">{tr.createdAt ? new Date(tr.createdAt).toLocaleDateString() : '-'}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="outline" size="sm" onClick={() => void openTransferDetail(tr)}>
-                        <Eye className="mr-1 h-3.5 w-3.5" /> Detail
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => void openTransferDetail(tr)}
+                        title="View detail"
+                      >
+                        <Eye className="h-4 w-4" />
                       </Button>
                     </TableCell>
                         </>
@@ -448,11 +639,12 @@ const AdminTransferListPage: React.FC = () => {
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
       {showDetail && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-[500px] max-w-[90vw] max-h-[90vh] overflow-y-auto relative border border-blue-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 p-4">
+          <div className="relative max-h-[90vh] w-full max-w-[500px] overflow-y-auto rounded-2xl border border-blue-200 bg-white p-4 shadow-2xl sm:p-6">
             <button className="absolute top-3 right-3 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold shadow" onClick={() => setShowDetail(false)} aria-label="Close">×</button>
             <h2 className="text-xl font-bold mb-2">Transfer Detail</h2>
             {!selected && (
@@ -472,23 +664,23 @@ const AdminTransferListPage: React.FC = () => {
                    <>
                {/* Source class info */}
                <div className="font-semibold text-blue-900 mb-1">Source Class</div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Subject Name:</span> <span>{selected.sourceSchedule?.subjectName || '-'}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Date:</span> <span>{selected.sourceSchedule?.dateStart ? new Date(selected.sourceSchedule.dateStart).toLocaleDateString() : '-'}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Time:</span> <span>{selected.sourceSchedule ? `${selected.sourceSchedule.startTime} - ${selected.sourceSchedule.endTime}` : '-'}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Room:</span> <span>{getTransferRoomCode(selected)}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Locker:</span> <span>{getTransferLockerDisplay(selected) || '-'}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">From Lecturer:</span> <span>{selected.fromUser?.fullName || selected.sourceSchedule?.lecturer?.fullName || getUserDisplay(selected.fromUserId)}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Subject Name:</span> <span className="break-words text-left sm:text-right">{selected.sourceSchedule?.subjectName || '-'}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Date:</span> <span className="break-words text-left sm:text-right">{selected.sourceSchedule?.dateStart ? new Date(selected.sourceSchedule.dateStart).toLocaleDateString() : '-'}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Time:</span> <span className="break-words text-left sm:text-right">{selected.sourceSchedule ? `${selected.sourceSchedule.startTime} - ${selected.sourceSchedule.endTime}` : '-'}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Room:</span> <span className="break-words text-left sm:text-right">{getTransferRoomInfo(selected).primary}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Locker:</span> <span className="break-words text-left sm:text-right">{getTransferLockerDisplay(selected) || '-'}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">From Lecturer:</span> <span className="break-words text-left sm:text-right">{selected.fromUser?.fullName || selected.sourceSchedule?.lecturer?.fullName || getUserDisplay(selected.fromUserId)}</span></div>
                <div className="font-semibold text-blue-900 mt-4 mb-1">Target Handover</div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">To Lecturer:</span> <span>{selected.toUser?.fullName || targetDetail?.lecturer?.fullName || getUserDisplay(selected.toUserId)}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Email:</span> <span>{selected.toUser?.email || targetDetail?.lecturer?.email || '-'}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Target:</span> <span>{targetSlotLabel}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Transfer Date:</span> <span>{selected.transferDate ? new Date(selected.transferDate).toLocaleDateString() : '-'}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Reason:</span> <span>{selected.reason || '-'}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Notes:</span> <span>{selected.notes || '-'}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Status:</span> <Badge variant="outline" className={getStatusBadgeClass(selected.status)}>{selected.status}</Badge></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Activated At:</span> <span>{selected.activatedAt ? new Date(selected.activatedAt).toLocaleString() : '-'}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Created At:</span> <span>{selected.createdAt ? new Date(selected.createdAt).toLocaleString() : '-'}</span></div>
-               <div className="flex justify-between"><span className="font-medium text-gray-600">Updated At:</span> <span>{selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">To Lecturer:</span> <span className="break-words text-left sm:text-right">{selected.toUser?.fullName || targetDetail?.lecturer?.fullName || getUserDisplay(selected.toUserId)}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Email:</span> <span className="break-words text-left sm:text-right">{selected.toUser?.email || targetDetail?.lecturer?.email || '-'}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Target:</span> <span className="break-words text-left sm:text-right">{targetSlotLabel}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Transfer Date:</span> <span className="break-words text-left sm:text-right">{selected.transferDate ? new Date(selected.transferDate).toLocaleDateString() : '-'}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Reason:</span> <span className="break-words text-left sm:text-right">{selected.reason || '-'}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Notes:</span> <span className="break-words text-left sm:text-right">{selected.notes || '-'}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Status:</span> <Badge variant="outline" className={getStatusBadgeClass(selected.status)}>{selected.status}</Badge></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Activated At:</span> <span className="break-words text-left sm:text-right">{selected.activatedAt ? new Date(selected.activatedAt).toLocaleString() : '-'}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Created At:</span> <span className="break-words text-left sm:text-right">{selected.createdAt ? new Date(selected.createdAt).toLocaleString() : '-'}</span></div>
+               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Updated At:</span> <span className="break-words text-left sm:text-right">{selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span></div>
                    </>
                  );
                })()}
