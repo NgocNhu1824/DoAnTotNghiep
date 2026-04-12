@@ -27,7 +27,7 @@ export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 
   @Post()
-  @RequirePermissions('settings.update')
+  @RequirePermissions('settings.create')
   async create(@Body() dto: CreateSettingDto, @CurrentUser() currentUser: any) {
     const data = await this.settingsService.create(dto, currentUser);
     return {
@@ -47,6 +47,17 @@ export class SettingsController {
     const data = await this.settingsService.getEffectiveByKey(key, campusId, currentUser);
     return {
       success: true,
+      data,
+    };
+  }
+
+  @Post('cache/warmup')
+  @RequirePermissions('settings.update')
+  async warmupCache(@CurrentUser() currentUser: any) {
+    const data = await this.settingsService.warmupCache(currentUser);
+    return {
+      success: true,
+      message: 'Settings cache warmup completed',
       data,
     };
   }

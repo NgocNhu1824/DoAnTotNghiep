@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, Pencil, Plus, Search, Trash2, Eye } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import { useToast } from '../../hooks/use-toast';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -17,11 +17,14 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import CrudActionButtons from '../../components/common/CrudActionButtons';
+import CreateActionButton from '../../components/common/CreateActionButton';
 
 import deviceService from '../../services/device.service';
 import roomService from '../../services/room.service';
 import { Device, DeviceStatus, CreateDeviceDto, UpdateDeviceDto } from '../../types/device.types';
 import { Room } from '../../types/room.types';
+import { PERMISSIONS } from '../../utils/permissions';
 
 const DEVICE_STATUS_OPTIONS: { value: 'all' | DeviceStatus; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -257,10 +260,9 @@ const DeviceManagementPage: React.FC = () => {
           <h1 className="text-3xl font-bold tracking-tight">Device Management</h1>
           <p className="text-muted-foreground mt-2">Manage devices by classroom</p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="mr-2 h-4 w-4" />
+        <CreateActionButton permission={PERMISSIONS.DEVICES_CREATE} onClick={openCreate}>
           Add Device
-        </Button>
+        </CreateActionButton>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -372,22 +374,14 @@ const DeviceManagementPage: React.FC = () => {
                       <TableCell>{device.quantity}</TableCell>
                       <TableCell>{getStatusBadge(device.deviceStatus)}</TableCell>
                       <TableCell>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button variant="ghost" size="icon" onClick={() => openView(device)}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => openEdit(device)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => requestDelete(device)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        <CrudActionButtons
+                          onView={() => openView(device)}
+                          onEdit={() => openEdit(device)}
+                          onDelete={() => requestDelete(device)}
+                          viewPermission={PERMISSIONS.DEVICES_READ}
+                          editPermission={PERMISSIONS.DEVICES_UPDATE}
+                          deletePermission={PERMISSIONS.DEVICES_DELETE}
+                        />
                       </TableCell>
                     </TableRow>
                   ))

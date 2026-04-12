@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, Trash2 } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import bookingService from '@/services/booking.service';
@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import CrudActionButtons from '@/components/common/CrudActionButtons';
 import {
   Dialog,
   DialogContent,
@@ -596,14 +597,10 @@ const BookingManagementPage: React.FC = () => {
                             hideIfNoPermission={false}
                             fallback={<span className="text-xs text-muted-foreground">--</span>}
                           >
-                            <Button
-                              variant="destructive"
-                              size="icon"
-                              onClick={() => handleDelete(booking._id)}
-                              disabled={savingId === booking._id}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <CrudActionButtons
+                              onDelete={() => handleDelete(booking._id)}
+                              disableDelete={savingId === booking._id}
+                            />
                           </PermissionGuard>
                         </TableCell>
                       </TableRow>
@@ -750,7 +747,7 @@ const BookingManagementPage: React.FC = () => {
               </div>
               <div className="space-y-2">
                 <p className="text-muted-foreground">Reason</p>
-                <div className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                <div className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap [overflow-wrap:anywhere]">
                   {getLimitedDetailText(getBookingReason(reasonDetailBooking))}
                 </div>
               </div>
@@ -793,7 +790,7 @@ const BookingManagementPage: React.FC = () => {
               </div>
               <div className="space-y-2">
                 <p className="text-muted-foreground">Purpose</p>
-                <div className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                <div className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap [overflow-wrap:anywhere]">
                   {getLimitedDetailText(purposeDetailBooking.purpose)}
                 </div>
               </div>

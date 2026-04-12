@@ -1,14 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactPaginate from 'react-paginate';
 import { AxiosError } from 'axios';
-import { Eye, Loader2, LockOpen, Pencil, RefreshCcw, Search, Trash2 } from 'lucide-react';
+import { Loader2, LockOpen, RefreshCcw, Search } from 'lucide-react';
 
 import { lockerService } from '../../services/locker.service';
 import { campusService } from '../../services/campus.service';
 import { LockerEntity, LockerPayload, LockerStatus } from '../../types/locker.type';
 import EditLockerModal from '@/components/modals/EditLockerModal';
 import ViewLockerModal from '@/components/modals/ViewLockerModal';
+import PermissionGuard from '../../components/PermissionGuard';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import CrudActionButtons from '../../components/common/CrudActionButtons';
+import CreateActionButton from '../../components/common/CreateActionButton';
 import { useToast } from '../../hooks/use-toast';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -18,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Badge } from '../../components/ui/badge';
 import { wsService } from '../../services/websocket.service';
+import { PERMISSIONS } from '../../utils/permissions';
 
 type Campus = {
   _id: string;
@@ -607,7 +611,12 @@ const LockerManagementPage: React.FC = () => {
           <h1 className="text-3xl font-bold tracking-tight">Locker Management</h1>
           <p className="text-muted-foreground mt-2">Manage lockers and monitor ESP32 connectivity</p>
         </div>
-        <Button onClick={handleSyncAllIoT} disabled={syncAllLoading}>
+        <CreateActionButton
+          permission={PERMISSIONS.MANAGE_LOCKERS}
+          onClick={handleSyncAllIoT}
+          icon={<RefreshCcw className="mr-2 h-4 w-4" />}
+          disabled={syncAllLoading}
+        >
           {syncAllLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -619,7 +628,7 @@ const LockerManagementPage: React.FC = () => {
               Sync IoT
             </>
           )}
-        </Button>
+        </CreateActionButton>
       </div>
 
       <Card>
@@ -807,24 +816,30 @@ const LockerManagementPage: React.FC = () => {
                       <TableCell>{getEsp32Badge(locker.esp32Status)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{formatHeartbeat(locker.lastHeartbeat)}</TableCell>
                       <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleSyncLocker(locker)}
-                          disabled={!locker.deviceId || syncingLockerIds[String(locker.id)]}
+                        <PermissionGuard
+                          permissions={[PERMISSIONS.MANAGE_LOCKERS]}
+                          hideIfNoPermission={false}
+                          fallback={<span className="text-xs text-muted-foreground">--</span>}
                         >
-                          {syncingLockerIds[String(locker.id)] ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Syncing...
-                            </>
-                          ) : (
-                            <>
-                              <RefreshCcw className="mr-2 h-4 w-4" />
-                              Sync
-                            </>
-                          )}
-                        </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleSyncLocker(locker)}
+                            disabled={!locker.deviceId || syncingLockerIds[String(locker.id)]}
+                          >
+                            {syncingLockerIds[String(locker.id)] ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Syncing...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCcw className="mr-2 h-4 w-4" />
+                                Sync
+                              </>
+                            )}
+                          </Button>
+                        </PermissionGuard>
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -839,59 +854,47 @@ const LockerManagementPage: React.FC = () => {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleUnlockLocker(locker)}
-                            disabled={
-                              unlockingLockerIds[String(locker.id)] ||
-                              !locker.isActive ||
-                              !locker.deviceId ||
-                              !Number.isFinite(Number(locker.controlPin))
-                            }
-                          >
-                            {unlockingLockerIds[String(locker.id)] ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Opening...
-                              </>
-                            ) : (
-                              <>
-                                <LockOpen className="mr-2 h-4 w-4" />
-                                Open
-                              </>
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setSelectedLocker(locker);
-                              setIsViewOpen(true);
-                            }}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setSelectedLocker(locker);
-                              setIsEditOpen(true);
-                            }}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => requestDelete(locker)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        <CrudActionButtons
+                          onView={() => {
+                            setSelectedLocker(locker);
+                            setIsViewOpen(true);
+                          }}
+                          onEdit={() => {
+                            setSelectedLocker(locker);
+                            setIsEditOpen(true);
+                          }}
+                          onDelete={() => requestDelete(locker)}
+                          viewPermission={PERMISSIONS.LOCKERS_READ}
+                          editPermission={PERMISSIONS.LOCKERS_UPDATE}
+                          deletePermission={PERMISSIONS.MANAGE_LOCKERS}
+                          extraActions={
+                            <PermissionGuard permissions={[PERMISSIONS.LOCKERS_UNLOCK]}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleUnlockLocker(locker)}
+                                disabled={
+                                  unlockingLockerIds[String(locker.id)] ||
+                                  !locker.isActive ||
+                                  !locker.deviceId ||
+                                  !Number.isFinite(Number(locker.controlPin))
+                                }
+                              >
+                                {unlockingLockerIds[String(locker.id)] ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Opening...
+                                  </>
+                                ) : (
+                                  <>
+                                    <LockOpen className="mr-2 h-4 w-4" />
+                                    Open
+                                  </>
+                                )}
+                              </Button>
+                            </PermissionGuard>
+                          }
+                        />
                       </TableCell>
                     </TableRow>
                   ))

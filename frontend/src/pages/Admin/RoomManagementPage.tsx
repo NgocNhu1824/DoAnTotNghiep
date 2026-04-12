@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactPaginate from 'react-paginate';
 import { AxiosError } from 'axios';
-import { Eye, Loader2, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react';
+import { Loader2, Search, Upload } from 'lucide-react';
 
 import roomService from '../../services/room.service';
 import { campusService } from '../../services/campus.service';
@@ -19,6 +19,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Badge } from '../../components/ui/badge';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import CrudActionButtons from '../../components/common/CrudActionButtons';
+import CreateActionButton from '../../components/common/CreateActionButton';
+import { PERMISSIONS } from '../../utils/permissions';
 
 type Campus = {
   _id: string;
@@ -289,10 +292,12 @@ const RoomManagementPage: React.FC = () => {
             <Upload className="mr-2 h-4 w-4" />
             Import
           </Button>
-          <Button onClick={() => setIsCreateModalOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
+          <CreateActionButton
+            permission={PERMISSIONS.ROOMS_CREATE}
+            onClick={() => setIsCreateModalOpen(true)}
+          >
             Add Room
-          </Button>
+          </CreateActionButton>
         </div>
       </div>
 
@@ -426,39 +431,20 @@ const RoomManagementPage: React.FC = () => {
                       <TableCell>{getCampusName(room)}</TableCell>
                       <TableCell>{getStatusBadge(room.status)}</TableCell>
                       <TableCell>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setSelectedRoom(room);
-                              setIsViewModalOpen(true);
-                            }}
-                            title="View details"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setSelectedRoom(room);
-                              setIsEditModalOpen(true);
-                            }}
-                            title="Edit"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => requestDeleteRoom(room)}
-                            title="Delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        <CrudActionButtons
+                          onView={() => {
+                            setSelectedRoom(room);
+                            setIsViewModalOpen(true);
+                          }}
+                          onEdit={() => {
+                            setSelectedRoom(room);
+                            setIsEditModalOpen(true);
+                          }}
+                          onDelete={() => requestDeleteRoom(room)}
+                          viewPermission={PERMISSIONS.ROOMS_READ}
+                          editPermission={PERMISSIONS.ROOMS_UPDATE}
+                          deletePermission={PERMISSIONS.ROOMS_DELETE}
+                        />
                       </TableCell>
                     </TableRow>
                   ))

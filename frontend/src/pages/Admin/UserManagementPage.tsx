@@ -18,6 +18,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/avatar'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { useToast } from '../../hooks/use-toast';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import CrudActionButtons from '../../components/common/CrudActionButtons';
+import CreateActionButton from '../../components/common/CreateActionButton';
 import ImportUserModal from '../../components/modals/ImportUserModal';
 import { Loader2, Search, Upload, UserPlus } from 'lucide-react';
 
@@ -205,18 +207,21 @@ const UserManagementPage: React.FC = () => {
             Create and manage user accounts in the system
           </p>
         </div>
-        <PermissionGuard permissions={[PERMISSIONS.USERS_CREATE]}>
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          <PermissionGuard permissions={[PERMISSIONS.USERS_CREATE]}>
             <Button variant="outline" onClick={() => setShowImportModal(true)}>
               <Upload className="mr-2 h-4 w-4" />
               Import
             </Button>
-            <Button onClick={() => setShowCreateModal(true)}>
-              <UserPlus className="mr-2 h-4 w-4" />
-              Add User
-            </Button>
-          </div>
-        </PermissionGuard>
+          </PermissionGuard>
+          <CreateActionButton
+            permission={PERMISSIONS.USERS_CREATE}
+            onClick={() => setShowCreateModal(true)}
+            icon={<UserPlus className="mr-2 h-4 w-4" />}
+          >
+            Add User
+          </CreateActionButton>
+        </div>
       </div>
 
       {/* Filters */}
@@ -341,38 +346,29 @@ const UserManagementPage: React.FC = () => {
                         )}
                       </TableCell>
                       <TableCell className="text-center">
-                        <div className="flex items-center justify-end gap-2">
-                          <PermissionGuard permissions={[PERMISSIONS.USERS_UPDATE]}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEditUser(user)}
-                            >
-                              Edit
-                            </Button>
-                          </PermissionGuard>
-                          <PermissionGuard permissions={[PERMISSIONS.USERS_DELETE]}>
-                            {user.isActive ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleBanUser(user._id, user.fullName)}
-                                className="text-destructive hover:text-destructive"
-                              >
-                                Ban
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleUnbanUser(user._id, user.fullName)}
-                                className="text-green-600 hover:text-green-700"
-                              >
-                                Unban
-                              </Button>
-                            )}
-                          </PermissionGuard>
-                        </div>
+                        <CrudActionButtons
+                          onEdit={() => handleEditUser(user)}
+                          onDelete={
+                            user.isActive ? () => handleBanUser(user._id, user.fullName) : undefined
+                          }
+                          editPermission={PERMISSIONS.USERS_UPDATE}
+                          deletePermission={PERMISSIONS.USERS_DELETE}
+                          deleteTitle="Ban user"
+                          extraActions={
+                            !user.isActive ? (
+                              <PermissionGuard permissions={[PERMISSIONS.USERS_DELETE]}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleUnbanUser(user._id, user.fullName)}
+                                  className="text-green-600 hover:text-green-700"
+                                >
+                                  Unban
+                                </Button>
+                              </PermissionGuard>
+                            ) : null
+                          }
+                        />
                       </TableCell>
                     </TableRow>
                   ))

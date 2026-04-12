@@ -5,6 +5,9 @@ import { Notification } from '@/database/schemas/notification.schema';
 import { User } from '@/database/schemas/user.schema';
 import { Role } from '@/database/schemas/role.schema';
 import { Booking } from '@/database/schemas/booking.schema';
+import { Schedule } from '@/database/schemas/schedule.schema';
+import { TimeSlot } from '@/database/schemas/time-slot.schema';
+import { Room } from '@/database/schemas/room.schema';
 import { QueryNotificationsDto } from './dto/query-notifications.dto';
 import { CreateManualNotificationDto } from './dto/create-manual-notification.dto';
 import { CreateNotificationInput } from './notifications.types';
@@ -14,6 +17,8 @@ import { SettingsService } from '@/modules/settings/settings.service';
 
 @Injectable()
 export class NotificationsService {
+  private static readonly DEFAULT_BEFORE_CLASS_MINUTES = 30;
+
   async notifyTransferApproved(payload: {
     transferId: string;
     campusId: string;
@@ -417,6 +422,12 @@ export class NotificationsService {
     private readonly roleModel: Model<Role>,
     @InjectModel(Booking.name)
     private readonly bookingModel: Model<Booking>,
+    @InjectModel(Schedule.name)
+    private readonly scheduleModel: Model<Schedule>,
+    @InjectModel(TimeSlot.name)
+    private readonly timeSlotModel: Model<TimeSlot>,
+    @InjectModel(Room.name)
+    private readonly roomModel: Model<Room>,
     private readonly eventsGateway: EventsGateway,
     private readonly notificationsQueueService: NotificationsQueueService,
     private readonly settingsService: SettingsService,
@@ -1060,6 +1071,221 @@ export class NotificationsService {
     await this.notificationsQueueService.cancelBookingReminder(bookingId);
   }
 
+  async notifyUpcomingStartReminders(pollIntervalMs: number): Promise<{
+    scheduleCandidates: number;
+    bookingCandidates: number;
+    attemptedNotifications: number;
+  }> {
+    const normalizedPollIntervalMs = this.normalizeReminderPollIntervalMs(pollIntervalMs);
+    const dueGraceMs = Math.max(60_000, normalizedPollIntervalMs + 5_000);
+
+    const now = new Date();
+    const nowMs = now.getTime();
+
+    const rangeStart = this.toUtcDayStart(new Date(nowMs - 24 * 60 * 60 * 1000));
+    const rangeEnd = this.toUtcDayStart(new Date(nowMs + 2 * 24 * 60 * 60 * 1000));
+    rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 1);
+
+    const [scheduleRows, bookingRows] = await Promise.all([
+      this.scheduleModel
+        .find({
+          status: { $in: ['scheduled', 'ongoing'] },
+          dateStart: { $gte: rangeStart, $lt: rangeEnd },
+        })
+        .select('_id campusId roomId lecturerId dateStart timeSlotId subjectName classCode subjectCode')
+        .lean()
+        .exec(),
+      this.bookingModel
+        .find({
+          status: 'approved',
+          $or: [
+            { bookingDate: { $gte: rangeStart, $lt: rangeEnd } },
+            { dateStart: { $gte: rangeStart, $lt: rangeEnd } },
+          ],
+        })
+        .select('_id campusId roomId lecturerId requesterId bookingDate dateStart startTime purpose')
+        .lean()
+        .exec(),
+    ]);
+
+    const timeSlotIdSet = new Set<string>();
+    const roomIdSet = new Set<string>();
+
+    for (const row of scheduleRows) {
+      const timeSlotId = this.extractObjectId((row as any)?.timeSlotId);
+      if (timeSlotId) {
+        timeSlotIdSet.add(timeSlotId);
+      }
+
+      const roomId = this.extractObjectId((row as any)?.roomId);
+      if (roomId) {
+        roomIdSet.add(roomId);
+      }
+    }
+
+    for (const row of bookingRows) {
+      const roomId = this.extractObjectId((row as any)?.roomId);
+      if (roomId) {
+        roomIdSet.add(roomId);
+      }
+    }
+
+    const [timeSlotRows, roomRows] = await Promise.all([
+      timeSlotIdSet.size
+        ? this.timeSlotModel
+            .find({ _id: { $in: Array.from(timeSlotIdSet).map((id) => new Types.ObjectId(id)) } })
+            .select('_id startTime')
+            .lean()
+            .exec()
+        : Promise.resolve([] as any[]),
+      roomIdSet.size
+        ? this.roomModel
+            .find({ _id: { $in: Array.from(roomIdSet).map((id) => new Types.ObjectId(id)) } })
+            .select('_id roomCode roomName')
+            .lean()
+            .exec()
+        : Promise.resolve([] as any[]),
+    ]);
+
+    const timeSlotStartMap = new Map<string, string>();
+    for (const row of timeSlotRows) {
+      const id = this.extractObjectId((row as any)?._id);
+      if (!id) {
+        continue;
+      }
+
+      timeSlotStartMap.set(id, String((row as any)?.startTime || '').trim());
+    }
+
+    const roomLabelMap = new Map<string, string>();
+    for (const row of roomRows) {
+      const id = this.extractObjectId((row as any)?._id);
+      if (!id) {
+        continue;
+      }
+
+      const roomCode = String((row as any)?.roomCode || '').trim();
+      const roomName = String((row as any)?.roomName || '').trim();
+      roomLabelMap.set(id, roomCode || roomName || 'assigned room');
+    }
+
+    const beforeClassMinutesByCampus = new Map<string, number>();
+    const getBeforeClassMinutes = async (campusId: string): Promise<number> => {
+      if (beforeClassMinutesByCampus.has(campusId)) {
+        return beforeClassMinutesByCampus.get(campusId) as number;
+      }
+
+      const value = await this.getBeforeClassReminderMinutes(campusId);
+      beforeClassMinutesByCampus.set(campusId, value);
+      return value;
+    };
+
+    const notificationItems: CreateNotificationInput[] = [];
+
+    for (const row of scheduleRows) {
+      const scheduleId = this.extractObjectId((row as any)?._id);
+      const campusId = this.extractObjectId((row as any)?.campusId);
+      const recipientId = this.extractObjectId((row as any)?.lecturerId);
+
+      if (!scheduleId || !campusId || !recipientId) {
+        continue;
+      }
+
+      const timeSlotId = this.extractObjectId((row as any)?.timeSlotId);
+      const startTime = timeSlotId ? timeSlotStartMap.get(timeSlotId) || '' : '';
+      const startAt = this.buildUtcDateTime((row as any)?.dateStart, startTime);
+
+      if (!startAt) {
+        continue;
+      }
+
+      const beforeClassMinutes = await getBeforeClassMinutes(campusId);
+      if (!this.isBeforeStartReminderDue(startAt.getTime(), beforeClassMinutes, nowMs, dueGraceMs)) {
+        continue;
+      }
+
+      const roomId = this.extractObjectId((row as any)?.roomId);
+      const roomLabel = roomId ? roomLabelMap.get(roomId) || 'assigned room' : 'assigned room';
+      const subject = String(
+        (row as any)?.subjectName || (row as any)?.classCode || (row as any)?.subjectCode || 'Upcoming class',
+      ).trim();
+
+      notificationItems.push({
+        recipientId,
+        campusId,
+        senderId: null,
+        type: 'schedule_starting_soon',
+        title: `Class starts in ${beforeClassMinutes} minute${beforeClassMinutes === 1 ? '' : 's'}`,
+        message: `${subject} at ${roomLabel} starts at ${startTime}`,
+        priority: 'high',
+        data: {
+          scheduleId,
+          roomId,
+          startTime,
+          startAt,
+          beforeClassMinutes,
+        },
+        dedupeKey: `start-reminder:schedule:${scheduleId}:recipient:${recipientId}:start:${startAt.toISOString()}`,
+      });
+    }
+
+    for (const row of bookingRows) {
+      const bookingId = this.extractObjectId((row as any)?._id);
+      const campusId = this.extractObjectId((row as any)?.campusId);
+      const recipientId =
+        this.extractObjectId((row as any)?.lecturerId) ||
+        this.extractObjectId((row as any)?.requesterId);
+
+      if (!bookingId || !campusId || !recipientId) {
+        continue;
+      }
+
+      const startTime = String((row as any)?.startTime || '').trim();
+      const startAt = this.buildUtcDateTime((row as any)?.bookingDate || (row as any)?.dateStart, startTime);
+
+      if (!startAt) {
+        continue;
+      }
+
+      const beforeClassMinutes = await getBeforeClassMinutes(campusId);
+      if (!this.isBeforeStartReminderDue(startAt.getTime(), beforeClassMinutes, nowMs, dueGraceMs)) {
+        continue;
+      }
+
+      const roomId = this.extractObjectId((row as any)?.roomId);
+      const roomLabel = roomId ? roomLabelMap.get(roomId) || 'assigned room' : 'assigned room';
+      const purpose = String((row as any)?.purpose || 'Upcoming booking').trim();
+
+      notificationItems.push({
+        recipientId,
+        campusId,
+        senderId: null,
+        type: 'booking_starting_soon',
+        title: `Booking starts in ${beforeClassMinutes} minute${beforeClassMinutes === 1 ? '' : 's'}`,
+        message: `${purpose} at ${roomLabel} starts at ${startTime}`,
+        priority: 'high',
+        data: {
+          bookingId,
+          roomId,
+          startTime,
+          startAt,
+          beforeClassMinutes,
+        },
+        dedupeKey: `start-reminder:booking:${bookingId}:recipient:${recipientId}:start:${startAt.toISOString()}`,
+      });
+    }
+
+    if (notificationItems.length > 0) {
+      await this.createAndBroadcastMany(notificationItems);
+    }
+
+    return {
+      scheduleCandidates: scheduleRows.length,
+      bookingCandidates: bookingRows.length,
+      attemptedNotifications: notificationItems.length,
+    };
+  }
+
   private async resolveManualRecipients(options: {
     targetType: 'users' | 'campus' | 'all' | 'role';
     recipientIds?: string[];
@@ -1361,6 +1587,116 @@ export class NotificationsService {
     const { min, max } = await this.getReminderBounds(campusId);
     const delayMinutes = min + Math.floor(Math.random() * (max - min + 1));
     return delayMinutes * 60 * 1000;
+  }
+
+  private normalizeBeforeClassReminderMinutes(value: unknown, fallback: number): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+
+    const rounded = Math.round(parsed);
+    if (rounded < 0 || rounded > 1440) {
+      return fallback;
+    }
+
+    return rounded;
+  }
+
+  private async getBeforeClassReminderMinutes(campusId: string): Promise<number> {
+    const defaultMinutes = Number(
+      process.env.NOTIFICATION_BEFORE_CLASS || NotificationsService.DEFAULT_BEFORE_CLASS_MINUTES,
+    );
+    const fallback = this.normalizeBeforeClassReminderMinutes(
+      defaultMinutes,
+      NotificationsService.DEFAULT_BEFORE_CLASS_MINUTES,
+    );
+
+    try {
+      const effective = await this.settingsService.getEffectiveValueForCampus(
+        'notification.notification_before_class',
+        campusId,
+      );
+
+      return this.normalizeBeforeClassReminderMinutes(effective?.value, fallback);
+    } catch {
+      return fallback;
+    }
+  }
+
+  private normalizeReminderPollIntervalMs(value: unknown): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return 30_000;
+    }
+
+    const rounded = Math.round(parsed);
+    if (rounded < 5_000 || rounded > 10 * 60 * 1000) {
+      return 30_000;
+    }
+
+    return rounded;
+  }
+
+  private toUtcDayStart(value: Date): Date {
+    const date = new Date(value);
+    return new Date(
+      Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0),
+    );
+  }
+
+  private parseTimeToMinutes(value: string): number {
+    const parts = String(value || '')
+      .split(':')
+      .map((item) => Number(item));
+
+    if (parts.length !== 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) {
+      return -1;
+    }
+
+    const [hours, minutes] = parts;
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+      return -1;
+    }
+
+    return hours * 60 + minutes;
+  }
+
+  private buildUtcDateTime(dateValue: unknown, timeValue: string): Date | null {
+    const date = new Date(String(dateValue || ''));
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    const minutes = this.parseTimeToMinutes(timeValue);
+    if (minutes < 0) {
+      return null;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+
+    return new Date(
+      Date.UTC(
+        date.getUTCFullYear(),
+        date.getUTCMonth(),
+        date.getUTCDate(),
+        hours,
+        mins,
+        0,
+        0,
+      ),
+    );
+  }
+
+  private isBeforeStartReminderDue(
+    startAtMs: number,
+    beforeClassMinutes: number,
+    nowMs: number,
+    dueGraceMs: number,
+  ): boolean {
+    const reminderAtMs = startAtMs - beforeClassMinutes * 60 * 1000;
+    return nowMs >= reminderAtMs && nowMs <= reminderAtMs + dueGraceMs;
   }
 
   private mapNotification(item: any): any {

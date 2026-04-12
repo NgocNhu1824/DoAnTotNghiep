@@ -3,7 +3,9 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
@@ -18,7 +20,9 @@ import { UpdateSettingDto } from './dto/update-setting.dto';
 type EffectiveSource = 'campus' | 'global' | 'default';
 
 @Injectable()
-export class SettingsService {
+export class SettingsService implements OnModuleInit {
+  private readonly logger = new Logger(SettingsService.name);
+
   constructor(
     @InjectModel(Setting.name)
     private readonly settingModel: Model<Setting>,
@@ -27,6 +31,21 @@ export class SettingsService {
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    if (!this.redisService.isReady()) {
+      return;
+    }
+
+    const warmupOnBoot =
+      (this.configService.get<string>('SETTINGS_CACHE_WARMUP_ON_BOOT') || 'true') === 'true';
+
+    if (!warmupOnBoot) {
+      return;
+    }
+
+    await this.warmupActiveSettingsCache();
+  }
 
   async create(dto: CreateSettingDto, currentUser: any): Promise<any> {
     const key = this.normalizeKey(dto.key);
@@ -58,6 +77,7 @@ export class SettingsService {
     });
 
     await this.invalidateSettingCache(key, targetCampusId);
+    await this.refreshEffectiveCache(key, targetCampusId);
 
     return this.mapSetting(created.toObject());
   }
@@ -202,6 +222,7 @@ export class SettingsService {
     if (oldKey !== key || oldCampusId !== nextCampusId) {
       await this.invalidateSettingCache(key, nextCampusId);
     }
+    await this.refreshEffectiveCache(key, nextCampusId);
 
     return this.mapSetting(existing.toObject());
   }
@@ -223,6 +244,7 @@ export class SettingsService {
 
     await existing.deleteOne();
     await this.invalidateSettingCache(key, campusId);
+    await this.refreshEffectiveCache(key, campusId);
   }
 
   async getEffectiveByKey(
@@ -261,6 +283,59 @@ export class SettingsService {
     const targetCampusId = normalizedCampusId === undefined ? null : normalizedCampusId;
 
     return this.resolveEffectiveSetting(normalizedKey, targetCampusId);
+  }
+
+  async warmupCache(currentUser: any): Promise<{ totalTargets: number; warmed: number; failed: number }> {
+    if (!this.isSuperAdmin(currentUser)) {
+      throw new ForbiddenException('Only super admin can warm up settings cache');
+    }
+
+    return this.warmupActiveSettingsCache();
+  }
+
+  private async warmupActiveSettingsCache(): Promise<{
+    totalTargets: number;
+    warmed: number;
+    failed: number;
+  }> {
+    const activeRows = await this.settingModel
+      .find({ isActive: { $ne: false } })
+      .select('key campusId')
+      .lean()
+      .exec();
+
+    const targets = new Map<string, { key: string; campusId: string | null }>();
+
+    for (const row of activeRows) {
+      const key = this.normalizeKey(row.key);
+      const campusId = row.campusId ? String(row.campusId) : null;
+      const targetId = `${campusId || 'global'}:${key}`;
+      targets.set(targetId, { key, campusId });
+    }
+
+    let warmed = 0;
+    let failed = 0;
+
+    for (const target of targets.values()) {
+      try {
+        await this.resolveEffectiveSetting(target.key, target.campusId);
+        warmed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+
+    const summary = {
+      totalTargets: targets.size,
+      warmed,
+      failed,
+    };
+
+    this.logger.log(
+      `Settings cache warmup done: total=${summary.totalTargets}, warmed=${summary.warmed}, failed=${summary.failed}`,
+    );
+
+    return summary;
   }
 
   private async resolveEffectiveSetting(key: string, campusId: string | null): Promise<any> {
@@ -571,6 +646,14 @@ export class SettingsService {
 
     if (campusId === null) {
       await this.redisService.delByPattern(`settings:effective:*:${key}`);
+    }
+  }
+
+  private async refreshEffectiveCache(key: string, campusId: string | null): Promise<void> {
+    try {
+      await this.resolveEffectiveSetting(key, campusId);
+    } catch {
+      // Keep cache empty if setting has no active value/default in this scope.
     }
   }
 
