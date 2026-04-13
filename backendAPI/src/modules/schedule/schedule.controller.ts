@@ -11,7 +11,9 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ScheduleService } from './schedule.service';
 import { ImportScheduleDto } from './dto/import-schedule.dto';
@@ -31,6 +33,21 @@ import { RequireScopes } from '@/common/decorators/scopes.decorator';
 @UseGuards(JwtAuthGuard, RolesGuard, CampusScopeGuard, PermissionsGuard, ScopeGuard)
 export class ScheduleController {
   constructor(private readonly scheduleService: ScheduleService) {}
+
+  @Get('import/template')
+  @Roles('TRAINING_OFFICER', 'CAMPUS_ADMIN', 'SUPER_ADMIN')
+  @RequireScopes('CAMPUS', 'GLOBAL')
+  @RequirePermissions('schedules.read')
+  async downloadImportTemplate(@Res() res: Response) {
+    const buffer = await this.scheduleService.generateImportTemplate();
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="schedule-import-template.xlsx"');
+    res.send(buffer);
+  }
 
   // POST /schedules/import - CSV/Excel import (formats: .csv, .xlsx, .xls)
   @Post('import')

@@ -154,4 +154,10 @@ export const scheduleService = {
 
     return res;
   },
+
+  downloadImportTemplate: async (): Promise<Blob> => {
+    return await api.get<Blob>('/schedules/import/template', {
+      responseType: 'blob' as any,
+    });
+  },
 };

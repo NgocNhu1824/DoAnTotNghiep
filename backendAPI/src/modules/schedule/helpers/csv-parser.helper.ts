@@ -3,6 +3,28 @@ const Papa = require('papaparse');
 const XLSX = require('xlsx');
 
 export class CsvParserHelper {
+  private static readonly REQUIRED_HEADERS = [
+    'roomcode',
+    'lectureremail',
+    'datestart',
+    'slottype',
+    'slotnumber',
+  ];
+
+  private static normalizeHeader(header: string): string {
+    return String(header || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]/g, '');
+  }
+
+  private static isHeaderRow(cells: any[]): boolean {
+    if (!Array.isArray(cells) || cells.length === 0) return false;
+
+    const normalized = cells.map((cell) => this.normalizeHeader(cell));
+    return this.REQUIRED_HEADERS.every((header) => normalized.includes(header));
+  }
+
   static parse(file: any): Promise<any[]> {
     return new Promise((resolve, reject) => {
       if (!file || !file.buffer) {
@@ -39,10 +61,7 @@ export class CsvParserHelper {
       header: true,
       skipEmptyLines: true,
       transformHeader: (header: string) => {
-        const normalized = header
-          .toLowerCase()
-          .trim()
-          .replace(/[\s_-]/g, '');
+        const normalized = this.normalizeHeader(header);
 
         if (seenHeaders.has(normalized)) {
           throw new Error(`Duplicate header detected: "${header}" (normalized: "${normalized}")`);
@@ -85,14 +104,21 @@ export class CsvParserHelper {
         return;
       }
 
-      const headers = rawData[0] as string[];
+      const headerRowIndex = rawData.findIndex((row: any) => this.isHeaderRow(Array.isArray(row) ? row : []));
+      if (headerRowIndex < 0) {
+        reject(
+          new BadRequestException(
+            'Header row not found. Please use template columns: roomCode, lecturerEmail, dateStart, slotType, slotNumber.',
+          ),
+        );
+        return;
+      }
+
+      const headers = rawData[headerRowIndex] as string[];
       const seenHeaders = new Set<string>();
 
       const normalizedHeaders = headers.map((h) => {
-        const normalized = String(h || '')
-          .toLowerCase()
-          .trim()
-          .replace(/[\s_-]/g, '');
+        const normalized = this.normalizeHeader(h);
 
         if (seenHeaders.has(normalized)) {
           throw new Error(`Duplicate header detected: "${h}" (normalized: "${normalized}")`);
@@ -103,7 +129,7 @@ export class CsvParserHelper {
       });
 
       const data = [];
-      for (let i = 1; i < rawData.length; i++) {
+      for (let i = headerRowIndex + 1; i < rawData.length; i++) {
         const row = rawData[i] as any[];
         if (row.every((cell) => !cell && cell !== 0)) continue;
 

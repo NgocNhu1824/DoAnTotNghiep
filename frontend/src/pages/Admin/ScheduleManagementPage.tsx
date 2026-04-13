@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
-import { Upload, Search, X, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { Upload, Search, X } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { format } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -9,15 +9,13 @@ import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Badge } from '../../components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../../components/ui/dialog';
-import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
-import { Alert, AlertDescription } from '../../components/ui/alert';
 import PermissionGuard from '../../components/PermissionGuard';
 import { PERMISSIONS } from '../../utils/permissions';
 import roomService from '../../services/room.service';
 import { timeSlotService } from '../../services/time-slot.service';
-import { scheduleService, QueryScheduleParams } from '../../services/schedule.service';
+import { QueryScheduleParams, scheduleService } from '../../services/schedule.service';
 import bookingService from '../../services/booking.service';
 import { wsService } from '../../services/websocket.service';
 import { Room } from '../../types/room.types';
@@ -27,6 +25,7 @@ import { Booking } from '../../types/booking.types';
 import { cn } from '../../lib/utils';
 import ViewScheduleModal from '../../components/modals/ViewScheduleModal';
 import EditScheduleModal from '../../components/modals/EditScheduleModal';
+import ImportScheduleModal from '../../components/modals/ImportScheduleModal';
 
 interface ScheduleCell {
   schedule: Schedule | null;
@@ -99,28 +98,7 @@ const ScheduleManagementPage: React.FC = () => {
   const [isRoomDevicesModalOpen, setIsRoomDevicesModalOpen] = useState(false);
   const [isRoomDevicesLoading, setIsRoomDevicesLoading] = useState(false);
   const [selectedDeviceRoom, setSelectedDeviceRoom] = useState<Room | null>(null);
-  
-  // Import
-  const [isImporting, setIsImporting] = useState(false);
-  const [importMode, setImportMode] = useState<'dryRun' | 'strict' | 'lenient'>('strict');
-  const [showImportModeDialog, setShowImportModeDialog] = useState(false);
-  const [showImportResultDialog, setShowImportResultDialog] = useState(false);
-  const [importResult, setImportResult] = useState<{
-    success: boolean;
-    inserted: number;
-    total: number;
-    failed?: number;
-    errors?: Array<{
-      rowIndex?: number;
-      row?: number;
-      field?: string;
-      code?: string;
-      error?: string;
-      message?: string;
-    }>;
-  } | null>(null);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   // Fetch data
   useEffect(() => {
@@ -367,163 +345,6 @@ const ScheduleManagementPage: React.FC = () => {
     }
   };
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const validExtensions = ['.csv', '.xlsx', '.xls'];
-    const fileName = file.name.toLowerCase();
-    const isValid = validExtensions.some(ext => fileName.endsWith(ext));
-
-    const MAX_SIZE_MB = 5;
-    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-      toast.error(`File exceeds ${MAX_SIZE_MB}MB`);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-
-    if (!isValid) {
-      toast.error('Only CSV or Excel files are accepted (.csv, .xlsx, .xls)');
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-      return;
-    }
-
-    setPendingFile(file);
-    setShowImportModeDialog(true);
-  };
-
-  const safeString = (v: unknown): string | undefined => {
-    if (typeof v === 'string') return v;
-    if (v === null || v === undefined) return undefined;
-    if (typeof v === 'object') return JSON.stringify(v);
-    return String(v);
-  };
-
-  const normalizeErrors = (errors: any[]): Array<{
-    rowIndex?: number;
-    row?: number;
-    field?: string;
-    code?: string;
-    error?: string;
-    message?: string;
-  }> => {
-    if (!Array.isArray(errors)) return [];
-    
-    return errors.map((err) => {
-      if (err && typeof err === 'object' && !Array.isArray(err)) {
-        const rowIndex = typeof err.rowIndex === 'number' ? err.rowIndex : undefined;
-        const row = typeof err.row === 'number' ? err.row : undefined;
-        const field = typeof err.field === 'string' ? err.field : undefined;
-        const code = typeof err.code === 'string' ? err.code : undefined;
-        
-        const error = safeString(err.error);
-        const message = safeString(err.message);
-        
-        return {
-          rowIndex,
-          row,
-          field,
-          code,
-          error,
-          message,
-        };
-      }
-      if (typeof err === 'string') {
-        return { message: err };
-      }
-      return { message: 'Unknown error' };
-    });
-  };
-
-  const executeImport = async () => {
-    if (!pendingFile) return;
-
-    try {
-      setIsImporting(true);
-      setShowImportModeDialog(false);
-      
-      const result = await scheduleService.import(pendingFile, importMode);
-      
-      let inserted = 0;
-      let failed = 0;
-      
-      if (importMode === 'dryRun') {
-        inserted = result.data.summary?.valid || 0;
-        failed = result.data.summary?.invalid || 0;
-      } else {
-        inserted = result.data.inserted || result.data.summary?.inserted || 0;
-        
-        const failedValue = result.data.failed !== undefined ? result.data.failed : result.data.summary?.failed;
-        if (Array.isArray(failedValue)) {
-          failed = failedValue.length;
-        } else if (typeof failedValue === 'number') {
-          failed = failedValue;
-        } else {
-          failed = 0;
-        }
-      }
-      
-      const normalizedErrors = normalizeErrors(result.data.errors || []);
-      
-      console.log('Import result data:', result.data);
-      console.log('Raw errors:', result.data.errors);
-      console.log('Normalized errors:', normalizedErrors);
-      
-      setImportResult({
-        success: result.success,
-        inserted,
-        total: result.data.total || result.data.summary?.total || 0,
-        failed,
-        errors: normalizedErrors,
-      });
-      setShowImportResultDialog(true);
-      
-      if (importMode !== 'dryRun') {
-        await fetchSchedules();
-      }
-    } catch (error: any) {
-      console.error('Import error:', error);
-
-      const errorData = error?.response?.data || error;
-      
-      const errorErrors = errorData?.errors ? normalizeErrors(errorData.errors) : 
-              [{ row: 0, message: typeof errorData?.message === 'string' ? errorData.message : 'Import failed' }];
-      
-      const total = errorData?.total ?? errorData?.summary?.total ?? (errorErrors.length > 0 ? errorErrors.length : 0);
-      const inserted = errorData?.inserted ?? errorData?.summary?.inserted ?? 0;
-      
-      let failedCount = 0;
-      if (errorData?.failed !== undefined) {
-        if (Array.isArray(errorData.failed)) {
-          failedCount = errorData.failed.length;
-        } else if (typeof errorData.failed === 'number') {
-          failedCount = errorData.failed;
-        }
-      } else if (errorData?.summary?.failed !== undefined) {
-        failedCount = errorData.summary.failed;
-      } else {
-        failedCount = errorErrors.length;
-      }
-      
-      setImportResult({
-        success: false,
-        inserted,
-        total,
-        failed: failedCount,
-        errors: errorErrors,
-      });
-      setShowImportResultDialog(true);
-    } finally {
-      setIsImporting(false);
-      setPendingFile(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }
-  };
-
   // Get schedule display info
   const getScheduleInfo = (schedule: Schedule) => {
     const room = typeof schedule.roomId === 'object' && schedule.roomId !== null ? schedule.roomId : null;
@@ -567,16 +388,9 @@ const ScheduleManagementPage: React.FC = () => {
         </div>
         <PermissionGuard permissions={[PERMISSIONS.SCHEDULES_CREATE]}>
           <div className="flex items-center gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              onChange={handleImport}
-              className="hidden"
-            />
-            <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+            <Button onClick={() => setIsImportModalOpen(true)}>
               <Upload className="h-4 w-4 mr-2" />
-              {isImporting ? 'Importing...' : 'Import Excel/CSV'}
+              Import Excel/CSV
             </Button>
           </div>
         </PermissionGuard>
@@ -1033,168 +847,13 @@ const ScheduleManagementPage: React.FC = () => {
         schedule={selectedSchedule}
       />
 
-      {/* Import Mode Selection Dialog */}
-      <Dialog open={showImportModeDialog} onOpenChange={setShowImportModeDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Select Import Mode</DialogTitle>
-            <DialogDescription>
-              Choose how to process the schedule file during import
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4 py-4">
-            <RadioGroup value={importMode} onValueChange={(value: any) => setImportMode(value)}>
-              <div className="flex items-start space-x-3 space-y-0">
-                <RadioGroupItem value="dryRun" id="dryRun" />
-                <Label htmlFor="dryRun" className="font-normal cursor-pointer flex-1">
-                  <div className="font-semibold">Dry Run</div>
-                  <p className="text-sm text-muted-foreground">
-                    Validate file and show errors without saving to database
-                  </p>
-                </Label>
-              </div>
-              
-              <div className="flex items-start space-x-3 space-y-0">
-                <RadioGroupItem value="strict" id="strict" />
-                <Label htmlFor="strict" className="font-normal cursor-pointer flex-1">
-                  <div className="font-semibold">Strict</div>
-                  <p className="text-sm text-muted-foreground">
-                    Stop immediately on error and import nothing if any error exists
-                  </p>
-                </Label>
-              </div>
-              
-              <div className="flex items-start space-x-3 space-y-0">
-                <RadioGroupItem value="lenient" id="lenient" />
-                <Label htmlFor="lenient" className="font-normal cursor-pointer flex-1">
-                  <div className="font-semibold">Lenient</div>
-                  <p className="text-sm text-muted-foreground">
-                    Skip invalid rows and import only valid rows
-                  </p>
-                </Label>
-              </div>
-            </RadioGroup>
-
-            {pendingFile && (
-              <Alert>
-                <AlertDescription>
-                  <strong>File:</strong> {pendingFile.name} ({(pendingFile.size / 1024).toFixed(2)} KB)
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
-          
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowImportModeDialog(false);
-                setPendingFile(null);
-                if (fileInputRef.current) {
-                  fileInputRef.current.value = '';
-                }
-              }}
-            >
-              Cancel
-            </Button>
-            <Button onClick={executeImport} disabled={isImporting}>
-              {isImporting ? 'Importing...' : 'Import'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Import Result Dialog */}
-      <Dialog open={showImportResultDialog} onOpenChange={setShowImportResultDialog}>
-        <DialogContent className="sm:max-w-2xl max-h-[80vh]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {importResult?.success ? (
-                <CheckCircle2 className="h-5 w-5 text-green-500" />
-              ) : (
-                <XCircle className="h-5 w-5 text-red-500" />
-              )}
-              Import Results
-            </DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            {/* Summary */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">{importResult?.total || 0}</div>
-                <div className="text-sm text-muted-foreground">Total</div>
-              </div>
-              <div className="text-center p-4 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">{importResult?.inserted || 0}</div>
-                <div className="text-sm text-muted-foreground">Successful</div>
-              </div>
-              <div className="text-center p-4 bg-red-50 rounded-lg">
-                <div className="text-2xl font-bold text-red-600">{importResult?.failed || 0}</div>
-                <div className="text-sm text-muted-foreground">Failed</div>
-              </div>
-            </div>
-
-            {/* Mode info */}
-            {importMode === 'dryRun' && (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <strong>Dry Run</strong> mode - No data has been saved to the database.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {/* Lenient mode info with errors */}
-            {importMode === 'lenient' && importResult?.failed && importResult.failed > 0 && (
-              <Alert variant="default" className="border-yellow-200 bg-yellow-50">
-                <AlertCircle className="h-4 w-4 text-yellow-600" />
-                <AlertDescription className="text-yellow-800">
-                  <strong>Lenient</strong> mode - Skipped {importResult.failed} invalid rows and imported {importResult.inserted} valid rows.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {/* Error list */}
-            {importResult?.errors && importResult.errors.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="font-semibold text-sm flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 text-red-500" />
-                  Error Details ({importResult.errors.length})
-                </h4>
-                <div className="max-h-60 overflow-y-auto border rounded-md">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted sticky top-0">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium">Row</th>
-                        <th className="px-3 py-2 text-left font-medium">Error</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {importResult.errors.map((error, idx) => {
-                        const rowNumber = error.row ?? error.rowIndex ?? 'N/A';
-                        const errorMessage = error.message ?? error.error ?? 'Unknown error';
-                        
-                        return (
-                          <tr key={idx} className="hover:bg-muted/50">
-                            <td className="px-3 py-2 font-mono text-muted-foreground">
-                              {rowNumber}
-                            </td>
-                            <td className="px-3 py-2 text-red-600">
-                              {errorMessage}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ImportScheduleModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImported={async () => {
+          await fetchSchedules();
+        }}
+      />
     </div>
   );
 };
