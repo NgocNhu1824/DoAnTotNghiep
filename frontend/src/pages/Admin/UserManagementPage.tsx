@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import PermissionGuard from '../../components/PermissionGuard';
 import { userService } from '../../services/user.service';
 import { campusService } from '../../services/campus.service';
-import { CreateUserDto, UpdateUserDto } from '../../types/user.types';
+import { CreateUserDto, UpdateUserDto, FilterUserDto } from '../../types/user.types';
 import { UserListItem, Campus } from '../../types/models.types';
 import { Role } from '../../types/role.types';
 import { PERMISSIONS } from '../../utils/permissions';
@@ -21,18 +21,33 @@ import ConfirmDialog from '../../components/common/ConfirmDialog';
 import CrudActionButtons from '../../components/common/CrudActionButtons';
 import CreateActionButton from '../../components/common/CreateActionButton';
 import ImportUserModal from '../../components/modals/ImportUserModal';
-import { Loader2, Search, Upload, UserPlus } from 'lucide-react';
+import { Loader2, Search, ShieldBan, Upload, UserPlus, UserRoundCheck } from 'lucide-react';
 
+/** Default list filter: FPT Cần Thơ style codes used in this project (FPTCT preferred; seed data may use FPTUCT/FUCT). */
+const DEFAULT_CAMPUS_CODE_PRIORITY = ['FPTCT', 'FPTUCT', 'FUCT'] as const;
+
+function resolveDefaultCampusId(campuses: Campus[]): string | null {
+  for (const code of DEFAULT_CAMPUS_CODE_PRIORITY) {
+    const match = campuses.find((c) => c.campusCode?.toUpperCase() === code);
+    if (match) return match._id;
+  }
+  return null;
+}
+
+type UserStatusFilter = 'all' | 'active' | 'suspended';
 
 const UserManagementPage: React.FC = () => {
   const [users, setUsers] = useState<UserListItem[]>([]);
-  const [filteredUsers, setFilteredUsers] = useState<UserListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
-  const [campusFilter, setCampusFilter] = useState<string>('all');
+  /** `null` until campuses load and default (FPTCT…) is applied */
+  const [campusFilter, setCampusFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<UserStatusFilter>('all');
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -42,26 +57,52 @@ const UserManagementPage: React.FC = () => {
   const [confirmDescription, setConfirmDescription] = useState('');
   const [confirmDestructive, setConfirmDestructive] = useState(false);
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+  const campusUserOverrideRef = useRef(false);
   const { toast } = useToast();
 
-  // Fetch users
-  const fetchUsers = async () => {
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearch(searchTerm.trim()), 320);
+    return () => window.clearTimeout(t);
+  }, [searchTerm]);
+
+  const sortedCampuses = useMemo(
+    () => [...campuses].sort((a, b) => (a.campusCode || '').localeCompare(b.campusCode || '')),
+    [campuses],
+  );
+
+  // GET /users: roleId, campusId, search only. Account status (active/suspended) is filtered on the client
+  // so query never sends isActive strings (works without BE query-param boolean transforms).
+  const fetchUsers = useCallback(async () => {
+    if (campusFilter === null) return;
+
     try {
-      setLoading(true);
-      const data = await userService.getAll();
+      setListLoading(true);
+      const filters: FilterUserDto = {};
+      if (roleFilter !== 'all') filters.roleId = roleFilter;
+      if (campusFilter !== 'all') filters.campusId = campusFilter;
+      if (debouncedSearch) filters.search = debouncedSearch;
+
+      const data = await userService.getAll(filters);
       setUsers(data);
-      setFilteredUsers(data);
     } catch (error: any) {
       console.error('Error fetching users:', error);
       toast({
-        title: "Error",
+        title: 'Error',
         description: error?.message || 'Failed to load user list',
-        variant: "destructive"
+        variant: 'destructive',
       });
+      setUsers([]);
     } finally {
-      setLoading(false);
+      setListLoading(false);
+      setHasLoadedOnce(true);
     }
-  };
+  }, [campusFilter, roleFilter, debouncedSearch, toast]);
+
+  const displayUsers = useMemo(() => {
+    if (statusFilter === 'all') return users;
+    if (statusFilter === 'active') return users.filter((u) => u.isActive);
+    return users.filter((u) => !u.isActive);
+  }, [users, statusFilter]);
 
   // Fetch campuses
   const fetchCampuses = async () => {
@@ -83,58 +124,46 @@ const UserManagementPage: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchUsers();
     fetchCampuses();
     fetchRoles();
   }, []);
 
-  // Filter users
   useEffect(() => {
-    let filtered = users;
+    if (!campuses.length || campusUserOverrideRef.current) return;
+    const defaultId = resolveDefaultCampusId(campuses);
+    setCampusFilter(defaultId ?? 'all');
+  }, [campuses]);
 
-    // Filter by role
-    if (roleFilter !== 'all') {
-      filtered = filtered.filter((user) => user.roleId?._id === roleFilter);
-    }
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
-    // Filter by campus
-    if (campusFilter !== 'all') {
-      filtered = filtered.filter((user) => user.campusId?._id === campusFilter);
-    }
+  const handleCampusFilterChange = (value: string) => {
+    campusUserOverrideRef.current = true;
+    setCampusFilter(value);
+  };
 
-    // Filter by search term
-    if (searchTerm) {
-      filtered = filtered.filter(
-        (user) =>
-          user.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          user.employeeId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          user.studentId?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    setFilteredUsers(filtered);
-  }, [searchTerm, roleFilter, campusFilter, users]);
-
-  // Handle ban user
-  const handleBanUser = (id: string, fullName: string) => {
-    setConfirmTitle('Confirm user ban');
-    setConfirmDescription(`Are you sure you want to ban user "${fullName}"?`);
+  // Suspend user (PUT /users/:id/ban — requires users.update)
+  const handleSuspendUser = (id: string, fullName: string) => {
+    setConfirmTitle('Suspend user');
+    setConfirmDescription(
+      `This will sign the user out and block login until reactivated. Suspend "${fullName}"?`,
+    );
     setConfirmDestructive(true);
     setConfirmAction(() => async () => {
       try {
         await userService.ban(id);
         toast({
-          title: "Success",
-          description: 'User banned successfully'
+          title: 'Success',
+          description: 'User suspended successfully',
         });
         fetchUsers();
       } catch (error: any) {
-        console.error('Error banning user:', error);
+        console.error('Error suspending user:', error);
         toast({
-          title: "Error",
-          description: error?.message || 'Failed to ban user',
-          variant: "destructive"
+          title: 'Error',
+          description: error?.message || 'Failed to suspend user',
+          variant: 'destructive',
         });
       } finally {
         setConfirmOpen(false);
@@ -143,25 +172,24 @@ const UserManagementPage: React.FC = () => {
     setConfirmOpen(true);
   };
 
-  // Handle unban user
-  const handleUnbanUser = (id: string, fullName: string) => {
-    setConfirmTitle('Confirm user unban');
-    setConfirmDescription(`Are you sure you want to unban user "${fullName}"?`);
+  const handleActivateUser = (id: string, fullName: string) => {
+    setConfirmTitle('Activate user');
+    setConfirmDescription(`Restore access for "${fullName}"?`);
     setConfirmDestructive(false);
     setConfirmAction(() => async () => {
       try {
         await userService.unban(id);
         toast({
-          title: "Success",
-          description: 'User unbanned successfully'
+          title: 'Success',
+          description: 'User activated successfully',
         });
         fetchUsers();
       } catch (error: any) {
-        console.error('Error unbanning user:', error);
+        console.error('Error activating user:', error);
         toast({
-          title: "Error",
-          description: error?.message || 'Failed to unban user',
-          variant: "destructive"
+          title: 'Error',
+          description: error?.message || 'Failed to activate user',
+          variant: 'destructive',
         });
       } finally {
         setConfirmOpen(false);
@@ -189,7 +217,9 @@ const UserManagementPage: React.FC = () => {
     return <Badge variant={badge.variant}>{badge.label}</Badge>;
   };
 
-  if (loading) {
+  const bootstrapping = campusFilter === null || (!hasLoadedOnce && listLoading);
+
+  if (bootstrapping) {
     return (
       <div className="flex items-center justify-center h-96">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -199,15 +229,14 @@ const UserManagementPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
-          <p className="text-muted-foreground mt-2">
-            Create and manage user accounts in the system
+          <p className="text-muted-foreground mt-2 max-w-2xl">
+            Create and manage accounts. List is loaded from the server using role, campus, status, and search filters.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
           <PermissionGuard permissions={[PERMISSIONS.USERS_CREATE]}>
             <Button variant="outline" onClick={() => setShowImportModal(true)}>
               <Upload className="mr-2 h-4 w-4" />
@@ -224,23 +253,23 @@ const UserManagementPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters */}
       <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-          <CardDescription>Search and filter users</CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Filters</CardTitle>
+          <CardDescription>
+            Filters are applied on the server. Your role may still limit which campuses you can see.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Search */}
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-2 lg:col-span-2">
               <Label htmlFor="search">Search</Label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground " />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="search"
                   type="text"
-                  placeholder="Name, email, employee ID, student ID..."
+                  placeholder="Name, email, employee ID, student ID…"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-9"
@@ -248,15 +277,31 @@ const UserManagementPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Role Filter */}
+            <div className="space-y-2">
+              <Label htmlFor="campus-filter">Campus</Label>
+              <Select value={campusFilter} onValueChange={handleCampusFilterChange}>
+                <SelectTrigger id="campus-filter">
+                  <SelectValue placeholder="Campus" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All campuses</SelectItem>
+                  {sortedCampuses.map((campus) => (
+                    <SelectItem key={campus._id} value={campus._id}>
+                      {campus.campusCode} — {campus.campusName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="role-filter">Role</Label>
               <Select value={roleFilter} onValueChange={setRoleFilter}>
                 <SelectTrigger id="role-filter">
-                  <SelectValue placeholder="All" />
+                  <SelectValue placeholder="All roles" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="all">All roles</SelectItem>
                   {roles.map((role) => (
                     <SelectItem key={role._id || role.id} value={String(role._id || role.id)}>
                       {role.roleName}
@@ -266,107 +311,124 @@ const UserManagementPage: React.FC = () => {
               </Select>
             </div>
 
-            {/* Campus Filter
-            <div className="space-y-2">
-              <Label htmlFor="campus-filter">Campus</Label>
-              <Select value={campusFilter} onValueChange={setCampusFilter}>
-                <SelectTrigger id="campus-filter">
-                  <SelectValue placeholder="All" />
+            <div className="space-y-2 sm:col-span-2 lg:col-span-4">
+              <Label htmlFor="status-filter">Account status</Label>
+              <Select
+                value={statusFilter}
+                onValueChange={(v) => setStatusFilter(v as UserStatusFilter)}
+              >
+                <SelectTrigger id="status-filter" className="max-w-md">
+                  <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
-                  {campuses?.map((campus) => (
-                    <SelectItem key={campus._id} value={campus._id}>
-                      {campus.campusName}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="suspended">Suspended</SelectItem>
                 </SelectContent>
               </Select>
-            </div> */}
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Users Table */}
       <Card>
-        <CardHeader>
-          <CardTitle>User List ({filteredUsers.length})</CardTitle>
-          <CardDescription>Manage all users in the system</CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">User list ({displayUsers.length})</CardTitle>
+          <CardDescription>Users in the current filter</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border">
+          <div className="relative rounded-md border">
+            {listLoading && hasLoadedOnce ? (
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-background/60">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : null}
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-left">Full Name</TableHead>
+                  <TableHead className="text-left">Full name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
-                  <TableHead>Employee/Student ID</TableHead>
+                  <TableHead>Employee / Student ID</TableHead>
                   <TableHead>Campus</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers.length === 0 ? (
+                {displayUsers.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="h-24 text-center">
-                      <p className="text-muted-foreground">No users found</p>
+                      <p className="text-muted-foreground">No users match these filters</p>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredUsers.map((user) => (
+                  displayUsers.map((user) => (
                     <TableRow key={user._id}>
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <Avatar>
+                          <Avatar className="h-9 w-9">
                             <AvatarImage src={user.avatar} alt={user.fullName} />
                             <AvatarFallback>{user.fullName.substring(0, 2).toUpperCase()}</AvatarFallback>
                           </Avatar>
                           <span className="font-medium">{user.fullName}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{user.email}</TableCell>
-                      <TableCell>
-                        {getRoleBadge(user.roleId?.roleCode || 'unknown')}
-                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate text-muted-foreground">{user.email}</TableCell>
+                      <TableCell>{getRoleBadge(user.roleId?.roleCode || 'unknown')}</TableCell>
                       <TableCell className="text-muted-foreground">
-                        {user.employeeId || user.studentId || '-'}
+                        {user.employeeId || user.studentId || '—'}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {user.campusId?.campusName || '-'}
+                      <TableCell className="max-w-[220px] truncate text-muted-foreground">
+                        {user.campusId
+                          ? [user.campusId.campusCode, user.campusId.campusName].filter(Boolean).join(' — ') ||
+                            '—'
+                          : '—'}
                       </TableCell>
                       <TableCell>
                         {user.isActive ? (
-                          <Badge variant="secondary" className="bg-green-100 text-green-800">
+                          <Badge variant="secondary" className="bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
                             Active
                           </Badge>
                         ) : (
-                          <Badge variant="outline">Inactive</Badge>
+                          <Badge variant="destructive" className="font-normal">
+                            Suspended
+                          </Badge>
                         )}
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="text-right">
                         <CrudActionButtons
                           onEdit={() => handleEditUser(user)}
-                          onDelete={
-                            user.isActive ? () => handleBanUser(user._id, user.fullName) : undefined
-                          }
                           editPermission={PERMISSIONS.USERS_UPDATE}
-                          deletePermission={PERMISSIONS.USERS_DELETE}
-                          deleteTitle="Ban user"
+                          extraActionsAfter
                           extraActions={
-                            !user.isActive ? (
-                              <PermissionGuard permissions={[PERMISSIONS.USERS_DELETE]}>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleUnbanUser(user._id, user.fullName)}
-                                  className="text-green-600 hover:text-green-700"
-                                >
-                                  Unban
-                                </Button>
-                              </PermissionGuard>
-                            ) : null
+                            <>
+                              {user.isActive ? (
+                                <PermissionGuard permissions={[PERMISSIONS.USERS_UPDATE]}>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 gap-1 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    onClick={() => handleSuspendUser(user._id, user.fullName)}
+                                  >
+                                    <ShieldBan className="h-3.5 w-3.5" />
+                                    Suspend
+                                  </Button>
+                                </PermissionGuard>
+                              ) : (
+                                <PermissionGuard permissions={[PERMISSIONS.USERS_UPDATE]}>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 gap-1"
+                                    onClick={() => handleActivateUser(user._id, user.fullName)}
+                                  >
+                                    <UserRoundCheck className="h-3.5 w-3.5" />
+                                    Activate
+                                  </Button>
+                                </PermissionGuard>
+                              )}
+                            </>
                           }
                         />
                       </TableCell>

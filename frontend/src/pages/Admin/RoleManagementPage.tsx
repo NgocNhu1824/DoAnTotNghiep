@@ -1,11 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, Loader2, Pencil, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { Eye, Loader2, Pencil, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import CreateRoleModal from '../../components/Roles/CreateRoleModal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import PermissionGuard from '../../components/PermissionGuard';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
@@ -13,7 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../hooks/use-toast';
 import { roleService } from '../../services/role.service';
-import { Role } from '../../types/role.types';
+import { Permission, Role } from '../../types/role.types';
 import { PERMISSIONS } from '../../utils/permissions';
 
 type RoleStatusFilter = 'all' | 'active' | 'inactive';
@@ -27,6 +35,18 @@ const parseErrorMessage = (error: any, fallback: string): string => {
 };
 
 const getRoleId = (role: Role): string => String(role.id || role._id || '');
+
+function groupPermissionsByResource(permissions: Permission[]): Record<string, Permission[]> {
+  return permissions.reduce(
+    (acc, permission) => {
+      const key = permission.resource || 'other';
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(permission);
+      return acc;
+    },
+    {} as Record<string, Permission[]>,
+  );
+}
 
 const RoleManagementPage: React.FC = () => {
   const { roleDetails } = useAuth();
@@ -42,7 +62,7 @@ const RoleManagementPage: React.FC = () => {
   const [confirmTitle, setConfirmTitle] = useState('');
   const [confirmDescription, setConfirmDescription] = useState('');
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
-  const [expandedRoles, setExpandedRoles] = useState<Set<string>>(new Set());
+  const [permissionDetailRole, setPermissionDetailRole] = useState<Role | null>(null);
 
   const currentUserRoleLevel = useMemo(() => {
     const level = Number(roleDetails?.roleLevel);
@@ -161,17 +181,10 @@ const RoleManagementPage: React.FC = () => {
     setConfirmOpen(true);
   };
 
-  const toggleRoleExpansion = (roleId: string) => {
-    setExpandedRoles((prev) => {
-      const next = new Set(prev);
-      if (next.has(roleId)) {
-        next.delete(roleId);
-      } else {
-        next.add(roleId);
-      }
-      return next;
-    });
-  };
+  const permissionModalGroups = useMemo(() => {
+    if (!permissionDetailRole?.permissions?.length) return {};
+    return groupPermissionsByResource(permissionDetailRole.permissions);
+  }, [permissionDetailRole]);
 
   if (loading) {
     return (
@@ -281,113 +294,79 @@ const RoleManagementPage: React.FC = () => {
                     const canManageCurrentRole = canManageRoleLevel(role.roleLevel);
 
                     return (
-                      <React.Fragment key={roleId}>
-                        <TableRow>
-                          <TableCell>
-                            <div className="space-y-1">
-                              <p className="font-medium leading-none">{role.roleName}</p>
-                              {role.description && (
-                                <p className="max-w-[420px] truncate text-sm text-muted-foreground">{role.description}</p>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{role.roleCode || '-'}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="secondary">{String(role.roleLevel ?? '-')}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{role.scope || 'GLOBAL'}</Badge>
-                          </TableCell>
-                          <TableCell>{String(role.permissionCount || role.permissions.length || 0)}</TableCell>
-                          <TableCell>
-                            {role.isActive ? (
-                              <Badge variant="secondary" className="bg-green-100 text-green-800">
-                                Active
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline">Inactive</Badge>
+                      <TableRow key={roleId}>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <p className="font-medium leading-none">{role.roleName}</p>
+                            {role.description && (
+                              <p className="max-w-[420px] truncate text-sm text-muted-foreground">{role.description}</p>
                             )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{role.roleCode || '-'}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{String(role.roleLevel ?? '-')}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{role.scope || 'GLOBAL'}</Badge>
+                        </TableCell>
+                        <TableCell>{String(role.permissionCount || role.permissions.length || 0)}</TableCell>
+                        <TableCell>
+                          {role.isActive ? (
+                            <Badge variant="secondary" className="bg-green-100 text-green-800">
+                              Active
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline">Inactive</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setPermissionDetailRole(role)}
+                              title="View permissions"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+
+                            <PermissionGuard permissions={[PERMISSIONS.ROLES_UPDATE]}>
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => toggleRoleExpansion(roleId)}
-                                title={expandedRoles.has(roleId) ? 'Hide permissions' : 'View permissions'}
+                                disabled={!canManageCurrentRole}
+                                onClick={() => handleEditRole(role)}
+                                title={
+                                  canManageCurrentRole
+                                    ? 'Edit role'
+                                    : 'You cannot edit a role with higher authority than your own'
+                                }
                               >
-                                {expandedRoles.has(roleId) ? (
-                                  <ChevronUp className="h-4 w-4" />
-                                ) : (
-                                  <ChevronDown className="h-4 w-4" />
-                                )}
+                                <Pencil className="h-4 w-4" />
                               </Button>
+                            </PermissionGuard>
 
-                              <PermissionGuard permissions={[PERMISSIONS.ROLES_UPDATE]}>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  disabled={!canManageCurrentRole}
-                                  onClick={() => handleEditRole(role)}
-                                  title={
-                                    canManageCurrentRole
-                                      ? 'Edit role'
-                                      : 'You cannot edit a role with higher authority than your own'
-                                  }
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
-                              </PermissionGuard>
-
-                              <PermissionGuard permissions={[PERMISSIONS.ROLES_DELETE]}>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  disabled={!canManageCurrentRole}
-                                  onClick={() => handleDeleteRole(role)}
-                                  title={
-                                    canManageCurrentRole
-                                      ? 'Delete role'
-                                      : 'You cannot delete a role with higher authority than your own'
-                                  }
-                                >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </PermissionGuard>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-
-                        {expandedRoles.has(roleId) && (
-                          <TableRow>
-                            <TableCell colSpan={7} className="bg-muted/30">
-                              <div className="space-y-3 py-1">
-                                <p className="text-sm font-medium">Permissions</p>
-                                {role.permissions.length === 0 ? (
-                                  <p className="text-sm text-muted-foreground">No permissions assigned</p>
-                                ) : (
-                                  <div className="flex flex-wrap gap-2">
-                                    {role.permissions.map((permission) => (
-                                      <Badge key={permission.id} variant="outline" className="max-w-[320px] truncate">
-                                        {permission.permissionName}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {!canManageCurrentRole && (
-                                  <div className="flex items-center gap-2 text-xs text-amber-700">
-                                    <ShieldCheck className="h-3.5 w-3.5" />
-                                    This role is above your management level.
-                                  </div>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </React.Fragment>
+                            <PermissionGuard permissions={[PERMISSIONS.ROLES_DELETE]}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                disabled={!canManageCurrentRole}
+                                onClick={() => handleDeleteRole(role)}
+                                title={
+                                  canManageCurrentRole
+                                    ? 'Delete role'
+                                    : 'You cannot delete a role with higher authority than your own'
+                                }
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </PermissionGuard>
+                          </div>
+                        </TableCell>
+                      </TableRow>
                     );
                   })
                 )}
@@ -407,6 +386,73 @@ const RoleManagementPage: React.FC = () => {
         editRole={editingRole}
         currentUserRoleLevel={currentUserRoleLevel}
       />
+
+      <Dialog open={Boolean(permissionDetailRole)} onOpenChange={(open) => !open && setPermissionDetailRole(null)}>
+        <DialogContent className="grid max-h-[85vh] w-full max-w-lg grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-lg">
+          <DialogHeader className="space-y-3 border-b bg-background px-6 py-4 pr-12 text-left">
+            <DialogTitle>Role permissions</DialogTitle>
+            {permissionDetailRole ? (
+              <div className="space-y-1 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">{permissionDetailRole.roleName}</p>
+                <p>
+                  {permissionDetailRole.permissions.length} permission
+                  {permissionDetailRole.permissions.length === 1 ? '' : 's'} · Code{' '}
+                  {permissionDetailRole.roleCode || '—'}
+                </p>
+              </div>
+            ) : (
+              <DialogDescription>Permission list for the selected role.</DialogDescription>
+            )}
+          </DialogHeader>
+
+          <div className="min-h-0 overflow-y-auto overscroll-contain px-6 py-4">
+            <div className="space-y-4 pb-1">
+              {permissionDetailRole && permissionDetailRole.permissions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No permissions assigned to this role.</p>
+              ) : null}
+
+              {permissionDetailRole &&
+                Object.keys(permissionModalGroups)
+                  .sort()
+                  .map((resource) => (
+                    <div key={resource} className="space-y-2">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{resource}</h4>
+                      <ul className="space-y-2">
+                        {permissionModalGroups[resource].map((permission) => (
+                          <li
+                            key={permission.id}
+                            className="rounded-md border bg-card px-3 py-2 text-sm shadow-sm"
+                          >
+                            <p className="font-medium leading-snug">{permission.permissionName}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {permission.resource}.{permission.action}
+                            </p>
+                            {permission.description ? (
+                              <p className="mt-1 text-xs text-muted-foreground">{permission.description}</p>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+
+              {permissionDetailRole &&
+              !canManageRoleLevel(permissionDetailRole.roleLevel) ? (
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                  <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  This role is above your management level. You can view permissions but cannot edit this role.
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <DialogFooter className="border-t bg-background px-6 py-4">
+            <Button type="button" variant="outline" onClick={() => setPermissionDetailRole(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={confirmOpen}
