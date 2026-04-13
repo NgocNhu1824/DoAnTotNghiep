@@ -20,6 +20,7 @@ type CrudActionButtonsProps = {
   disableDelete?: boolean;
   className?: string;
   extraActions?: React.ReactNode;
+  extraActionsAfter?: boolean;
 };
 
 const toPermissionArray = (value?: PermissionInput): string[] | undefined => {
@@ -45,14 +46,18 @@ const CrudActionButtons: React.FC<CrudActionButtonsProps> = ({
   disableDelete = false,
   className = '',
   extraActions,
+  extraActionsAfter = false,
 }) => {
   if (!onView && !onEdit && !onDelete && !extraActions) {
     return null;
   }
 
+  const trailingExtra = extraActionsAfter ? extraActions : null;
+  const leadingExtra = extraActionsAfter ? null : extraActions;
+
   return (
     <div className={`flex items-center justify-end gap-2 ${className}`.trim()}>
-      {extraActions}
+      {leadingExtra}
 
       {onView && (
         <PermissionGuard permissions={toPermissionArray(viewPermission)}>
@@ -84,6 +89,8 @@ const CrudActionButtons: React.FC<CrudActionButtonsProps> = ({
           </Button>
         </PermissionGuard>
       )}
+
+      {trailingExtra}
     </div>
   );
 };
