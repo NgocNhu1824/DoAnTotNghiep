@@ -73,7 +73,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     },
     {
       id: 'access-logs',
-      label: 'Access Logs',
+      label: 'Access audit',
       icon: FileText,
       path: '/access-logs',
       requiredPermissions: [PERMISSIONS.ACCESS_LOGS_READ, PERMISSIONS.ACCESS_LOGS_MANAGE],
@@ -174,7 +174,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const accessLogMenuItem = {
     id: 'access-logs',
-    label: 'Access Logs',
+    label: 'Access audit',
     icon: FileText,
     path: '/access-logs',
   };
