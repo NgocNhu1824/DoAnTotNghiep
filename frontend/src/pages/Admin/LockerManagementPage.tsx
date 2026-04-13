@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactPaginate from 'react-paginate';
 import { AxiosError } from 'axios';
-import { Loader2, LockOpen, RefreshCcw, Search } from 'lucide-react';
+import { Loader2, LockOpen, RefreshCw, Search } from 'lucide-react';
 
 import { lockerService } from '../../services/locker.service';
 import { campusService } from '../../services/campus.service';
@@ -25,6 +25,7 @@ import { PERMISSIONS } from '../../utils/permissions';
 
 type Campus = {
   _id: string;
+  campusCode?: string;
   campusName: string;
 };
 
@@ -75,6 +76,22 @@ const normalizeSyncMessage = (rawMessage: string) => {
   }
 
   return message || 'No message provided';
+};
+
+const isFptCampus = (campus: Campus) => {
+  const normalizedCode = String(campus.campusCode || '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  const normalizedName = String(campus.campusName || '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+
+  return (
+    normalizedCode.includes('fpt') ||
+    normalizedCode.includes('fuct') ||
+    normalizedName.includes('fpt') ||
+    normalizedName.includes('cantho')
+  );
 };
 
 const normalizeLocker = (locker: any): LockerEntity => ({
@@ -154,6 +171,19 @@ const LockerManagementPage: React.FC = () => {
   useEffect(() => {
     lockersRef.current = lockers;
   }, [lockers]);
+
+  useEffect(() => {
+    if (campuses.length === 0) {
+      return;
+    }
+
+    const fptCampus = campuses.find(isFptCampus);
+    if (!fptCampus) {
+      return;
+    }
+
+    setCampusFilter((prev) => (prev === 'all' ? fptCampus._id : prev));
+  }, [campuses]);
 
   const resolveLockerByDeviceId = (rawDeviceId: string) => {
     const deviceId = String(rawDeviceId || '').trim();
@@ -459,6 +489,15 @@ const LockerManagementPage: React.FC = () => {
     const lockerNumber = Number(locker.lockerNumber);
     const deviceId = String(locker.deviceId || '').trim();
 
+    if (!locker.isActive) {
+      toast({
+        title: 'Cannot sync',
+        description: `Locker #${lockerNumber} is inactive`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (!deviceId) {
       toast({
         title: 'Cannot sync',
@@ -606,15 +645,16 @@ const LockerManagementPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-3xl font-bold tracking-tight">Locker Management</h1>
           <p className="text-muted-foreground mt-2">Manage lockers and monitor ESP32 connectivity</p>
         </div>
         <CreateActionButton
           permission={PERMISSIONS.MANAGE_LOCKERS}
           onClick={handleSyncAllIoT}
-          icon={<RefreshCcw className="mr-2 h-4 w-4" />}
+          showIcon={false}
+          className="w-full sm:w-auto"
           disabled={syncAllLoading}
         >
           {syncAllLoading ? (
@@ -624,7 +664,7 @@ const LockerManagementPage: React.FC = () => {
             </>
           ) : (
             <>
-              <RefreshCcw className="mr-2 h-4 w-4" />
+              <RefreshCw className="mr-2 h-4 w-4" />
               Sync IoT
             </>
           )}
@@ -719,8 +759,8 @@ const LockerManagementPage: React.FC = () => {
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <CardTitle>Device Sync Monitor</CardTitle>
             <CardDescription>Realtime sync ack from gateway via hardware:update</CardDescription>
           </div>
@@ -728,6 +768,7 @@ const LockerManagementPage: React.FC = () => {
             variant="outline"
             onClick={() => setSyncJobs([])}
             disabled={syncJobs.length === 0}
+            className="w-full sm:w-auto"
           >
             Clear Logs
           </Button>
@@ -738,8 +779,8 @@ const LockerManagementPage: React.FC = () => {
               No sync jobs yet. Click Sync on a locker row to start.
             </div>
           ) : (
-            <div className="rounded-md border">
-              <Table>
+            <div className="rounded-md border overflow-x-auto">
+              <Table className="min-w-[760px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Time</TableHead>
@@ -782,8 +823,8 @@ const LockerManagementPage: React.FC = () => {
           <CardDescription>Monitor locker health and hardware connection status</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border">
-            <Table>
+          <div className="rounded-md border overflow-x-auto">
+            <Table className="min-w-[1080px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Locker #</TableHead>
@@ -809,8 +850,8 @@ const LockerManagementPage: React.FC = () => {
                   paginatedLockers.map((locker) => (
                     <TableRow key={locker.id}>
                       <TableCell className="font-medium">#{locker.lockerNumber}</TableCell>
-                      <TableCell>{locker.position}</TableCell>
-                      <TableCell>{getCampusName(locker)}</TableCell>
+                      <TableCell className="max-w-[180px] truncate" title={locker.position}>{locker.position}</TableCell>
+                      <TableCell className="max-w-[180px] truncate" title={getCampusName(locker)}>{getCampusName(locker)}</TableCell>
                       <TableCell>{getStatusBadge(locker.status)}</TableCell>
                       <TableCell>{locker.batteryLevel}%</TableCell>
                       <TableCell>{getEsp32Badge(locker.esp32Status)}</TableCell>
@@ -818,14 +859,12 @@ const LockerManagementPage: React.FC = () => {
                       <TableCell>
                         <PermissionGuard
                           permissions={[PERMISSIONS.MANAGE_LOCKERS]}
-                          hideIfNoPermission={false}
-                          fallback={<span className="text-xs text-muted-foreground">--</span>}
                         >
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => handleSyncLocker(locker)}
-                            disabled={!locker.deviceId || syncingLockerIds[String(locker.id)]}
+                            disabled={!locker.isActive || !locker.deviceId || syncingLockerIds[String(locker.id)]}
                           >
                             {syncingLockerIds[String(locker.id)] ? (
                               <>
@@ -834,7 +873,7 @@ const LockerManagementPage: React.FC = () => {
                               </>
                             ) : (
                               <>
-                                <RefreshCcw className="mr-2 h-4 w-4" />
+                                <RefreshCw className="mr-2 h-4 w-4" />
                                 Sync
                               </>
                             )}
@@ -853,7 +892,7 @@ const LockerManagementPage: React.FC = () => {
                           {locker.isActive ? 'Active' : 'Inactive'}
                         </Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-right">
                         <CrudActionButtons
                           onView={() => {
                             setSelectedLocker(locker);

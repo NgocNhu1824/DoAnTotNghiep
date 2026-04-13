@@ -1,7 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Eye, ImageIcon, RefreshCw, Search } from 'lucide-react';
 import incidentsService from '../../services/incidents.service';
-import { IncidentImageItem, IncidentItem, IncidentStatus } from '../../types/incident.types';
+import {
+  IncidentImageItem,
+  IncidentItem,
+  IncidentSeverity,
+  IncidentStatus,
+  IncidentType,
+} from '../../types/incident.types';
 import { useToast } from '../../hooks/use-toast';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
@@ -14,11 +20,60 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { wsService } from '../../services/websocket.service';
+import roomService from '../../services/room.service';
+import { campusService } from '../../services/campus.service';
 
 type LoadedIncidentImage = IncidentImageItem & { previewUrl: string };
+
+type CampusFilterOption = {
+  _id: string;
+  campusName: string;
+  campusCode?: string;
+};
+
+const INCIDENT_TYPE_OPTIONS: Array<{ value: 'all' | IncidentType; label: string }> = [
+  { value: 'all', label: 'All types' },
+  { value: 'equipment_damage', label: 'Equipment' },
+  { value: 'cleanliness', label: 'Cleanliness' },
+  { value: 'safety', label: 'Safety' },
+  { value: 'other', label: 'Other' },
+];
+
+const INCIDENT_SEVERITY_OPTIONS: Array<{ value: 'all' | IncidentSeverity; label: string }> = [
+  { value: 'all', label: 'All severities' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'critical', label: 'Critical' },
+];
+
+const INCIDENT_STATUS_OPTIONS: Array<{ value: 'all' | IncidentStatus; label: string }> = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'reported', label: 'Reported' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'closed', label: 'Closed' },
+];
+
+const isFptCampus = (campus: CampusFilterOption) => {
+  const normalizedCode = String(campus.campusCode || '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  const normalizedName = String(campus.campusName || '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+
+  return (
+    normalizedCode.includes('fpt') ||
+    normalizedCode.includes('fuct') ||
+    normalizedName.includes('fpt') ||
+    normalizedName.includes('cantho')
+  );
+};
 
 const IncidentManagementPage: React.FC = () => {
   const { toast } = useToast();
@@ -28,7 +83,13 @@ const IncidentManagementPage: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   const [keyword, setKeyword] = useState('');
+  const [campusFilter, setCampusFilter] = useState<'all' | string>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | IncidentType>('all');
+  const [severityFilter, setSeverityFilter] = useState<'all' | IncidentSeverity>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | IncidentStatus>('all');
+
+  const [campuses, setCampuses] = useState<CampusFilterOption[]>([]);
+  const [roomCampusMap, setRoomCampusMap] = useState<Record<string, string>>({});
 
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState<IncidentItem | null>(null);
@@ -74,8 +135,76 @@ const IncidentManagementPage: React.FC = () => {
   );
 
   useEffect(() => {
-    loadIncidents();
+    void loadIncidents();
   }, [loadIncidents]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCampusAndRooms = async () => {
+      try {
+        const [campusRows, roomRows] = await Promise.all([
+          campusService.getAll().catch(() => []),
+          roomService.getAllRooms().catch(() => []),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        const normalizedCampuses = Array.isArray(campusRows)
+          ? campusRows
+              .map((campus: any) => ({
+                _id: String(campus?._id || ''),
+                campusName: String(campus?.campusName || '').trim(),
+                campusCode: campus?.campusCode ? String(campus.campusCode) : undefined,
+              }))
+              .filter((campus: CampusFilterOption) => Boolean(campus._id) && Boolean(campus.campusName))
+          : [];
+
+        setCampuses(normalizedCampuses);
+
+        const nextRoomCampusMap: Record<string, string> = {};
+        if (Array.isArray(roomRows)) {
+          roomRows.forEach((room: any) => {
+            const roomId = String(room?._id || room?.id || '');
+            const campusIdRaw = typeof room?.campusId === 'object' ? room?.campusId?._id : room?.campusId;
+            const resolvedCampusId = String(campusIdRaw || '');
+
+            if (roomId && resolvedCampusId) {
+              nextRoomCampusMap[roomId] = resolvedCampusId;
+            }
+          });
+        }
+
+        setRoomCampusMap(nextRoomCampusMap);
+      } catch {
+        if (!cancelled) {
+          setCampuses([]);
+          setRoomCampusMap({});
+        }
+      }
+    };
+
+    void loadCampusAndRooms();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (campuses.length === 0) {
+      return;
+    }
+
+    const fptCampus = campuses.find(isFptCampus);
+    if (!fptCampus) {
+      return;
+    }
+
+    setCampusFilter((prev) => (prev === 'all' ? fptCampus._id : prev));
+  }, [campuses]);
 
   useEffect(() => {
     wsService.connect();
@@ -103,6 +232,24 @@ const IncidentManagementPage: React.FC = () => {
     };
   }, [clearObjectUrls]);
 
+  const resolveIncidentCampusId = useCallback(
+    (incident: IncidentItem): string => {
+      const roomData = incident.room as any;
+      const roomId = String(roomData?.id || roomData?._id || '');
+
+      const campusRaw = roomData?.campusId;
+      if (typeof campusRaw === 'string') {
+        return campusRaw;
+      }
+      if (campusRaw && typeof campusRaw === 'object') {
+        return String(campusRaw._id || campusRaw.id || '');
+      }
+
+      return roomId ? roomCampusMap[roomId] || '' : '';
+    },
+    [roomCampusMap],
+  );
+
   const filteredIncidents = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
 
@@ -114,11 +261,19 @@ const IncidentManagementPage: React.FC = () => {
         (incident.room?.roomCode || '').toLowerCase().includes(normalizedKeyword) ||
         (incident.room?.roomName || '').toLowerCase().includes(normalizedKeyword);
 
+      const matchesCampus = campusFilter === 'all' || resolveIncidentCampusId(incident) === campusFilter;
+      const matchesType = typeFilter === 'all' || incident.incidentType === typeFilter;
+      const matchesSeverity = severityFilter === 'all' || incident.severity === severityFilter;
       const matchesStatus = statusFilter === 'all' || incident.status === statusFilter;
 
-      return matchesKeyword && matchesStatus;
+      return matchesKeyword && matchesCampus && matchesType && matchesSeverity && matchesStatus;
     });
-  }, [incidents, keyword, statusFilter]);
+  }, [incidents, keyword, campusFilter, typeFilter, severityFilter, statusFilter, resolveIncidentCampusId]);
+
+  const selectedCampusLabel = useMemo(() => {
+    if (campusFilter === 'all') return '';
+    return campuses.find((campus) => campus._id === campusFilter)?.campusName || '';
+  }, [campusFilter, campuses]);
 
   const handleViewImages = async (incident: IncidentItem) => {
     if (!incident.hasImages) {
@@ -199,9 +354,7 @@ const IncidentManagementPage: React.FC = () => {
 
       const updated = await incidentsService.update(statusTarget.id, { status: nextStatus });
 
-      setIncidents((prev) =>
-        prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
-      );
+      setIncidents((prev) => prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
 
       setStatusDialogOpen(false);
       setStatusTarget(null);
@@ -231,12 +384,12 @@ const IncidentManagementPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-3xl font-bold tracking-tight">Incident Management</h1>
           <p className="mt-1 text-muted-foreground">Monitor and review reported incidents</p>
         </div>
-        <Button variant="outline" onClick={() => loadIncidents(true)} disabled={refreshing}>
+        <Button className="w-full sm:w-auto" variant="outline" onClick={() => loadIncidents(true)} disabled={refreshing}>
           <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
           Reload
         </Button>
@@ -245,10 +398,10 @@ const IncidentManagementPage: React.FC = () => {
       <Card>
         <CardHeader>
           <CardTitle>Filters</CardTitle>
-          <CardDescription>Search incidents and narrow down by status</CardDescription>
+          <CardDescription>Search incidents and narrow down by campus, type, severity, and status</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          <div className="relative md:col-span-2">
+        <CardContent className="grid items-end gap-3 md:grid-cols-2 xl:grid-cols-7">
+          <div className="relative md:col-span-2 xl:col-span-2">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               value={keyword}
@@ -258,19 +411,86 @@ const IncidentManagementPage: React.FC = () => {
             />
           </div>
 
-          <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as any)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="reported">Reported</SelectItem>
-              <SelectItem value="in_progress">In progress</SelectItem>
-              <SelectItem value="resolved">Resolved</SelectItem>
-              <SelectItem value="closed">Closed</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="space-y-2 md:col-span-2 xl:col-span-2">
+            <Label>Campus</Label>
+            <Select value={campusFilter} onValueChange={setCampusFilter}>
+              <SelectTrigger className="w-full [&>span]:truncate">
+                <SelectValue placeholder="All campuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All campuses</SelectItem>
+                {campuses.map((campus) => (
+                  <SelectItem key={campus._id} value={campus._id}>
+                    <span
+                      className="block max-w-[320px] truncate"
+                      title={campus.campusCode ? `${campus.campusCode} - ${campus.campusName}` : campus.campusName}
+                    >
+                      {campus.campusCode ? `${campus.campusCode} - ${campus.campusName}` : campus.campusName}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Type</Label>
+            <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value as 'all' | IncidentType)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent>
+                {INCIDENT_TYPE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Severity</Label>
+            <Select
+              value={severityFilter}
+              onValueChange={(value) => setSeverityFilter(value as 'all' | IncidentSeverity)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All severities" />
+              </SelectTrigger>
+              <SelectContent>
+                {INCIDENT_SEVERITY_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Status</Label>
+            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as 'all' | IncidentStatus)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                {INCIDENT_STATUS_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardContent>
+        {selectedCampusLabel && (
+          <CardContent className="pt-0">
+            <Badge variant="secondary" className="max-w-[340px] truncate" title={selectedCampusLabel}>
+              Campus: {selectedCampusLabel}
+            </Badge>
+          </CardContent>
+        )}
       </Card>
 
       <Card>
@@ -279,7 +499,8 @@ const IncidentManagementPage: React.FC = () => {
           <CardDescription>Total: {filteredIncidents.length}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
+          <div className="overflow-x-auto">
+            <Table className="min-w-[920px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Room</TableHead>
@@ -287,8 +508,8 @@ const IncidentManagementPage: React.FC = () => {
                 <TableHead>Type</TableHead>
                 <TableHead>Severity</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Images</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead className="w-[120px] text-center">Images</TableHead>
+                <TableHead className="w-[140px] text-center">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -302,50 +523,48 @@ const IncidentManagementPage: React.FC = () => {
                 filteredIncidents.map((incident) => (
                   <TableRow key={incident.id}>
                     <TableCell>
-                      <div className="font-medium">{incident.room?.roomCode || '--'}</div>
-                      <div className="text-xs text-muted-foreground">{incident.room?.roomName || ''}</div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium">{incident.title}</div>
-                      <div className="line-clamp-1 text-xs text-muted-foreground">
-                        {incident.description}
+                      <div className="max-w-[170px]">
+                        <div className="truncate font-medium" title={incident.room?.roomCode || '--'}>{incident.room?.roomCode || '--'}</div>
+                        <div className="truncate text-xs text-muted-foreground" title={incident.room?.roomName || ''}>{incident.room?.roomName || ''}</div>
                       </div>
                     </TableCell>
-                    <TableCell>{formatIncidentType(incident.incidentType)}</TableCell>
                     <TableCell>
-                      <Badge variant={severityBadgeVariant(incident.severity)}>
-                        {incident.severity}
-                      </Badge>
+                      <div className="max-w-[260px]">
+                        <div className="truncate font-medium" title={incident.title}>{incident.title}</div>
+                        <div className="line-clamp-1 text-xs text-muted-foreground" title={incident.description}>{incident.description}</div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">{formatIncidentType(incident.incidentType)}</TableCell>
+                    <TableCell>
+                      <Badge variant={severityBadgeVariant(incident.severity)}>{incident.severity}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={statusBadgeVariant(incident.status)}>
-                        {incident.status}
-                      </Badge>
+                      <Badge variant={statusBadgeVariant(incident.status)}>{incident.status}</Badge>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2 text-sm">
+                    <TableCell className="align-middle">
+                      <div className="flex items-center justify-center gap-2 text-sm">
                         <ImageIcon className="h-4 w-4 text-muted-foreground" />
                         {incident.imagesCount}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
+                    <TableCell className="align-middle text-center">
+                      <div className="inline-flex items-center justify-center gap-2">
                         <Button
                           variant="outline"
-                          size="sm"
+                          size="icon"
                           onClick={() => handleOpenStatusDialog(incident)}
+                          title="Update status"
                         >
-                          <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                          Update Status
+                          <CheckCircle2 className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="outline"
-                          size="sm"
+                          size="icon"
                           onClick={() => handleViewImages(incident)}
                           disabled={!incident.hasImages}
+                          title="View images"
                         >
-                          <Eye className="mr-1 h-3.5 w-3.5" />
-                          View Images
+                          <Eye className="h-4 w-4" />
                         </Button>
                       </div>
                     </TableCell>
@@ -353,7 +572,8 @@ const IncidentManagementPage: React.FC = () => {
                 ))
               )}
             </TableBody>
-          </Table>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 
