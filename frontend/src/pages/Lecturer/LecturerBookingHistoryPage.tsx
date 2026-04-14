@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { Label } from '@/components/ui/label';
@@ -43,9 +43,16 @@ const formatDateCell = (dateValue: string): string => {
   return format(parsed, 'dd/MM/yyyy', { locale: vi });
 };
 
-const LecturerBookingHistoryPage: React.FC = () => {
+interface LecturerBookingHistoryPageProps {
+  reloadSignal?: number;
+}
+
+const LecturerBookingHistoryPage: React.FC<LecturerBookingHistoryPageProps> = ({
+  reloadSignal,
+}) => {
   const { toast } = useToast();
   const { user } = useAuth();
+  const previousReloadSignalRef = useRef<number | undefined>(reloadSignal);
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [isLoadingBookings, setIsLoadingBookings] = useState(false);
@@ -78,6 +85,19 @@ const LecturerBookingHistoryPage: React.FC = () => {
   useEffect(() => {
     loadBookings();
   }, [loadBookings]);
+
+  useEffect(() => {
+    if (reloadSignal === undefined) {
+      return;
+    }
+
+    if (previousReloadSignalRef.current === reloadSignal) {
+      return;
+    }
+
+    previousReloadSignalRef.current = reloadSignal;
+    void loadBookings();
+  }, [reloadSignal, loadBookings]);
 
   useEffect(() => {
     const socket = wsService.connect();

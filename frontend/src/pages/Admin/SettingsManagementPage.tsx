@@ -59,6 +59,7 @@ const DEFAULT_FORM: SettingFormState = {
 
 const PRESET_KEYS = [
   'booking.self_booking_lead_minutes',
+  'booking.self_booking_weekly_room_limit',
   'notification.notification_before_class',
   'notification.booking_approval_reminder_min_minutes',
   'notification.booking_approval_reminder_max_minutes',

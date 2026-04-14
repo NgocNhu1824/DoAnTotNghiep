@@ -61,6 +61,10 @@ export class ScheduleService {
     return `${String(slotType || '').toUpperCase()}::${Number(slotNumber)}`;
   }
 
+  private isTruthyQueryFlag(value?: string): boolean {
+    return value === 'true' || value === '1';
+  }
+
   private toComparableSchedule(item: any): any {
     const slot = item?.timeSlotId && typeof item.timeSlotId === 'object' ? item.timeSlotId : null;
     return {
@@ -686,8 +690,8 @@ export class ScheduleService {
       campusId: user.campusId,
     };
 
-    const viewAllActivities =
-      query.viewAllActivities === 'true' || query.viewAllActivities === '1';
+    const viewAllActivities = this.isTruthyQueryFlag(query.viewAllActivities);
+    const compact = this.isTruthyQueryFlag(query.compact);
 
     if (user.roleScope === 'SELF' && !viewAllActivities) {
       filter.lecturerId = user._id;
@@ -747,15 +751,25 @@ export class ScheduleService {
       }
     }
 
-    const rows = await this.scheduleModel
-      .find(filter)
+    let rowsQuery = this.scheduleModel.find(filter);
+
+    if (compact) {
+      rowsQuery = rowsQuery.select(
+        '_id campusId roomId lecturerId dateStart dayOfWeek timeSlotId classCode subjectCode subjectName semester status source isOnline',
+      );
+    }
+
+    rowsQuery = rowsQuery
       .populate('roomId', 'roomCode roomName building')
-      .populate('lecturerId', 'fullName email')
-      .populate('timeSlotId', 'slotType slotNumber startTime endTime slotName')
-      .populate('createdBy', 'fullName email')
-      .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
-      .lean()
-      .exec();
+      .populate('timeSlotId', 'slotType slotNumber startTime endTime slotName');
+
+    if (!compact) {
+      rowsQuery = rowsQuery
+        .populate('lecturerId', 'fullName email')
+        .populate('createdBy', 'fullName email');
+    }
+
+    const rows = await rowsQuery.lean().exec();
 
     return rows
       .map((item: any) => this.normalizeScheduleOutput(item))
@@ -781,7 +795,6 @@ export class ScheduleService {
       .populate('lecturerId', 'fullName email')
       .populate('timeSlotId', 'slotType slotNumber startTime endTime slotName')
       .populate('createdBy', 'fullName email')
-      .populate('timeSlotId', 'slotType slotNumber slotName startTime endTime')
       .lean()
       .exec();
 

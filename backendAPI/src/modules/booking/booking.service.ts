@@ -20,6 +20,8 @@ import { SettingsService } from '@/modules/settings/settings.service';
 export class BookingService {
   // Keep this configurable in code to easily match policy updates.
   private static readonly DEFAULT_SELF_BOOKING_LEAD_MINUTES = 15;
+  private static readonly DEFAULT_SELF_BOOKING_WEEKLY_ROOM_LIMIT = 5;
+  private static readonly WEEKLY_ROOM_LIMIT_WARNING_THRESHOLD = 1;
 
   constructor(
     @InjectModel(Booking.name)
@@ -66,6 +68,24 @@ export class BookingService {
       );
     } catch {
       return BookingService.DEFAULT_SELF_BOOKING_LEAD_MINUTES;
+    }
+  }
+
+  private async getSelfBookingWeeklyRoomLimit(campusId: string): Promise<number> {
+    try {
+      const effective = await this.settingsService.getEffectiveValueForCampus(
+        'booking.self_booking_weekly_room_limit',
+        campusId,
+      );
+
+      return this.normalizeNumberSetting(
+        effective?.value,
+        BookingService.DEFAULT_SELF_BOOKING_WEEKLY_ROOM_LIMIT,
+        1,
+        50,
+      );
+    } catch {
+      return BookingService.DEFAULT_SELF_BOOKING_WEEKLY_ROOM_LIMIT;
     }
   }
 
@@ -151,6 +171,85 @@ export class BookingService {
     return { start, end };
   }
 
+  private toWeekRange(dateString: string): { start: Date; end: Date } {
+    const date = BookingValidationHelper.toUTCDate(dateString);
+    const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const dayOfWeek = start.getUTCDay();
+    const daysFromMonday = (dayOfWeek + 6) % 7;
+    start.setUTCDate(start.getUTCDate() - daysFromMonday);
+
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 7);
+
+    return { start, end };
+  }
+
+  private toDateString(date: Date): string {
+    return date.toISOString().slice(0, 10);
+  }
+
+  private async getSelfWeeklyRoomQuotaInfo(
+    campusId: string,
+    userId: string,
+    roomId: string,
+    bookingDate: string,
+  ): Promise<{
+    roomId: string;
+    bookingDate: string;
+    weekStart: string;
+    weekEnd: string;
+    weeklyLimit: number;
+    usedBookings: number;
+    remainingBookings: number;
+    nearLimit: boolean;
+    reachedLimit: boolean;
+  }> {
+    const [weeklyLimit, weekRange] = await Promise.all([
+      this.getSelfBookingWeeklyRoomLimit(campusId),
+      Promise.resolve(this.toWeekRange(bookingDate)),
+    ]);
+
+    const usedBookings = await this.bookingModel
+      .countDocuments({
+        campusId: new Types.ObjectId(campusId),
+        roomId: new Types.ObjectId(roomId),
+        lecturerId: new Types.ObjectId(userId),
+        status: { $in: ['pending', 'approved', 'completed'] },
+        ...BookingValidationHelper.dateMatchCondition(weekRange.start, weekRange.end),
+      })
+      .exec();
+
+    const remainingBookings = Math.max(weeklyLimit - usedBookings, 0);
+    const nearLimit =
+      remainingBookings > 0 &&
+      remainingBookings <= BookingService.WEEKLY_ROOM_LIMIT_WARNING_THRESHOLD;
+    const reachedLimit = usedBookings >= weeklyLimit;
+
+    const weekEndInclusive = new Date(weekRange.end);
+    weekEndInclusive.setUTCDate(weekEndInclusive.getUTCDate() - 1);
+
+    return {
+      roomId,
+      bookingDate,
+      weekStart: this.toDateString(weekRange.start),
+      weekEnd: this.toDateString(weekEndInclusive),
+      weeklyLimit,
+      usedBookings,
+      remainingBookings,
+      nearLimit,
+      reachedLimit,
+    };
+  }
+
+  private buildWeeklyRoomLimitExceededMessage(quota: {
+    usedBookings: number;
+    weeklyLimit: number;
+    weekStart: string;
+    weekEnd: string;
+  }): string {
+    return `You have reached the weekly booking limit for this room (${quota.usedBookings}/${quota.weeklyLimit}) in week ${quota.weekStart} to ${quota.weekEnd}. Please book this room next week or choose another room.`;
+  }
+
   private applyBookingPopulate(query: any): any {
     return query
       .populate('roomId', 'roomCode roomName building floor')
@@ -227,7 +326,7 @@ export class BookingService {
         status: { $nin: ['unavailable', 'maintain'] },
         isActive: { $ne: false },
       })
-      .select('_id')
+      .select('_id roomCode roomName')
       .lean()
       .exec();
 
@@ -256,6 +355,24 @@ export class BookingService {
     const bookingDate = BookingValidationHelper.toUTCDate(dto.bookingDate);
     await this.ensureSelfBookingLeadTime(bookingDate, dto.startTime, campusId);
 
+    const quota = await this.getSelfWeeklyRoomQuotaInfo(campusId, userId, dto.roomId, dto.bookingDate);
+    if (quota.reachedLimit) {
+      await this.notificationsService.notifySelfBookingQuotaStatus({
+        campusId,
+        recipientId: userId,
+        roomId: dto.roomId,
+        roomCode: (room as any)?.roomCode || null,
+        roomName: (room as any)?.roomName || null,
+        weekStart: quota.weekStart,
+        weekEnd: quota.weekEnd,
+        weeklyLimit: quota.weeklyLimit,
+        usedBookings: quota.usedBookings,
+        remainingBookings: quota.remainingBookings,
+        stage: 'limit_reached',
+      });
+      throw new BadRequestException(this.buildWeeklyRoomLimitExceededMessage(quota));
+    }
+
     const created = await this.bookingModel.create({
       campusId: new Types.ObjectId(campusId),
       roomId: new Types.ObjectId(dto.roomId),
@@ -277,7 +394,41 @@ export class BookingService {
     const payload = await this.toBookingPayload(created);
     this.eventsGateway.broadcastBookingUpdate('created', payload);
     await this.notificationsService.notifyBookingPendingApproval(payload);
+
+    const usedBookingsAfterCreate = quota.usedBookings + 1;
+    const remainingBookingsAfterCreate = Math.max(quota.weeklyLimit - usedBookingsAfterCreate, 0);
+
+    if (remainingBookingsAfterCreate <= BookingService.WEEKLY_ROOM_LIMIT_WARNING_THRESHOLD) {
+      await this.notificationsService.notifySelfBookingQuotaStatus({
+        campusId,
+        recipientId: userId,
+        roomId: dto.roomId,
+        roomCode: (room as any)?.roomCode || null,
+        roomName: (room as any)?.roomName || null,
+        weekStart: quota.weekStart,
+        weekEnd: quota.weekEnd,
+        weeklyLimit: quota.weeklyLimit,
+        usedBookings: usedBookingsAfterCreate,
+        remainingBookings: remainingBookingsAfterCreate,
+        stage: remainingBookingsAfterCreate === 0 ? 'limit_reached' : 'near_limit',
+      });
+    }
+
     return payload;
+  }
+
+  async getSelfWeeklyRoomQuota(
+    roomId: string,
+    bookingDate: string,
+    currentUser: any,
+    campusFilter?: any,
+  ) {
+    const campusId = BookingValidationHelper.resolveCampusId(currentUser, campusFilter);
+    const userId = BookingValidationHelper.resolveUserId(currentUser);
+
+    await this.ensureRoomExistsInCampus(campusId, roomId);
+
+    return this.getSelfWeeklyRoomQuotaInfo(campusId, userId, roomId, bookingDate);
   }
 
   async findSelf(query: QueryBookingDto, currentUser: any, campusFilter?: any) {

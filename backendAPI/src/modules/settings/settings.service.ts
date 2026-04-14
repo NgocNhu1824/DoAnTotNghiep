@@ -423,6 +423,9 @@ export class SettingsService implements OnModuleInit {
     const selfBookingLeadMinutes = Number(
       this.configService.get<string>('BOOKING_SELF_LEAD_MINUTES') || 15,
     );
+    const selfBookingWeeklyRoomLimit = Number(
+      this.configService.get<string>('BOOKING_SELF_WEEKLY_ROOM_LIMIT') || 5,
+    );
     const autoUnlockBeforeClass = Number(
       this.configService.get<string>('AUTO_UNLOCK_BEFORE_CLASS') || 5,
     );
@@ -451,6 +454,7 @@ export class SettingsService implements OnModuleInit {
       notification_before_class: notificationBeforeClass,
       'booking.max_overdue_minutes': maxOverdueMinutes,
       'booking.self_booking_lead_minutes': selfBookingLeadMinutes,
+      'booking.self_booking_weekly_room_limit': selfBookingWeeklyRoomLimit,
       'locker.auto_unlock_before_class_minutes': autoUnlockBeforeClass,
       'notification.notification_before_class': notificationBeforeClass,
       'notification.booking_approval_reminder_min_minutes': bookingApprovalReminderMinMinutes,

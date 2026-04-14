@@ -7,6 +7,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useToast } from '@/hooks/use-toast';
 import notificationsService from '@/services/notifications.service';
 import wsService from '@/services/websocket.service';
 import { AppNotification } from '@/types/notification.types';
@@ -51,12 +52,17 @@ const normalizeIncomingNotification = (payload: any, userId: string): AppNotific
   };
 };
 
+const isBookingQuotaNotification = (notification: AppNotification): boolean => {
+  return notification.type === 'booking_quota_warning' || notification.type === 'booking_quota_limit_reached';
+};
+
 const NotificationBell: React.FC<NotificationBellProps> = ({
   userId,
   userScope,
   canReadNotifications,
 }) => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -92,6 +98,14 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
     const onNotification = (payload: any) => {
       const normalized = normalizeIncomingNotification(payload, userId);
 
+      if (!normalized.isRead && isBookingQuotaNotification(normalized)) {
+        toast({
+          title: normalized.title,
+          description: normalized.message,
+          variant: normalized.type === 'booking_quota_limit_reached' ? 'destructive' : 'default',
+        });
+      }
+
       setNotifications((prev) => {
         if (prev.some((item) => item._id === normalized._id)) {
           return prev;
@@ -113,7 +127,7 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
         wsService.disconnect();
       }
     };
-  }, [canReadNotifications, fetchNotifications, userId]);
+  }, [canReadNotifications, fetchNotifications, toast, userId]);
 
   const handleNotificationClick = async (notification: AppNotification) => {
     if (!notification.isRead) {
@@ -133,11 +147,13 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
     }
 
     if (notification.type.includes('booking')) {
-      navigate(userScope === 'SELF' ? '/lecturer/booking-history' : '/bookings');
+      navigate(userScope === 'SELF' ? '/lecturer/history?tab=booking-history' : '/bookings');
     } else if (notification.type.includes('incident')) {
       navigate('/incidents');
     } else if (notification.type.includes('transfer')) {
-      navigate(userScope === 'SELF' ? '/lecturer/transfers/incoming' : '/transfers');
+      navigate(userScope === 'SELF' ? '/lecturer/history?tab=incoming-transfers' : '/transfers');
+    } else if (notification.type.includes('access')) {
+      navigate(userScope === 'SELF' ? '/lecturer/history?tab=access-audit' : '/access-logs');
     }
 
     setIsNotificationOpen(false);

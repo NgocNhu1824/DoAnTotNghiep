@@ -17,6 +17,7 @@ import { CancelSelfBookingDto } from './dto/cancel-self-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { QueryBookingDto } from './dto/query-booking.dto';
 import { QuerySelfRoomsDto } from './dto/query-self-rooms.dto';
+import { QuerySelfWeeklyRoomQuotaDto } from './dto/query-self-weekly-room-quota.dto';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { CampusScopeGuard } from '@/common/guards/campus-scope.guard';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
@@ -67,6 +68,27 @@ export class BookingController {
       request.campusFilter,
       query.bookingDate,
       query.slotType,
+    );
+
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Get('self/weekly-room-quota')
+  @RequirePermissions('bookings.read', 'bookings.create')
+  @RequireScopes('SELF')
+  async getSelfWeeklyRoomQuota(
+    @Query() query: QuerySelfWeeklyRoomQuotaDto,
+    @CurrentUser() user: any,
+    @Req() request: any,
+  ) {
+    const data = await this.bookingService.getSelfWeeklyRoomQuota(
+      query.roomId,
+      query.bookingDate,
+      user,
+      request.campusFilter,
     );
 
     return {

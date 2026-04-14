@@ -26,11 +26,10 @@ import SettingsManagementPage from '../pages/Admin/SettingsManagementPage';
 import IncidentManagementPage from '../pages/Admin/IncidentManagementPage';
 import NotificationBroadcastPage from '../pages/Admin/NotificationBroadcastPage';
 import LecturerBookingPage from '../pages/Lecturer/LecturerBookingPage';
-import LecturerBookingHistoryPage from '../pages/Lecturer/LecturerBookingHistoryPage';
 import LecturerSchedulePage from '@/pages/Lecturer/LecturerSchedulePage';
 import LecturerBookingRequestPage from '../pages/Lecturer/LecturerBookingRequestPage';
 import LecturerTransferRequestPage from '../pages/Lecturer/LecturerTransferRequestPage';
-import LecturerIncomingTransfersPage from '../pages/Lecturer/LecturerIncomingTransfersPage';
+import LecturerHistoryPage from '../pages/Lecturer/LecturerHistoryPage';
 import AdminTransferListPage from '../pages/Admin/AdminTransferListPage';
 
 
@@ -227,18 +226,28 @@ const AppRoutes: React.FC = () => {
           />
 
           <Route
-            path="/lecturer/booking-history"
+            path="/lecturer/history"
             element={
               <ProtectedRoute
                 allowedRoleCodes={['LECTURER']}
                 requiredScopes={['SELF']}
-                requiredPermissions={[PERMISSIONS.BOOKINGS_READ]}
+                requiredPermissions={[
+                  PERMISSIONS.BOOKINGS_READ,
+                  PERMISSIONS.TRANSFERS_READ,
+                  PERMISSIONS.ACCESS_LOGS_READ,
+                  PERMISSIONS.ACCESS_LOGS_MANAGE,
+                ]}
               >
                 <AdminLayout>
-                  <LecturerBookingHistoryPage />
+                  <LecturerHistoryPage />
                 </AdminLayout>
               </ProtectedRoute>
             }
+          />
+
+          <Route
+            path="/lecturer/booking-history"
+            element={<Navigate to="/lecturer/history?tab=booking-history" replace />}
           />
 
           <Route
@@ -273,17 +282,7 @@ const AppRoutes: React.FC = () => {
 
           <Route
             path="/lecturer/transfers/incoming"
-            element={
-              <ProtectedRoute
-                allowedRoleCodes={['LECTURER']}
-                requiredScopes={['SELF']}
-                requiredPermissions={[PERMISSIONS.TRANSFERS_READ]}
-              >
-                <AdminLayout>
-                  <LecturerIncomingTransfersPage />
-                </AdminLayout>
-              </ProtectedRoute>
-            }
+            element={<Navigate to="/lecturer/history?tab=incoming-transfers" replace />}
           />
 
          

@@ -166,3 +166,15 @@ export interface LecturerBookingGrid {
   rooms: LecturerGridRoomRow[];
   bookings?: LecturerGridBookingRow[];
 }
+
+export interface SelfWeeklyRoomQuota {
+  roomId: string;
+  bookingDate: string;
+  weekStart: string;
+  weekEnd: string;
+  weeklyLimit: number;
+  usedBookings: number;
+  remainingBookings: number;
+  nearLimit: boolean;
+  reachedLimit: boolean;
+}

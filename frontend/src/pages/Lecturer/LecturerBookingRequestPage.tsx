@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import bookingService from '@/services/booking.service';
-import { LecturerGridRoomRow } from '@/types/booking.types';
+import { LecturerGridRoomRow, SelfWeeklyRoomQuota } from '@/types/booking.types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,63 @@ import { useToast } from '@/hooks/use-toast';
 
 const timeOverlaps = (startA: string, endA: string, startB: string, endB: string): boolean => {
   return startA < endB && endA > startB;
+};
+
+const BOOKING_LEAD_MINUTES = 15;
+
+const toLocalDateTime = (dateValue: string, timeValue: string): Date | null => {
+  const [yearText, monthText, dayText] = dateValue.split('-');
+  const [hourText, minuteText] = timeValue.split(':');
+
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute)
+  ) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day, hour, minute, 0, 0);
+};
+
+const isBookingWindowClosed = (dateValue: string, slotStartTime: string): boolean => {
+  const slotStart = toLocalDateTime(dateValue, slotStartTime);
+  if (!slotStart) {
+    return false;
+  }
+
+  const cutoff = new Date(slotStart.getTime() - BOOKING_LEAD_MINUTES * 60 * 1000);
+  return Date.now() >= cutoff.getTime();
+};
+
+const getErrorMessage = (error: any, fallback: string): string => {
+  const candidate = error?.message;
+
+  if (Array.isArray(candidate) && candidate.length > 0) {
+    return candidate.join(', ');
+  }
+
+  if (typeof candidate === 'string' && candidate.trim()) {
+    return candidate;
+  }
+
+  if (typeof error?.error === 'string' && error.error.trim()) {
+    return error.error;
+  }
+
+  return fallback;
+};
+
+const buildWeeklyLimitMessage = (quota: SelfWeeklyRoomQuota): string => {
+  return `You have already booked this room ${quota.usedBookings}/${quota.weeklyLimit} times this week (${quota.weekStart} to ${quota.weekEnd}). Please choose another room or book again next week.`;
 };
 
 type SlotDefinition = {
@@ -72,6 +129,7 @@ const LecturerBookingRequestPage: React.FC = () => {
   const [purpose, setPurpose] = useState('');
   const [purposeError, setPurposeError] = useState('');
   const [requestRoom, setRequestRoom] = useState<LecturerGridRoomRow | null>(null);
+  const [weeklyQuota, setWeeklyQuota] = useState<SelfWeeklyRoomQuota | null>(null);
 
   const [slotBlockedReason, setSlotBlockedReason] = useState<string>('');
 
@@ -92,7 +150,10 @@ const LecturerBookingRequestPage: React.FC = () => {
         setIsLoading(true);
         const grid = await bookingService.getSelfGrid({ bookingDate, slotType });
 
-        const targetRoom = grid.rooms.find((item) => item.roomId === roomId) || null;
+        const targetRoom =
+          grid.rooms.find((item) => item.roomId === roomId) ||
+          grid.rooms.find((item) => item.roomCode === roomCode) ||
+          null;
         setRequestRoom(targetRoom);
 
         if (!targetRoom) {
@@ -115,6 +176,27 @@ const LecturerBookingRequestPage: React.FC = () => {
           return;
         }
 
+        if (isBookingWindowClosed(bookingDate, startTime)) {
+          setSlotBlockedReason(
+            `Booking must be created at least ${BOOKING_LEAD_MINUTES} minutes before class start`,
+          );
+          return;
+        }
+
+        let quota: SelfWeeklyRoomQuota | null = null;
+        try {
+          quota = await bookingService.getSelfWeeklyRoomQuota({ roomId, bookingDate });
+          setWeeklyQuota(quota);
+        } catch {
+          // Keep booking request usable even if quota endpoint is temporarily unavailable.
+          setWeeklyQuota(null);
+        }
+
+        if (quota?.reachedLimit) {
+          setSlotBlockedReason(buildWeeklyLimitMessage(quota));
+          return;
+        }
+
         const slotConflict = (grid.bookings || []).some((item) => {
           if (item.roomId !== roomId) {
             return false;
@@ -129,6 +211,8 @@ const LecturerBookingRequestPage: React.FC = () => {
 
         setSlotBlockedReason('');
       } catch (error: any) {
+        setRequestRoom(null);
+        setWeeklyQuota(null);
         toast({
           title: 'Error',
           description: error?.message || 'Cannot load booking request data',
@@ -140,7 +224,7 @@ const LecturerBookingRequestPage: React.FC = () => {
     };
 
     loadRequestData();
-  }, [bookingDate, endTime, navigate, roomId, slotType, startTime, toast]);
+  }, [bookingDate, endTime, navigate, roomCode, roomId, slotType, startTime, toast]);
 
   const getDeviceStatusView = (status?: 'ok' | 'broken') => {
     if (status === 'broken') {
@@ -172,8 +256,106 @@ const LecturerBookingRequestPage: React.FC = () => {
       return;
     }
 
+    if (isBookingWindowClosed(bookingDate, startTime)) {
+      const leadTimeMessage = `Booking must be created at least ${BOOKING_LEAD_MINUTES} minutes before class start`;
+      setSlotBlockedReason(leadTimeMessage);
+      toast({
+        title: 'Error',
+        description: leadTimeMessage,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       setIsSubmitting(true);
+
+      const latestGrid = await bookingService.getSelfGrid({ bookingDate, slotType });
+      const latestRoom =
+        latestGrid.rooms.find((item) => item.roomId === roomId) ||
+        latestGrid.rooms.find((item) => item.roomCode === roomCode) ||
+        null;
+
+      if (!latestRoom) {
+        const message = 'Room information cannot be loaded. Please go back and select room again.';
+        setSlotBlockedReason(message);
+        toast({
+          title: 'Error',
+          description: message,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (latestRoom.isActive === false) {
+        const message = 'This room is currently inactive.';
+        setSlotBlockedReason(message);
+        toast({
+          title: 'Error',
+          description: message,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (latestRoom.status === 'maintain') {
+        const message = 'This room is under maintenance.';
+        setSlotBlockedReason(message);
+        toast({
+          title: 'Error',
+          description: message,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (latestRoom.status === 'unavailable') {
+        const message = 'This room is currently unavailable.';
+        setSlotBlockedReason(message);
+        toast({
+          title: 'Error',
+          description: message,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const latestSlotConflict = (latestGrid.bookings || []).some((item) => {
+        if (item.roomId !== roomId) {
+          return false;
+        }
+        return timeOverlaps(startTime, endTime, item.startTime, item.endTime);
+      });
+
+      if (latestSlotConflict) {
+        const message = 'This time range has already been booked. Please choose another slot.';
+        setSlotBlockedReason(message);
+        toast({
+          title: 'Error',
+          description: message,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      try {
+        const latestQuota = await bookingService.getSelfWeeklyRoomQuota({ roomId, bookingDate });
+        setWeeklyQuota(latestQuota);
+
+        if (latestQuota.reachedLimit) {
+          const quotaMessage = buildWeeklyLimitMessage(latestQuota);
+          setSlotBlockedReason(quotaMessage);
+          toast({
+            title: 'Error',
+            description: quotaMessage,
+            variant: 'destructive',
+          });
+          return;
+        }
+      } catch {
+        setWeeklyQuota(null);
+      }
+
       await bookingService.createSelfBooking({
         roomId,
         bookingDate,
@@ -198,9 +380,24 @@ const LecturerBookingRequestPage: React.FC = () => {
         },
       });
     } catch (error: any) {
+      const message = getErrorMessage(error, 'Failed to create booking');
+
+      if (typeof message === 'string' && message.trim()) {
+        const normalized = message.toLowerCase();
+        if (
+          normalized.includes('already been booked') ||
+          normalized.includes('weekly booking limit') ||
+          normalized.includes('minutes before class start') ||
+          normalized.includes('room does not exist') ||
+          normalized.includes('unavailable')
+        ) {
+          setSlotBlockedReason(message);
+        }
+      }
+
       toast({
         title: 'Error',
-        description: error?.message || 'Failed to create booking',
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -274,7 +471,11 @@ const LecturerBookingRequestPage: React.FC = () => {
           <CardDescription>Device list in the selected room.</CardDescription>
         </CardHeader>
         <CardContent>
-          {!requestRoom?.devices || requestRoom.devices.length === 0 ? (
+          {!requestRoom ? (
+            <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
+              Room information is unavailable. Please return to Booking Room and select again.
+            </div>
+          ) : !requestRoom.devices || requestRoom.devices.length === 0 ? (
             <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
               No devices found in this room.
             </div>
@@ -319,8 +520,23 @@ const LecturerBookingRequestPage: React.FC = () => {
         </CardHeader>
         <CardContent className="space-y-3 text-sm leading-6 text-slate-700">
           <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 font-medium text-amber-800">
-            Important: One lecturer can create at most 5 booking requests per week.
+            Important: You can create up to {weeklyQuota?.weeklyLimit ?? 5} bookings per week for the same room.
           </p>
+          {weeklyQuota && weeklyQuota.reachedLimit && (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+              Weekly limit reached: {weeklyQuota.usedBookings}/{weeklyQuota.weeklyLimit} bookings for this room ({weeklyQuota.weekStart} to {weeklyQuota.weekEnd}). Please book this room next week or choose another room.
+            </p>
+          )}
+          {weeklyQuota && !weeklyQuota.reachedLimit && weeklyQuota.nearLimit && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+              You are close to the weekly limit for this room: {weeklyQuota.usedBookings}/{weeklyQuota.weeklyLimit} used ({weeklyQuota.weekStart} to {weeklyQuota.weekEnd}). Remaining this week: {weeklyQuota.remainingBookings} booking(s).
+            </p>
+          )}
+          {weeklyQuota && !weeklyQuota.reachedLimit && !weeklyQuota.nearLimit && (
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">
+              Weekly usage for this room: {weeklyQuota.usedBookings}/{weeklyQuota.weeklyLimit} bookings ({weeklyQuota.weekStart} to {weeklyQuota.weekEnd}).
+            </p>
+          )}
           <div className="space-y-3">
             <div>
               <p className="font-semibold text-slate-900">1. Classroom Usage Rules</p>

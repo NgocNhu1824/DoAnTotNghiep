@@ -1,6 +1,38 @@
 import api from './api.service';
 import { Schedule } from '../types/schedule.types';
 
+const buildScheduleQueryParams = (params?: QueryScheduleParams): URLSearchParams => {
+  const queryParams = new URLSearchParams();
+
+  if (params?.startDate) queryParams.append('startDate', params.startDate);
+  if (params?.endDate) queryParams.append('endDate', params.endDate);
+  if (params?.roomId) queryParams.append('roomId', params.roomId);
+  if (params?.lecturerId) queryParams.append('lecturerId', params.lecturerId);
+  if (params?.semester) queryParams.append('semester', params.semester);
+  if (params?.status) queryParams.append('status', params.status);
+  if (params?.slotType) queryParams.append('slotType', params.slotType);
+  if (params?.timeSlotId) queryParams.append('timeSlotId', params.timeSlotId);
+  if (params?.classCode) queryParams.append('classCode', params.classCode);
+  if (params?.isOnline !== undefined) queryParams.append('isOnline', params.isOnline);
+  if (params?.viewAllActivities) queryParams.append('viewAllActivities', params.viewAllActivities);
+  if (params?.compact) queryParams.append('compact', params.compact);
+
+  return queryParams;
+};
+
+const parseScheduleListResponse = (res: any): Schedule[] => {
+  if (res?.success && Array.isArray(res.data)) {
+    return res.data;
+  }
+
+  if (Array.isArray(res)) {
+    return res;
+  }
+
+  console.warn('[ScheduleService] Unexpected response format:', res);
+  return [];
+};
+
 export interface QueryScheduleParams {
   startDate?: string;
   endDate?: string;
@@ -13,6 +45,7 @@ export interface QueryScheduleParams {
   classCode?: string;
   isOnline?: 'true' | 'false';
   viewAllActivities?: 'true' | 'false';
+  compact?: 'true' | 'false';
 }
 
 export interface CreateScheduleDto {
@@ -80,33 +113,30 @@ export const scheduleService = {
    * Get all schedules with optional filters
    */
   getAll: async (params?: QueryScheduleParams): Promise<Schedule[]> => {
-    const queryParams = new URLSearchParams();
-    if (params?.startDate) queryParams.append('startDate', params.startDate);
-    if (params?.endDate) queryParams.append('endDate', params.endDate);
-    if (params?.roomId) queryParams.append('roomId', params.roomId);
-    if (params?.lecturerId) queryParams.append('lecturerId', params.lecturerId);
-    if (params?.semester) queryParams.append('semester', params.semester);
-    if (params?.status) queryParams.append('status', params.status);
-    if (params?.slotType) queryParams.append('slotType', params.slotType);
-    if (params?.timeSlotId) queryParams.append('timeSlotId', params.timeSlotId);
-    if (params?.classCode) queryParams.append('classCode', params.classCode);
-    if (params?.isOnline !== undefined) queryParams.append('isOnline', params.isOnline);
-    if (params?.viewAllActivities) queryParams.append('viewAllActivities', params.viewAllActivities);
+    const queryParams = buildScheduleQueryParams(params);
 
-    const res = await api.get<{ success: boolean; data: Schedule[]; total?: number }>(
-      `/schedules?${queryParams.toString()}`
-    );
+    try {
+      const res = await api.get<{ success: boolean; data: Schedule[]; total?: number }>(
+        `/schedules?${queryParams.toString()}`,
+      );
 
-    if (res?.success && Array.isArray(res.data)) {
-      return res.data;
+      return parseScheduleListResponse(res);
+    } catch (error) {
+      if (!params?.compact) {
+        throw error;
+      }
+
+      // Backward compatibility: old backend builds may reject unknown compact query.
+      const fallbackParams = { ...params };
+      delete fallbackParams.compact;
+      const fallbackQueryParams = buildScheduleQueryParams(fallbackParams);
+
+      const fallbackRes = await api.get<{ success: boolean; data: Schedule[]; total?: number }>(
+        `/schedules?${fallbackQueryParams.toString()}`,
+      );
+
+      return parseScheduleListResponse(fallbackRes);
     }
-
-    if (Array.isArray(res)) {
-      return res;
-    }
-
-    console.warn('[ScheduleService] Unexpected response format:', res);
-    return [];
   },
 
   /**

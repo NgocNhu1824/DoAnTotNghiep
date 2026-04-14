@@ -56,8 +56,19 @@ const getTargetLabel = (transfer: TransferRecord) => {
   return `Slot #${target.slotNumber} (${target.startTime} - ${target.endTime})`;
 };
 
-const LecturerIncomingTransfersPage: React.FC = () => {
+interface LecturerIncomingTransfersPageProps {
+  hideHeader?: boolean;
+  showInlineReload?: boolean;
+  reloadSignal?: number;
+}
+
+const LecturerIncomingTransfersPage: React.FC<LecturerIncomingTransfersPageProps> = ({
+  hideHeader = false,
+  showInlineReload = true,
+  reloadSignal,
+}) => {
   const { toast } = useToast();
+  const previousReloadSignalRef = useRef<number | undefined>(reloadSignal);
 
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [rows, setRows] = useState<TransferRecord[]>([]);
@@ -103,6 +114,19 @@ const LecturerIncomingTransfersPage: React.FC = () => {
   useEffect(() => {
     void loadIncomingTransfers();
   }, [loadIncomingTransfers]);
+
+  useEffect(() => {
+    if (reloadSignal === undefined) {
+      return;
+    }
+
+    if (previousReloadSignalRef.current === reloadSignal) {
+      return;
+    }
+
+    previousReloadSignalRef.current = reloadSignal;
+    void loadIncomingTransfers(true);
+  }, [reloadSignal, loadIncomingTransfers]);
 
   useEffect(() => {
     const socket = wsService.connect();
@@ -212,20 +236,30 @@ const LecturerIncomingTransfersPage: React.FC = () => {
     );
   }
 
+  const reloadButton = (
+    <Button variant="outline" onClick={() => void loadIncomingTransfers(true)} disabled={refreshing}>
+      <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+      Reload
+    </Button>
+  );
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Incoming Transfers</h1>
-          <p className="mt-1 text-muted-foreground">
-            Review transfer requests assigned to you and accept or reject.
-          </p>
+      {hideHeader && showInlineReload ? (
+        <div className="flex justify-end">{reloadButton}</div>
+      ) : null}
+
+      {!hideHeader ? (
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Incoming Transfers</h1>
+            <p className="mt-1 text-muted-foreground">
+              Review transfer requests assigned to you and accept or reject.
+            </p>
+          </div>
+          {reloadButton}
         </div>
-        <Button variant="outline" onClick={() => void loadIncomingTransfers(true)} disabled={refreshing}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Reload
-        </Button>
-      </div>
+      ) : null}
 
       <Card>
         <CardHeader>

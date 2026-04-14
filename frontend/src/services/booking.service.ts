@@ -7,6 +7,7 @@ import {
   CreateBookingDto,
   LecturerBookingGrid,
   QueryBookingParams,
+  SelfWeeklyRoomQuota,
   UpdateBookingDto,
 } from '@/types/booking.types';
 
@@ -109,6 +110,17 @@ export const bookingService = {
   }): Promise<LecturerBookingGrid> => {
     const res = await api.get<{ success: boolean; data: LecturerBookingGrid }>(
       withQuery('/bookings/self/grid', params),
+    );
+
+    return res.data;
+  },
+
+  getSelfWeeklyRoomQuota: async (params: {
+    roomId: string;
+    bookingDate: string;
+  }): Promise<SelfWeeklyRoomQuota> => {
+    const res = await api.get<{ success: boolean; data: SelfWeeklyRoomQuota }>(
+      withQuery('/bookings/self/weekly-room-quota', params),
     );
 
     return res.data;
