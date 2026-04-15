@@ -9,6 +9,9 @@ export enum RoomType {
   CLASSROOM = 'classroom',
   LAB = 'lab',
   MEETING_ROOM = 'meeting_room',
+  PSEUDO_ROOM = 'pseudo_room',
+  THEORETICAL_THEATRE = 'theoretical_theatre',
+  VIRTUAL_ROOM = 'virtual_room',
 }
 
 export enum RoomStatus {

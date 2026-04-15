@@ -15,6 +15,20 @@ export class RoomImportParserHelper {
     'campuscode',
   ];
 
+  private static readonly HEADER_PREFIX_MAP: Array<{ prefix: string; key: string }> = [
+    { prefix: 'roomcode', key: 'roomcode' },
+    { prefix: 'roomname', key: 'roomname' },
+    { prefix: 'building', key: 'building' },
+    { prefix: 'floor', key: 'floor' },
+    { prefix: 'capacity', key: 'capacity' },
+    { prefix: 'roomtype', key: 'roomtype' },
+    { prefix: 'lockernumber', key: 'lockernumber' },
+    { prefix: 'campuscode', key: 'campuscode' },
+    { prefix: 'status', key: 'status' },
+    { prefix: 'description', key: 'description' },
+    { prefix: 'isactive', key: 'isactive' },
+  ];
+
   static parse(file: any): Promise<any[]> {
     return new Promise((resolve, reject) => {
       if (!file || !file.buffer) {
@@ -38,10 +52,13 @@ export class RoomImportParserHelper {
   }
 
   private static normalizeHeader(header: string): string {
-    return String(header || '')
+    const normalized = String(header || '')
       .toLowerCase()
       .trim()
       .replace(/[^a-z0-9]/g, '');
+
+    const matched = this.HEADER_PREFIX_MAP.find((item) => normalized.startsWith(item.prefix));
+    return matched?.key || normalized;
   }
 
   private static isHeaderRow(cells: any[]): boolean {
@@ -110,7 +127,7 @@ export class RoomImportParserHelper {
       if (headerRowIndex < 0) {
         reject(
           new BadRequestException(
-            'Header row not found. Please use template columns: roomCode, roomName, building, floor, capacity, roomType, lockerNumber, campusCode.',
+            'Header row not found. Please use template columns: roomCode, roomName, building, floor, capacity, roomType, lockerNumber, campusCode. For vovinam rooms, use building value Outsite.',
           ),
         );
         return;

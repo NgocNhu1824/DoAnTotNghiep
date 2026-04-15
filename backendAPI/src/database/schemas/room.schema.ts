@@ -11,8 +11,8 @@ export class Room {
   @Prop({ required: true })
   roomName: string;
 
-  @Prop({ required: true, index: true })
-  building: string;
+  @Prop({ required: false, default: null, index: true })
+  building?: string | null;
 
   @Prop({ required: true, index: true })
   floor: number;

@@ -24,6 +24,27 @@ const CAMPUS_IMPORT_ALIASES: Record<string, string> = {
   fuct: 'fpt university can tho',
 };
 
+const ROOM_TYPE_IMPORT_ALIASES: Record<string, string> = {
+  classroom: 'classroom',
+  class_room: 'classroom',
+  lab: 'lab',
+  laboratory: 'lab',
+  meetingroom: 'meeting_room',
+  meeting_room: 'meeting_room',
+  pseudo_room: 'pseudo_room',
+  pseudoroom: 'pseudo_room',
+  theoretical_theatre: 'theoretical_theatre',
+  theoreticaltheatre: 'theoretical_theatre',
+  virtual_room: 'virtual_room',
+  virtualroom: 'virtual_room',
+  computer_lab: 'computer_lab',
+  computerlab: 'computer_lab',
+  library: 'library',
+  auditorium: 'auditorium',
+};
+
+const OUTSITE_BUILDING = 'Outsite';
+
 interface RoomDashboardSummary {
   summary: {
     totalRooms: number;
@@ -152,6 +173,56 @@ export class RoomService {
     return String(value ?? '').trim().toLowerCase();
   }
 
+  private normalizeText(value: any): string {
+    return String(value ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+  }
+
+  private normalizeRoomTypeValue(value: any): string {
+    const normalized = this.normalizeText(value)
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+    if (!normalized) {
+      return '';
+    }
+
+    return ROOM_TYPE_IMPORT_ALIASES[normalized] || normalized;
+  }
+
+  private isVovinamContext(roomType: any, roomCode?: any, roomName?: any): boolean {
+    const roomTypeText = this.normalizeText(roomType);
+    const roomCodeText = this.normalizeText(roomCode);
+    const roomNameText = this.normalizeText(roomName);
+
+    return (
+      roomTypeText.includes('vovinam') ||
+      roomCodeText.includes('vovinam') ||
+      roomNameText.includes('vovinam')
+    );
+  }
+
+  private resolveBuildingValue(
+    inputBuilding: any,
+    roomType: any,
+    roomCode?: any,
+    roomName?: any,
+  ): string | null {
+    const building = String(inputBuilding ?? '').trim();
+    if (building) {
+      return building;
+    }
+
+    if (this.isVovinamContext(roomType, roomCode, roomName)) {
+      return OUTSITE_BUILDING;
+    }
+
+    return null;
+  }
+
   private toObjectId(value: any): Types.ObjectId | null {
     if (!value) {
       return null;
@@ -229,13 +300,67 @@ export class RoomService {
         description: 'Sample lab room',
         isActive: 'true',
       },
+      {
+        roomCode: 'PSR-01',
+        roomName: 'Pseudo-room 01',
+        building: 'P',
+        floor: 1,
+        capacity: 20,
+        roomType: 'pseudo_room',
+        lockerNumber: 0,
+        campusCode: 'FUCT',
+        status: 'available',
+        description: 'Pseudo-room sample',
+        isActive: 'true',
+      },
+      {
+        roomCode: 'THT-01',
+        roomName: 'Theoretical Theatre 01',
+        building: 'T',
+        floor: 1,
+        capacity: 120,
+        roomType: 'theoretical_theatre',
+        lockerNumber: 0,
+        campusCode: 'FUCT',
+        status: 'available',
+        description: 'Large theory class hall',
+        isActive: 'true',
+      },
+      {
+        roomCode: 'VR-01',
+        roomName: 'Virtual Room 01',
+        building: 'V',
+        floor: 2,
+        capacity: 35,
+        roomType: 'virtual_room',
+        lockerNumber: 0,
+        campusCode: 'FUCT',
+        status: 'available',
+        description: 'Virtual teaching room',
+        isActive: 'true',
+      },
+      {
+        roomCode: 'SPORT-VOVINAM',
+        roomName: 'Vovinam Training Area',
+        building: OUTSITE_BUILDING,
+        floor: 1,
+        capacity: 60,
+        roomType: 'classroom',
+        lockerNumber: 0,
+        campusCode: 'FUCT',
+        status: 'available',
+        description: 'For vovinam rooms, use building value Outsite',
+        isActive: 'true',
+      },
     ];
 
     const templateRows = [
       [
         'Each row represents one room. Fill from left to right, then continue on the next row.',
       ],
-      ['Columns marked with * are required. campusCode supports FUCT = FPT University Can Tho.'],
+      [
+        'Columns marked with * are required. campusCode supports FUCT = FPT University Can Tho. For vovinam rooms, use building value Outsite.',
+      ],
       [],
       [
         'roomCode*',
@@ -285,10 +410,20 @@ export class RoomService {
       ['Field', 'Required', 'Description', 'Accepted Values / Example'],
       ['roomCode', 'Yes', 'Unique room code', 'A301'],
       ['roomName', 'Yes', 'Room display name', 'Room A301'],
-      ['building', 'Yes', 'Building block', 'A, B, C...'],
+      [
+        'building',
+        'Yes',
+        'Building block',
+        'A, B, C... For vovinam rooms, use Outsite',
+      ],
       ['floor', 'Yes', 'Floor number', '1, 2, 3...'],
       ['capacity', 'Yes', 'Seating capacity', '40'],
-      ['roomType', 'Yes', 'Type of room', 'classroom / lab / meeting_room...'],
+      [
+        'roomType',
+        'Yes',
+        'Type of room',
+        'classroom / lab / meeting_room / pseudo_room / theoretical_theatre / virtual_room (other legacy values still accepted)',
+      ],
       ['lockerNumber', 'Yes', 'Number of lockers', '0 or greater'],
       [
         'campusCode',
@@ -319,7 +454,6 @@ export class RoomService {
     const requiredFields = [
       'roomcode',
       'roomname',
-      'building',
       'floor',
       'capacity',
       'roomtype',
@@ -401,8 +535,8 @@ export class RoomService {
 
       const roomCode = String(row.roomcode || '').trim();
       const roomName = String(row.roomname || '').trim();
-      const building = String(row.building || '').trim();
-      const roomType = String(row.roomtype || '').trim();
+      const roomType = this.normalizeRoomTypeValue(row.roomtype);
+      const building = this.resolveBuildingValue(row.building, roomType, roomCode, roomName);
       const campusInput = this.normalizeImportValue(row.campuscode);
       const campusAlias = CAMPUS_IMPORT_ALIASES[campusInput];
 
@@ -467,6 +601,24 @@ export class RoomService {
         });
       }
 
+      if (!roomType) {
+        errors.push({
+          rowIndex,
+          field: 'roomType',
+          code: 'REQUIRED',
+          message: 'roomType is required',
+        });
+      }
+
+      if (!building && !this.isVovinamContext(roomType, roomCode, roomName)) {
+        errors.push({
+          rowIndex,
+          field: 'building',
+          code: 'REQUIRED',
+          message: 'Building is required unless this row is a vovinam room',
+        });
+      }
+
       if (status && !allowedStatuses.includes(status)) {
         errors.push({
           rowIndex,
@@ -521,14 +673,18 @@ export class RoomService {
         errors,
         preview: rawRows.map((row, index) => {
           const rowIndex = typeof row.__rowNumber === 'number' ? row.__rowNumber : index + 2;
+          const previewRoomType = this.normalizeRoomTypeValue(row.roomtype);
+          const previewBuilding =
+            this.resolveBuildingValue(row.building, previewRoomType, row.roomcode, row.roomname) || '';
+
           return {
             rowIndex,
             roomCode: String(row.roomcode || '').trim(),
             roomName: String(row.roomname || '').trim(),
-            building: String(row.building || '').trim(),
+            building: previewBuilding,
             floor: String(row.floor || '').trim(),
             capacity: String(row.capacity || '').trim(),
-            roomType: String(row.roomtype || '').trim(),
+            roomType: previewRoomType,
             campusCode: String(row.campuscode || '').trim(),
             valid: !invalidRowSet.has(rowIndex),
           };
@@ -605,6 +761,14 @@ export class RoomService {
 
   async create(createRoomDto: CreateRoomDto): Promise<Room> {
     try {
+      const normalizedRoomType = this.normalizeRoomTypeValue(createRoomDto.roomType);
+      const resolvedBuilding = this.resolveBuildingValue(
+        createRoomDto.building,
+        normalizedRoomType,
+        createRoomDto.roomCode,
+        createRoomDto.roomName,
+      );
+
       const existingRoom = await this.roomModel.findOne({
         roomCode: createRoomDto.roomCode,
       });
@@ -615,6 +779,8 @@ export class RoomService {
 
       const room = new this.roomModel({
         ...createRoomDto,
+        roomType: normalizedRoomType || createRoomDto.roomType,
+        building: resolvedBuilding,
         campusId: new Types.ObjectId(createRoomDto.campusId),
       });
 
@@ -692,18 +858,49 @@ export class RoomService {
       throw new NotFoundException('Invalid room ID');
     }
 
+    const existingRoom = await this.roomModel.findById(id).lean().exec();
+    if (!existingRoom) {
+      throw new NotFoundException('Room not found');
+    }
+
     if (updateRoomDto.roomCode) {
-      const existingRoom = await this.roomModel.findOne({
+      const duplicatedRoom = await this.roomModel.findOne({
         roomCode: updateRoomDto.roomCode,
         _id: { $ne: id },
       });
 
-      if (existingRoom) {
+      if (duplicatedRoom) {
         throw new ConflictException('Room code already exists');
       }
     }
 
     const updateData: any = { ...updateRoomDto };
+
+    if (updateRoomDto.roomType !== undefined) {
+      const normalizedRoomType = this.normalizeRoomTypeValue(updateRoomDto.roomType);
+      updateData.roomType = normalizedRoomType || updateRoomDto.roomType;
+    }
+
+    const shouldResolveBuilding =
+      updateRoomDto.building !== undefined ||
+      updateRoomDto.roomType !== undefined ||
+      updateRoomDto.roomCode !== undefined ||
+      updateRoomDto.roomName !== undefined;
+
+    if (shouldResolveBuilding) {
+      const effectiveRoomType = updateData.roomType ?? existingRoom.roomType;
+      const effectiveRoomCode = updateRoomDto.roomCode ?? existingRoom.roomCode;
+      const effectiveRoomName = updateRoomDto.roomName ?? existingRoom.roomName;
+      const sourceBuilding =
+        updateRoomDto.building !== undefined ? updateRoomDto.building : existingRoom.building;
+
+      updateData.building = this.resolveBuildingValue(
+        sourceBuilding,
+        effectiveRoomType,
+        effectiveRoomCode,
+        effectiveRoomName,
+      );
+    }
 
     if (updateRoomDto.campusId) {
       updateData.campusId = new Types.ObjectId(updateRoomDto.campusId);

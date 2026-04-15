@@ -43,6 +43,18 @@ const STATUS_BADGE_MAP: Record<string, { label: string; className: string }> = {
   maintain: { label: 'Maintain', className: 'bg-amber-50 text-amber-600 border-amber-100' },
 };
 
+const ROOM_TYPE_LABELS: Record<string, string> = {
+  classroom: 'Classroom',
+  lab: 'Laboratory',
+  computer_lab: 'Computer Lab',
+  meeting_room: 'Meeting Room',
+  library: 'Library',
+  auditorium: 'Auditorium',
+  pseudo_room: 'Pseudo-room',
+  theoretical_theatre: 'Theoretical theatre',
+  virtual_room: 'Virtual room',
+};
+
 const DEFAULT_CAMPUS_NAME = 'fpt university can tho';
 
 const normalizeText = (value: string): string => {
@@ -85,6 +97,7 @@ const RoomManagementPage: React.FC = () => {
 
   const [campusFilter, setCampusFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [roomTypeFilter, setRoomTypeFilter] = useState('all');
   const [buildingFilter, setBuildingFilter] = useState('all');
   const [search, setSearch] = useState('');
   const hasInitializedCampusFilter = useRef(false);
@@ -141,6 +154,16 @@ const RoomManagementPage: React.FC = () => {
     ).sort((a, b) => a.localeCompare(b))
   ), [rooms]);
 
+  const roomTypes = useMemo(() => (
+    Array.from(
+      new Set(
+        rooms
+          .map((room) => String(room.roomType || '').trim())
+          .filter((roomType): roomType is string => Boolean(roomType))
+      )
+    ).sort((a, b) => a.localeCompare(b))
+  ), [rooms]);
+
   const filteredRooms = rooms.filter((room) => {
     const matchesCampus =
       campusFilter === 'all' ||
@@ -148,17 +171,20 @@ const RoomManagementPage: React.FC = () => {
         ? room.campusId._id === campusFilter
         : room.campusId === campusFilter);
     const matchesStatus = statusFilter === 'all' || room.status === statusFilter;
+    const matchesRoomType = roomTypeFilter === 'all' || room.roomType === roomTypeFilter;
     const matchesBuilding = buildingFilter === 'all' || room.building === buildingFilter;
     const searchValue = search.trim().toLowerCase();
     const matchesSearch =
       !searchValue ||
       room.roomCode.toLowerCase().includes(searchValue) ||
       room.roomName.toLowerCase().includes(searchValue);
-    return matchesCampus && matchesStatus && matchesBuilding && matchesSearch;
+    return matchesCampus && matchesStatus && matchesRoomType && matchesBuilding && matchesSearch;
   });
 
   const sortedRooms = [...filteredRooms].sort((a, b) => {
-    if (a.building !== b.building) return a.building.localeCompare(b.building);
+    const buildingA = a.building || '';
+    const buildingB = b.building || '';
+    if (buildingA !== buildingB) return buildingA.localeCompare(buildingB);
     if (a.floor !== b.floor) return a.floor - b.floor;
     return a.roomCode.localeCompare(b.roomCode);
   });
@@ -182,7 +208,23 @@ const RoomManagementPage: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(0);
-  }, [campusFilter, statusFilter, buildingFilter, search]);
+  }, [campusFilter, statusFilter, roomTypeFilter, buildingFilter, search]);
+
+  const getBuildingLabel = (building: string | null) => {
+    if (!building) {
+      return '—';
+    }
+
+    return building.trim().toLowerCase() === 'outsite' ? 'Outsite' : `Building ${building}`;
+  };
+
+  const getRoomTypeLabel = (roomType?: string) => {
+    if (!roomType) {
+      return '—';
+    }
+
+    return ROOM_TYPE_LABELS[roomType] || roomType;
+  };
 
   const getCampusName = (room: Room) => {
     if (room.campusId && typeof room.campusId === 'object') {
@@ -342,7 +384,7 @@ const RoomManagementPage: React.FC = () => {
           <CardDescription>Filter rooms by your criteria</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-2">
               <Label htmlFor="room-search">Search</Label>
               <div className="relative">
@@ -373,6 +415,23 @@ const RoomManagementPage: React.FC = () => {
               </Select>
             </div>
             <div className="space-y-2">
+              <Label>Room Type</Label>
+              <Select value={roomTypeFilter} onValueChange={setRoomTypeFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  {roomTypes.map((roomType) => (
+                    <SelectItem key={roomType} value={roomType}>
+                      {getRoomTypeLabel(roomType)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
               <Label>Building</Label>
               <Select value={buildingFilter} onValueChange={setBuildingFilter}>
                 <SelectTrigger>
@@ -382,7 +441,7 @@ const RoomManagementPage: React.FC = () => {
                   <SelectItem value="all">All</SelectItem>
                   {buildings.map((building) => (
                     <SelectItem key={building} value={building}>
-                      Building {building}
+                      {getBuildingLabel(building)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -456,10 +515,10 @@ const RoomManagementPage: React.FC = () => {
                       <TableCell className="font-medium">{room.roomCode}</TableCell>
                       <TableCell>{room.roomName}</TableCell>
                       <TableCell>
-                        {room.building ? `Building ${room.building}` : '—'}
+                        {getBuildingLabel(room.building)}
                         {typeof room.floor === 'number' && ` · Floor ${room.floor}`}
                       </TableCell>
-                      <TableCell>{room.roomType || '—'}</TableCell>
+                      <TableCell>{getRoomTypeLabel(room.roomType)}</TableCell>
                       <TableCell>{room.capacity ? `${room.capacity} seats` : '—'}</TableCell>
                       <TableCell>{room.lockerNumber || '—'}</TableCell>
                       <TableCell>{getCampusName(room)}</TableCell>

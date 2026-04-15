@@ -201,7 +201,7 @@ const ImportRoomModal: React.FC<ImportRoomModalProps> = ({ isOpen, onClose, onIm
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Import Rooms by Excel</DialogTitle>
           <DialogDescription>
@@ -216,7 +216,8 @@ const ImportRoomModal: React.FC<ImportRoomModalProps> = ({ isOpen, onClose, onIm
             <AlertDescription>
               Required columns: roomCode, roomName, building, floor, capacity, roomType, lockerNumber, campusCode.
               You can enter campus as code/name; `FUCT` is mapped to `FPT University Can Tho`.
-              Supported roomType values: classroom, lab, computer_lab, meeting_room, library, auditorium.
+              For vovinam rooms, use building value Outsite.
+              Supported roomType values: classroom, lab, meeting_room, pseudo_room, theoretical_theatre, virtual_room (legacy values are still accepted).
               Supported status values: available, unavailable, maintain.
             </AlertDescription>
           </Alert>
@@ -306,7 +307,7 @@ const ImportRoomModal: React.FC<ImportRoomModalProps> = ({ isOpen, onClose, onIm
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="sticky bottom-0 bg-background pt-3">
           <Button
             type="button"
             variant="outline"

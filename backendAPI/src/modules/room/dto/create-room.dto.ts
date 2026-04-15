@@ -16,7 +16,8 @@ export class CreateRoomDto {
   roomName: string;
 
   @IsString()
-  building: string;
+  @IsOptional()
+  building?: string;
 
   @IsNumber()
   @Min(1)
