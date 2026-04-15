@@ -216,7 +216,7 @@ const LecturerHistoryPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-3xl font-bold tracking-tight text-[#f97316]">Activity History</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Activity History</h1>
 
         <Button
           variant="outline"
