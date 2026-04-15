@@ -967,6 +967,72 @@ export class NotificationsService {
     ]);
   }
 
+  async notifySelfBookingQuotaStatus(payload: {
+    campusId: string;
+    recipientId: string;
+    roomId: string;
+    roomCode?: string | null;
+    roomName?: string | null;
+    weekStart: string;
+    weekEnd: string;
+    weeklyLimit: number;
+    usedBookings: number;
+    remainingBookings: number;
+    stage: 'near_limit' | 'limit_reached';
+  }): Promise<void> {
+    try {
+      const campusId = this.extractObjectId(payload?.campusId);
+      const recipientId = this.extractObjectId(payload?.recipientId);
+      const roomId = this.extractObjectId(payload?.roomId);
+
+      if (!campusId || !recipientId || !roomId) {
+        return;
+      }
+
+      const roomCode = String(payload?.roomCode || '').trim();
+      const roomName = String(payload?.roomName || '').trim();
+      const roomLabel = roomCode || roomName || 'this room';
+
+      const weekStart = String(payload?.weekStart || '').trim() || 'unknown';
+      const weekEnd = String(payload?.weekEnd || '').trim() || 'unknown';
+      const weeklyLimit = Math.max(1, Number(payload?.weeklyLimit || 1));
+      const usedBookings = Math.max(0, Number(payload?.usedBookings || 0));
+      const remainingBookings = Math.max(0, Number(payload?.remainingBookings || 0));
+      const stage = payload?.stage === 'limit_reached' ? 'limit_reached' : 'near_limit';
+      const isLimitReached = stage === 'limit_reached';
+
+      await this.createAndBroadcastMany([
+        {
+          recipientId,
+          campusId,
+          senderId: null,
+          type: isLimitReached ? 'booking_quota_limit_reached' : 'booking_quota_warning',
+          title: isLimitReached
+            ? `Weekly booking limit reached for ${roomLabel}`
+            : `You are close to the weekly limit for ${roomLabel}`,
+          message: isLimitReached
+            ? `You have used ${usedBookings}/${weeklyLimit} bookings for ${roomLabel} in week ${weekStart} to ${weekEnd}. You cannot book this room again until next week.`
+            : `You have used ${usedBookings}/${weeklyLimit} bookings for ${roomLabel} in week ${weekStart} to ${weekEnd}. Remaining this week: ${remainingBookings}.`,
+          priority: isLimitReached ? 'high' : 'medium',
+          data: {
+            roomId,
+            roomCode: roomCode || null,
+            roomName: roomName || null,
+            weekStart,
+            weekEnd,
+            weeklyLimit,
+            usedBookings,
+            remainingBookings,
+            stage,
+          },
+          dedupeKey: `booking-quota:${roomId}:week:${weekStart}:stage:${stage}:recipient:${recipientId}`,
+        },
+      ]);
+    } catch (error) {
+      this.logger.warn(`Failed to dispatch booking quota notification: ${error}`);
+    }
+  }
+
   async notifyTransferRequestCreated(payload: {
     transferId: string;
     campusId: string;

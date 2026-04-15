@@ -102,6 +102,7 @@ const resolveScheduleSlotMeta = (schedule: Schedule, timeSlots: TimeSlot[]) => {
 
 const ScheduleManagementPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
+  const [schedulesLoading, setSchedulesLoading] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -152,6 +153,8 @@ const ScheduleManagementPage: React.FC = () => {
         campusService.getAll().catch(() => []),
       ]);
 
+      setSchedulesLoading(roomsData.length > 0 && slotsData.length > 0);
+
       setRooms(roomsData);
       setTimeSlots(slotsData);
 
@@ -201,6 +204,7 @@ const ScheduleManagementPage: React.FC = () => {
     } catch (error: any) {
       console.error('Error fetching data:', error);
       toast.error('Unable to load rooms and time slots');
+      setSchedulesLoading(false);
     } finally {
       setLoading(false);
     }
@@ -220,6 +224,8 @@ const ScheduleManagementPage: React.FC = () => {
   }, [campusOptions]);
 
   const fetchSchedules = useCallback(async () => {
+    setSchedulesLoading(true);
+
     try {
       // Send date as YYYY-MM-DD to avoid timezone shift when backend parses Date
       const dateStr = format(currentDate, 'yyyy-MM-dd');
@@ -230,30 +236,38 @@ const ScheduleManagementPage: React.FC = () => {
         viewAllActivities: 'true',
       };
 
-      const [schedulesResult, bookingsResult] = await Promise.allSettled([
-        scheduleService.getAll(params),
-        bookingService.getAll({
+      const schedulesResult = await scheduleService.getAll(params);
+
+      let approvedRows: Booking[] = [];
+
+      try {
+        approvedRows = await bookingService.getAll({
           fromDate: dateStr,
           toDate: dateStr,
           status: 'approved',
-        }),
-      ]);
-
-      if (schedulesResult.status === 'fulfilled') {
-        setSchedules(schedulesResult.value || []);
-      } else {
-        throw schedulesResult.reason;
+        });
+      } catch {
+        // Fallback for users without bookings.manage permission on /bookings.
+        try {
+          approvedRows = await bookingService.getSelfBookings({
+            fromDate: dateStr,
+            toDate: dateStr,
+            status: 'approved',
+          });
+        } catch {
+          approvedRows = [];
+        }
       }
 
-      if (bookingsResult.status === 'fulfilled') {
-        setApprovedBookings(bookingsResult.value || []);
-      } else {
-        // Lecturer role may not have bookings.manage permission on /bookings.
-        setApprovedBookings([]);
-      }
+      setSchedules(schedulesResult || []);
+      setApprovedBookings(approvedRows || []);
     } catch (error: any) {
       console.error('Error fetching schedules:', error);
       toast.error('Unable to load schedules');
+      setSchedules([]);
+      setApprovedBookings([]);
+    } finally {
+      setSchedulesLoading(false);
     }
   }, [currentDate]);
 
@@ -467,7 +481,7 @@ const ScheduleManagementPage: React.FC = () => {
     };
   };
 
-  if (loading) return <Loading />;
+  if (loading || schedulesLoading) return <Loading text="Loading activities..." />;
 
   return (
     <div className="space-y-6">

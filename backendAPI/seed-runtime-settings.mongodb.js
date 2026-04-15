@@ -20,6 +20,13 @@
       description: 'Minimum lead time (minutes) required before class start for self booking.',
     },
     {
+      key: 'booking.self_booking_weekly_room_limit',
+      value: 5,
+      valueType: 'number',
+      category: 'booking',
+      description: 'Maximum self-booking requests per lecturer for the same room within one week.',
+    },
+    {
       key: 'transfer.open_before_source_end_minutes',
       value: 15,
       valueType: 'number',

@@ -90,6 +90,7 @@ export interface QueryScheduleDto {
   classCode?: string;
   campusId?: string;
   isOnline?: 'true' | 'false';
+  compact?: 'true' | 'false';
 }
 
 export interface ScheduleStatistics {

@@ -81,6 +81,18 @@ const SETTING_TEMPLATES: SettingTemplate[] = [
     unit: 'minutes',
   },
   {
+    key: 'booking.self_booking_weekly_room_limit',
+    title: 'Weekly self-booking limit per room',
+    shortDescription:
+      'Maximum number of self-bookings a lecturer can create for the same room in one week.',
+    helperText:
+      'Use this to avoid one lecturer overbooking a specific room repeatedly in the same week.',
+    category: 'booking',
+    valueType: 'number',
+    placeholder: '5',
+    unit: 'bookings/week',
+  },
+  {
     key: 'notification.notification_before_class',
     title: 'Reminder before class starts',
     shortDescription: 'How many minutes before class users receive a reminder notification.',

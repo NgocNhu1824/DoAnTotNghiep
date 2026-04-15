@@ -80,7 +80,17 @@ const ACCESS_LOG_METHOD_FILTERS: { value: string; label: string }[] = [
   { value: 'iot_init', label: 'IoT init' },
 ];
 
-const AccessLogPage: React.FC = () => {
+interface AccessLogPageProps {
+  hideHeader?: boolean;
+  showInlineReload?: boolean;
+  reloadSignal?: number;
+}
+
+const AccessLogPage: React.FC<AccessLogPageProps> = ({
+  hideHeader = false,
+  showInlineReload = true,
+  reloadSignal,
+}) => {
   const { roleDetails } = useAuth();
   const { toast } = useToast();
 
@@ -109,6 +119,7 @@ const AccessLogPage: React.FC = () => {
   const campusDefaultsAppliedRef = useRef(false);
   const loadRowsRef = useRef<(isRefresh?: boolean) => Promise<void>>(async () => undefined);
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousReloadSignalRef = useRef<number | undefined>(reloadSignal);
 
   const canFilterCampus = userScope === 'GLOBAL';
 
@@ -214,6 +225,19 @@ const AccessLogPage: React.FC = () => {
   useEffect(() => {
     loadRowsRef.current = loadRows;
   }, [loadRows]);
+
+  useEffect(() => {
+    if (reloadSignal === undefined) {
+      return;
+    }
+
+    if (previousReloadSignalRef.current === reloadSignal) {
+      return;
+    }
+
+    previousReloadSignalRef.current = reloadSignal;
+    void loadRowsRef.current(true);
+  }, [reloadSignal]);
 
   useEffect(() => {
     const socket = wsService.connect();
@@ -350,23 +374,33 @@ const AccessLogPage: React.FC = () => {
     );
   }
 
+  const reloadButton = (
+    <Button
+      variant="outline"
+      className="shrink-0 self-start"
+      onClick={() => loadRows(true)}
+      disabled={refreshing || listLoading}
+    >
+      <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+      Reload
+    </Button>
+  );
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight">Access audit log</h1>
-          <p className="text-sm text-muted-foreground sm:text-base">{getScopeHint()}</p>
+      {hideHeader && showInlineReload ? (
+        <div className="flex justify-end">{reloadButton}</div>
+      ) : null}
+
+      {!hideHeader ? (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <h1 className="text-3xl font-bold tracking-tight">Access audit log</h1>
+            <p className="text-sm text-muted-foreground sm:text-base">{getScopeHint()}</p>
+          </div>
+          {reloadButton}
         </div>
-        <Button
-          variant="outline"
-          className="shrink-0 self-start"
-          onClick={() => loadRows(true)}
-          disabled={refreshing || listLoading}
-        >
-          <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Reload
-        </Button>
-      </div>
+      ) : null}
 
       <Card>
         <CardHeader className="pb-3">

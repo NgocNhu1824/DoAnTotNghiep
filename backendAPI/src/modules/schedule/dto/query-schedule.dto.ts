@@ -44,4 +44,8 @@ export class QueryScheduleDto {
   @IsOptional()
   @IsBooleanString()
   viewAllActivities?: string;
+
+  @IsOptional()
+  @IsBooleanString()
+  compact?: string;
 }

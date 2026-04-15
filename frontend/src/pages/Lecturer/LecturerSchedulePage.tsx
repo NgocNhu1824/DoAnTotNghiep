@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MoreHorizontal } from 'lucide-react';
 import LecturerLayout from '@/layouts/LecturerLayout';
 import ConfirmDialog from '@/components/common/ConfirmDialog';
+import Loading from '@/components/common/Loading';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -48,6 +49,8 @@ const WEEKDAYS = [
   { key: 6, label: 'Saturday' },
   { key: 0, label: 'Sunday' },
 ];
+const UPCOMING_LOOKAHEAD_DAYS = 45;
+const WEEK_CACHE_TTL_MS = 2 * 60 * 1000;
 
 function getWeekDates(date: Date) {
   const week: Date[] = [];
@@ -123,6 +126,12 @@ type DisplaySchedule = Omit<Schedule, 'slotType' | 'slotNumber' | 'startTime' | 
   startTime: string;
   endTime: string;
   _virtualBooking?: boolean;
+};
+
+type WeekScheduleCacheEntry = {
+  schedules: Schedule[];
+  approvedBookings: Booking[];
+  fetchedAt: number;
 };
 
 function formatDateFromScheduleInput(value: string | Date): string {
@@ -266,6 +275,7 @@ const LecturerSchedulePage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(initialWeeks[initialWeekIdx]?.start || new Date());
 
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
+  const [timeSlotsLoading, setTimeSlotsLoading] = useState<boolean>(true);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [approvedBookings, setApprovedBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -299,6 +309,8 @@ const LecturerSchedulePage: React.FC = () => {
   const weekFetchSeqRef = useRef(0);
   const upcomingFetchSeqRef = useRef(0);
   const transferRealtimeTimerRef = useRef<number | null>(null);
+  const upcomingTriggerTimerRef = useRef<number | null>(null);
+  const weekCacheRef = useRef<Record<string, WeekScheduleCacheEntry>>({});
 
   useEffect(() => {
     const weeks = getWeeksOfYear(selectedYear);
@@ -313,40 +325,111 @@ const LecturerSchedulePage: React.FC = () => {
   }, [selectedWeekIdx, weeksOfYear]);
 
   useEffect(() => {
+    setTimeSlotsLoading(true);
     timeSlotService
       .getAll({ isActive: true })
       .then((data) => setTimeSlots(data || []))
-      .catch(() => setTimeSlots([]));
+      .catch(() => setTimeSlots([]))
+      .finally(() => setTimeSlotsLoading(false));
   }, []);
+
+  useEffect(() => {
+    weekCacheRef.current = {};
+  }, [user?._id]);
+
+  const fixedSlotByTimeRange = useMemo(() => {
+    const slotMap = new Map<string, TimeSlot>();
+
+    (timeSlots || []).forEach((slot) => {
+      if (!FIXED_SLOT_NUMBERS.includes(slot.slotNumber)) {
+        return;
+      }
+
+      const key = `${slot.startTime}-${slot.endTime}`;
+      const existing = slotMap.get(key);
+
+      if (!existing || slot.slotNumber < existing.slotNumber) {
+        slotMap.set(key, slot);
+      }
+    });
+
+    return slotMap;
+  }, [timeSlots]);
 
   const fetchWeekSchedules = useCallback(async () => {
     const lecturerId = user?._id;
     if (!lecturerId) return;
 
     const fetchSeq = ++weekFetchSeqRef.current;
-    setLoading(true);
-    setError('');
     const weekDates = getWeekDates(selectedDate);
     const startDate = formatDateOnly(weekDates[0]);
     const endDate = formatDateOnly(weekDates[6]);
+    const weekKey = `${lecturerId}|${startDate}|${endDate}`;
+    const cachedWeek = weekCacheRef.current[weekKey];
+    const hasFreshCache =
+      Boolean(cachedWeek) && Date.now() - cachedWeek.fetchedAt < WEEK_CACHE_TTL_MS;
+
+    setLoading(true);
+
+    setError('');
 
     try {
-      const [weekSchedules, weekApprovedBookings] = await Promise.all([
-        scheduleService.getAll({ lecturerId, startDate, endDate }),
-        bookingService.getSelfBookings({ fromDate: startDate, toDate: endDate, status: 'approved' }),
+      const weekSchedulesPromise = scheduleService.getAll({
+        lecturerId,
+        startDate,
+        endDate,
+        compact: 'true',
+      });
+      const weekApprovedBookingsPromise = bookingService.getSelfBookings({
+        fromDate: startDate,
+        toDate: endDate,
+        status: 'approved',
+      });
+
+      const [weekSchedulesResult, weekApprovedBookingsResult] = await Promise.allSettled([
+        weekSchedulesPromise,
+        weekApprovedBookingsPromise,
       ]);
 
       if (fetchSeq !== weekFetchSeqRef.current) {
         return;
       }
 
-      setSchedules(weekSchedules || []);
-      setApprovedBookings(weekApprovedBookings || []);
+      if (weekSchedulesResult.status !== 'fulfilled') {
+        throw weekSchedulesResult.reason;
+      }
+
+      const weekSchedules = weekSchedulesResult.value || [];
+      const weekApprovedBookings =
+        weekApprovedBookingsResult.status === 'fulfilled'
+          ? weekApprovedBookingsResult.value || []
+          : [];
+
+      setSchedules(weekSchedules);
+      setApprovedBookings(weekApprovedBookings);
+
+      if (fetchSeq !== weekFetchSeqRef.current) {
+        return;
+      }
+
+      weekCacheRef.current[weekKey] = {
+        schedules: weekSchedules,
+        approvedBookings: weekApprovedBookings,
+        fetchedAt: Date.now(),
+      };
     } catch {
       if (fetchSeq !== weekFetchSeqRef.current) {
         return;
       }
-      setError('Cannot load teaching schedule');
+
+      if (hasFreshCache && cachedWeek) {
+        setSchedules(cachedWeek.schedules || []);
+        setApprovedBookings(cachedWeek.approvedBookings || []);
+      } else {
+        setSchedules([]);
+        setApprovedBookings([]);
+        setError('Cannot load teaching schedule');
+      }
     } finally {
       if (fetchSeq === weekFetchSeqRef.current) {
         setLoading(false);
@@ -366,7 +449,7 @@ const LecturerSchedulePage: React.FC = () => {
 
     const today = new Date();
     const futureDate = new Date(today);
-    futureDate.setDate(today.getDate() + 90);
+    futureDate.setDate(today.getDate() + UPCOMING_LOOKAHEAD_DAYS);
     const startDate = formatDateOnly(today);
     const endDate = formatDateOnly(futureDate);
 
@@ -376,6 +459,7 @@ const LecturerSchedulePage: React.FC = () => {
           lecturerId,
           startDate,
           endDate,
+          compact: 'true',
         }),
         bookingService.getSelfBookings({
           fromDate: startDate,
@@ -386,12 +470,7 @@ const LecturerSchedulePage: React.FC = () => {
 
       const virtualUpcoming: DisplaySchedule[] = [];
       (upcomingApprovedBookings || []).forEach((booking) => {
-        const matchedSlots = timeSlots
-          .filter(
-            (slot) => slot.startTime === booking.startTime && slot.endTime === booking.endTime,
-          )
-          .sort((a, b) => a.slotNumber - b.slotNumber);
-        const matchedSlot = matchedSlots.find((slot) => FIXED_SLOT_NUMBERS.includes(slot.slotNumber));
+        const matchedSlot = fixedSlotByTimeRange.get(`${booking.startTime}-${booking.endTime}`);
 
         if (matchedSlot) {
           const bookingDateText = formatDateFromScheduleInput(booking.bookingDate);
@@ -468,12 +547,28 @@ const LecturerSchedulePage: React.FC = () => {
         setUpcomingLoading(false);
       }
     }
-  }, [user?._id, timeSlots]);
+  }, [user?._id, timeSlots, fixedSlotByTimeRange]);
 
   useEffect(() => {
-    if (timeSlots.length === 0) return;
-    fetchUpcomingSchedules();
-  }, [fetchUpcomingSchedules, timeSlots.length]);
+    if (timeSlots.length === 0 || loading) return;
+
+    if (upcomingTriggerTimerRef.current) {
+      window.clearTimeout(upcomingTriggerTimerRef.current);
+      upcomingTriggerTimerRef.current = null;
+    }
+
+    upcomingTriggerTimerRef.current = window.setTimeout(() => {
+      void fetchUpcomingSchedules();
+      upcomingTriggerTimerRef.current = null;
+    }, 150);
+
+    return () => {
+      if (upcomingTriggerTimerRef.current) {
+        window.clearTimeout(upcomingTriggerTimerRef.current);
+        upcomingTriggerTimerRef.current = null;
+      }
+    };
+  }, [fetchUpcomingSchedules, timeSlots.length, loading]);
 
   // Keep schedule updates deterministic on this page: refresh is triggered explicitly
   // after transfer actions and query-return flows to avoid websocket-induced jitter.
@@ -522,10 +617,7 @@ const LecturerSchedulePage: React.FC = () => {
     );
 
     approvedBookings.forEach((booking) => {
-      const matchedSlots = timeSlots
-        .filter((slot) => slot.startTime === booking.startTime && slot.endTime === booking.endTime)
-        .sort((a, b) => a.slotNumber - b.slotNumber);
-      const matchedSlot = matchedSlots.find((slot) => FIXED_SLOT_NUMBERS.includes(slot.slotNumber));
+      const matchedSlot = fixedSlotByTimeRange.get(`${booking.startTime}-${booking.endTime}`);
 
       if (matchedSlot) {
         const bookingDateText = formatDateFromScheduleInput(booking.bookingDate);
@@ -557,7 +649,7 @@ const LecturerSchedulePage: React.FC = () => {
     });
 
     return base.filter((item) => FIXED_SLOT_NUMBERS.includes(item.slotNumber));
-  }, [normalizedSchedules, approvedBookings, timeSlots]);
+  }, [normalizedSchedules, approvedBookings, fixedSlotByTimeRange]);
 
   const refreshTransferMappings = useCallback(async (explicitScheduleIds?: string[]) => {
     const sourceScheduleIds =
@@ -1155,7 +1247,7 @@ const LecturerSchedulePage: React.FC = () => {
                     </p>
                   </>
                 ) : (
-                  <p className="text-sm text-muted-foreground">No schedules in the next 90 days.</p>
+                  <p className="text-sm text-muted-foreground">No schedules in the next {UPCOMING_LOOKAHEAD_DAYS} days.</p>
                 )}
               </div>
             </div>
@@ -1207,10 +1299,10 @@ const LecturerSchedulePage: React.FC = () => {
               </div>
             </div>
 
-        {loading && <p className="text-sm text-gray-500 mb-3">Loading weekly schedule...</p>}
-
         {error ? (
           <p className="text-red-600">{error}</p>
+        ) : loading || timeSlotsLoading ? (
+          <Loading size="md" text="Loading weekly schedule..." className="min-h-[280px]" />
         ) : (
           <>
             <div className="overflow-x-auto">

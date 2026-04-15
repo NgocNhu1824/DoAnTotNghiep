@@ -26,6 +26,7 @@ import {
   Settings,
   ChevronDown,
   FileText,
+  Clock3,
   Cpu,
   ArrowLeftRight,
   TriangleAlert,
@@ -162,20 +163,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     requiredPermissions: [PERMISSIONS.SCHEDULES_READ],
   };
 
-  const lecturerHistoryMenuItem: MenuItem = {
-    id: 'lecturer-booking-history',
-    label: 'Booking History',
-    icon: FileText,
-    path: '/lecturer/booking-history',
-    requiredPermissions: [PERMISSIONS.BOOKINGS_READ],
-  };
-
-  const lecturerIncomingTransferMenuItem: MenuItem = {
-    id: 'lecturer-transfer-incoming',
-    label: 'Incoming Transfers',
-    icon: ArrowLeftRight,
-    path: '/lecturer/transfers/incoming',
-    requiredPermissions: [PERMISSIONS.TRANSFERS_READ],
+  const lecturerHistoryMenuItem = {
+    id: 'lecturer-history',
+    label: 'History',
+    icon: Clock3,
+    path: '/lecturer/history',
   };
 
   const accessLogMenuItem: MenuItem = {
@@ -209,10 +201,8 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     menuItems = [
       baseMenuItems.find(item => item.id === 'schedule')!,
       lecturerScheduleMenuItem,
-      lecturerIncomingTransferMenuItem,
       lecturerBookingMenuItem,
       lecturerHistoryMenuItem,
-      ...(canViewAccessLogs ? [accessLogMenuItem] : []),
     ];
   } else if (userScope === 'SELF') {
     menuItems = [
