@@ -525,38 +525,9 @@ const DashboardPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <Card className="border-primary/30 bg-gradient-to-r from-primary-600 to-primary-700 text-white">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Hello, {user?.fullName || 'User'}!</h1>
-            <p className="mt-1 text-primary-100">Realtime room usage dashboard</p>
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-primary-100">
-              <span>Campus: {user?.campusId?.campusName || 'N/A'}</span>
-              <span>Role: {roleDetails?.roleName || 'N/A'}</span>
-              <span className="inline-flex items-center gap-1">
-                {wsConnected ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
-                {wsConnected ? 'Realtime connected' : 'Realtime disconnected'}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => loadDashboard(true)}
-              disabled={refreshing}
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-          </div>
-        </div>
-      </Card>
-
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
-          <Card key={stat.name} className="hover:shadow-lg transition-shadow">
+          <Card key={stat.name} className="p-2 transition-shadow hover:shadow-lg">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">{stat.name}</p>

@@ -40,16 +40,18 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const userScope = (roleDetails?.scope || '').toUpperCase();
   const userRole = (roleDetails?.roleCode || '').toUpperCase();
-  const canReadNotifications = Boolean(user?._id);
+  const canReadNotifications = hasAnyPermission([PERMISSIONS.NOTIFICATIONS_READ]);
 
-  const baseMenuItems: Array<{
+  type MenuItem = {
     id: string;
     label: string;
     icon: any;
     path: string;
     requiredPermissions?: string[];
     userRoleRequired?: string[];
-  }> = [
+  };
+
+  const baseMenuItems: MenuItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     {
       id: 'users',
@@ -77,7 +79,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       label: 'Access audit',
       icon: FileText,
       path: '/access-logs',
-      requiredPermissions: [PERMISSIONS.ACCESS_LOGS_READ, PERMISSIONS.ACCESS_LOGS_MANAGE],
+      requiredPermissions: [PERMISSIONS.ACCESS_LOGS_READ],
     },
     {
       id: 'lockers',
@@ -127,7 +129,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       label: 'Send Notifications',
       icon: BellRing,
       path: '/notifications/create',
-      requiredPermissions: [PERMISSIONS.NOTIFICATIONS_CREATE],
+      requiredPermissions: [PERMISSIONS.NOTIFICATIONS_READ],
     },
       {
         id: 'transfers',
@@ -141,22 +143,24 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       label: 'Settings',
       icon: Settings,
       path: '/settings',
-      requiredPermissions: [PERMISSIONS.SETTINGS_UPDATE],
+      requiredPermissions: [PERMISSIONS.SETTINGS_READ],
     },
   ];
 
-  const lecturerBookingMenuItem = {
+  const lecturerBookingMenuItem: MenuItem = {
     id: 'lecturer-self-demo',
     label: 'Booking Room',
     icon: BookOpen,
     path: '/lecturer/booking',
+    requiredPermissions: [PERMISSIONS.BOOKINGS_READ],
   };
 
-  const lecturerScheduleMenuItem = {
+  const lecturerScheduleMenuItem: MenuItem = {
     id: 'lecturer-schedule',
     label: 'Weekly schedule',
     icon: Calendar,
     path: '/lecturer/schedule',
+    requiredPermissions: [PERMISSIONS.SCHEDULES_READ],
   };
 
   const lecturerHistoryMenuItem = {
@@ -166,17 +170,30 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     path: '/lecturer/history',
   };
 
-  const accessLogMenuItem = {
+  const accessLogMenuItem: MenuItem = {
     id: 'access-logs',
     label: 'Access audit',
     icon: FileText,
     path: '/access-logs',
+    requiredPermissions: [PERMISSIONS.ACCESS_LOGS_READ],
   };
 
-  const canViewAccessLogs = hasAnyPermission([
-    PERMISSIONS.ACCESS_LOGS_READ,
-    PERMISSIONS.ACCESS_LOGS_MANAGE,
-  ]);
+  const canViewAccessLogs = hasAnyPermission([PERMISSIONS.ACCESS_LOGS_READ]);
+
+  const filterMenuItemsByRead = (items: MenuItem[]): MenuItem[] => {
+    return items.filter((item) => {
+      if (!item.requiredPermissions || item.requiredPermissions.length === 0) {
+        return true;
+      }
+
+      const readPermissions = item.requiredPermissions.filter((permission) =>
+        permission.toLowerCase().endsWith('.read'),
+      );
+
+      const permissionsToCheck = readPermissions.length > 0 ? readPermissions : item.requiredPermissions;
+      return hasAnyPermission(permissionsToCheck);
+    });
+  };
 
   let menuItems = baseMenuItems;
 
@@ -198,13 +215,12 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
    else if (userScope === 'CAMPUS') {
     menuItems = baseMenuItems;
   } else {
-    menuItems = baseMenuItems.filter((item) => {
-      if (!item.requiredPermissions || item.requiredPermissions.length === 0) {
-        return true;
-      }
-      return hasAnyPermission(item.requiredPermissions);
-    });
+    menuItems = baseMenuItems;
   }
+
+  menuItems = filterMenuItemsByRead(menuItems);
+
+  const canReadSettingsMenu = hasAnyPermission([PERMISSIONS.SETTINGS_READ]);
 
   const isActivePath = (path: string) => location.pathname === path;
   
@@ -324,10 +340,12 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                     <User className="mr-2 h-4 w-4" />
                     <span>Profile</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/settings')}>
-                    <Settings className="mr-2 h-4 w-4" />
-                    <span>Settings</span>
-                  </DropdownMenuItem>
+                  {canReadSettingsMenu && (
+                    <DropdownMenuItem onClick={() => navigate('/settings')}>
+                      <Settings className="mr-2 h-4 w-4" />
+                      <span>Settings</span>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem className="text-red-600" onClick={logout}>
                     <LogOut className="mr-2 h-4 w-4" />

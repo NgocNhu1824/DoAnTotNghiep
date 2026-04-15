@@ -4,7 +4,7 @@ export interface Room {
   _id: string;
   roomCode: string;
   roomName: string;
-  building: string;
+  building: string | null;
   floor: number;
   capacity: number;
   roomType: string;
@@ -25,7 +25,7 @@ export interface Room {
 export interface CreateRoomDto {
   roomCode: string;
   roomName: string;
-  building: string;
+  building?: string;
   floor: number;
   capacity: number;
   roomType: string;
@@ -83,7 +83,7 @@ export interface RoomDashboardRow {
   roomId: string;
   roomCode: string;
   roomName: string;
-  building: string;
+  building: string | null;
   floor: number;
   campusId: string | null;
   campusName: string | null;
@@ -190,6 +190,7 @@ export interface RoomImportError {
 export interface RoomImportResult {
   mode?: 'dryRun' | 'strict';
   inserted: number;
+  updated?: number;
   total: number;
   failed: number;
   errors?: RoomImportError[];
@@ -209,6 +210,7 @@ export interface RoomImportResult {
     valid?: number;
     invalid?: number;
     inserted: number;
+    updated?: number;
     failed: number;
   };
 }
