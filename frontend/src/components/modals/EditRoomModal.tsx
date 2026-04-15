@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Room, UpdateRoomDto } from '../../types/room.types';
 
+const ROOM_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'classroom', label: 'Classroom' },
+  { value: 'lab', label: 'Laboratory' },
+  { value: 'computer_lab', label: 'Computer Lab' },
+  { value: 'meeting_room', label: 'Meeting Room' },
+  { value: 'library', label: 'Library' },
+  { value: 'auditorium', label: 'Auditorium' },
+  { value: 'pseudo_room', label: 'Pseudo-room' },
+  { value: 'theoretical_theatre', label: 'Theoretical theatre' },
+  { value: 'virtual_room', label: 'Virtual room' },
+];
+
 interface EditRoomModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -31,12 +43,16 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
 
   const [formData, setFormData] = useState<UpdateRoomDto>({});
 
+  const hasCurrentRoomTypeOption = ROOM_TYPE_OPTIONS.some(
+    (option) => option.value === (formData.roomType || ''),
+  );
+
   useEffect(() => {
     if (room) {
       setFormData({
         roomCode: room.roomCode,
         roomName: room.roomName,
-        building: room.building,
+        building: room.building ?? undefined,
         floor: room.floor,
         capacity: room.capacity,
         roomType: room.roomType,
@@ -165,12 +181,14 @@ const EditRoomModal: React.FC<EditRoomModalProps> = ({
                 onChange={(e) => setFormData({ ...formData, roomType: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               >
-                <option value="classroom">Classroom</option>
-                <option value="lab">Laboratory</option>
-                <option value="computer_lab">Computer Lab</option>
-                <option value="meeting_room">Meeting Room</option>
-                <option value="library">Library</option>
-                <option value="auditorium">Auditorium</option>
+                {ROOM_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+                {formData.roomType && !hasCurrentRoomTypeOption && (
+                  <option value={formData.roomType}>{formData.roomType}</option>
+                )}
               </select>
             </div>
 
