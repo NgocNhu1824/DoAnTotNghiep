@@ -20,7 +20,6 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Switch } from '../../components/ui/switch';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Textarea } from '../../components/ui/textarea';
 import { Campus } from '../../types/models.types';
 import {
@@ -57,20 +56,137 @@ const DEFAULT_FORM: SettingFormState = {
   campusId: '',
 };
 
-const PRESET_KEYS = [
-  'booking.self_booking_lead_minutes',
-  'booking.self_booking_weekly_room_limit',
-  'notification.notification_before_class',
-  'notification.booking_approval_reminder_min_minutes',
-  'notification.booking_approval_reminder_max_minutes',
-  'booking.max_overdue_minutes',
-  'locker.auto_unlock_before_class_minutes',
-  'transfer.open_before_source_end_minutes',
-  'transfer.close_after_source_end_minutes',
-  'transfer.activation_poll_interval_ms',
-  'security.enable_face_recognition',
-  'security.enable_fingerprint',
+type SettingTemplate = {
+  key: string;
+  title: string;
+  shortDescription: string;
+  helperText: string;
+  category: string;
+  valueType: SettingValueType;
+  placeholder?: string;
+  unit?: string;
+};
+
+const CUSTOM_TEMPLATE_KEY = '__custom__';
+
+const SETTING_TEMPLATES: SettingTemplate[] = [
+  {
+    key: 'booking.self_booking_lead_minutes',
+    title: 'Minimum lead time before self-booking',
+    shortDescription: 'How long users must wait before class start to create self-booking.',
+    helperText: 'Increase this value if you want users to book earlier and reduce last-minute requests.',
+    category: 'booking',
+    valueType: 'number',
+    placeholder: '15',
+    unit: 'minutes',
+  },
+  {
+    key: 'notification.notification_before_class',
+    title: 'Reminder before class starts',
+    shortDescription: 'How many minutes before class users receive a reminder notification.',
+    helperText: 'Typical values are 15-30 minutes so lecturers have enough preparation time.',
+    category: 'notification',
+    valueType: 'number',
+    placeholder: '30',
+    unit: 'minutes',
+  },
+  {
+    key: 'notification.booking_approval_reminder_min_minutes',
+    title: 'Pending approval reminder (minimum)',
+    shortDescription: 'Minimum waiting time before sending reminder for unapproved booking.',
+    helperText: 'Use this together with maximum reminder time to control reminder window.',
+    category: 'notification',
+    valueType: 'number',
+    placeholder: '15',
+    unit: 'minutes',
+  },
+  {
+    key: 'notification.booking_approval_reminder_max_minutes',
+    title: 'Pending approval reminder (maximum)',
+    shortDescription: 'Maximum waiting time before sending reminder for unapproved booking.',
+    helperText: 'Keep this slightly larger than minimum, for example min 15 and max 20.',
+    category: 'notification',
+    valueType: 'number',
+    placeholder: '20',
+    unit: 'minutes',
+  },
+  {
+    key: 'booking.max_overdue_minutes',
+    title: 'Overdue return grace period',
+    shortDescription: 'Allowed extra time before return is marked as overdue.',
+    helperText: 'Use a small buffer to avoid false overdue cases because of short delays.',
+    category: 'booking',
+    valueType: 'number',
+    placeholder: '15',
+    unit: 'minutes',
+  },
+  {
+    key: 'locker.auto_unlock_before_class_minutes',
+    title: 'Allow unlock before class',
+    shortDescription: 'How many minutes before class users are allowed to unlock locker.',
+    helperText: 'Set this high enough for classroom preparation but not too early for security.',
+    category: 'locker',
+    valueType: 'number',
+    placeholder: '5',
+    unit: 'minutes',
+  },
+  {
+    key: 'transfer.open_before_source_end_minutes',
+    title: 'Transfer request opens before source ends',
+    shortDescription: 'How early transfer request can be created before source slot ends.',
+    helperText: 'This helps users prepare transfer requests before class transition time.',
+    category: 'transfer',
+    valueType: 'number',
+    placeholder: '15',
+    unit: 'minutes',
+  },
+  {
+    key: 'transfer.close_after_source_end_minutes',
+    title: 'Transfer request closes after source ends',
+    shortDescription: 'How long after source slot end transfer request is still allowed.',
+    helperText: 'Keep this short to avoid late transfer changes that affect operations.',
+    category: 'transfer',
+    valueType: 'number',
+    placeholder: '15',
+    unit: 'minutes',
+  },
+  {
+    key: 'transfer.activation_poll_interval_ms',
+    title: 'Transfer activation check interval',
+    shortDescription: 'How often system checks and activates transfer jobs.',
+    helperText: 'Use milliseconds. Smaller values react faster but increase system workload.',
+    category: 'transfer',
+    valueType: 'number',
+    placeholder: '30000',
+    unit: 'milliseconds',
+  },
+  {
+    key: 'security.enable_face_recognition',
+    title: 'Enable Face ID verification',
+    shortDescription: 'Turn Face ID verification feature on or off.',
+    helperText: 'Disable only when camera-based verification is temporarily unavailable.',
+    category: 'security',
+    valueType: 'boolean',
+  },
+  {
+    key: 'security.enable_fingerprint',
+    title: 'Enable Finger ID verification',
+    shortDescription: 'Turn fingerprint verification feature on or off.',
+    helperText: 'Disable only when fingerprint devices are under maintenance.',
+    category: 'security',
+    valueType: 'boolean',
+  },
 ];
+
+const TEMPLATE_BY_KEY: Record<string, SettingTemplate> = SETTING_TEMPLATES.reduce(
+  (acc, template) => {
+    acc[template.key] = template;
+    return acc;
+  },
+  {} as Record<string, SettingTemplate>,
+);
+
+const PRESET_KEYS = SETTING_TEMPLATES.map((template) => template.key);
 
 const SettingsManagementPage: React.FC = () => {
   const { toast } = useToast();
@@ -109,6 +225,9 @@ const SettingsManagementPage: React.FC = () => {
     return campus ? `${campus.campusCode} - ${campus.campusName}` : formData.campusId;
   }, [campuses, formData.campusId]);
 
+  const activeTemplate = useMemo(() => TEMPLATE_BY_KEY[formData.key], [formData.key]);
+  const selectedTemplateValue = activeTemplate ? activeTemplate.key : CUSTOM_TEMPLATE_KEY;
+
   const visibleSettings = useMemo(() => {
     const keyword = search.trim().toLowerCase();
 
@@ -118,7 +237,8 @@ const SettingsManagementPage: React.FC = () => {
       const matchesKeyword =
         !keyword ||
         item.key.toLowerCase().includes(keyword) ||
-        (item.description || '').toLowerCase().includes(keyword);
+        (item.description || '').toLowerCase().includes(keyword) ||
+        (TEMPLATE_BY_KEY[item.key]?.title || '').toLowerCase().includes(keyword);
 
       const matchesCategory = categoryFilter === 'all' || item.category === categoryFilter;
       const matchesScope = scopeFilter === 'all' || itemScope === scopeFilter;
@@ -128,7 +248,12 @@ const SettingsManagementPage: React.FC = () => {
   }, [settings, search, categoryFilter, scopeFilter]);
 
   const categories = useMemo(() => {
-    const values = Array.from(new Set(settings.map((item) => item.category))).filter(Boolean);
+    const values = Array.from(
+      new Set([
+        ...settings.map((item) => item.category),
+        ...SETTING_TEMPLATES.map((item) => item.category),
+      ]),
+    ).filter(Boolean);
     return values.sort((a, b) => a.localeCompare(b));
   }, [settings]);
 
@@ -191,9 +316,14 @@ const SettingsManagementPage: React.FC = () => {
   }, [isSuperAdmin, currentCampusId]);
 
   const resetForm = () => {
+    const defaultTemplate = SETTING_TEMPLATES[0];
     setEditingSetting(null);
     setFormData({
       ...DEFAULT_FORM,
+      key: defaultTemplate.key,
+      valueType: defaultTemplate.valueType,
+      category: defaultTemplate.category,
+      description: defaultTemplate.shortDescription,
       scope: isSuperAdmin ? 'global' : 'campus',
       campusId: isSuperAdmin ? '' : currentCampusId,
     });
@@ -235,6 +365,31 @@ const SettingsManagementPage: React.FC = () => {
       ...prev,
       scope,
       campusId: scope === 'global' ? '' : prev.campusId || currentCampusId,
+    }));
+  };
+
+  const handleTemplateChange = (value: string) => {
+    if (value === CUSTOM_TEMPLATE_KEY) {
+      setFormData((prev) => ({
+        ...prev,
+        key: '',
+        category: prev.category || 'general',
+      }));
+      return;
+    }
+
+    const template = TEMPLATE_BY_KEY[value];
+    if (!template) {
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      key: template.key,
+      valueType: template.valueType,
+      category: template.category,
+      description: editingSetting ? prev.description : template.shortDescription,
+      valueBoolean: template.valueType === 'boolean' ? prev.valueBoolean : prev.valueBoolean,
     }));
   };
 
@@ -345,8 +500,10 @@ const SettingsManagementPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Settings Management</h1>
-          <p className="mt-1 text-muted-foreground">Manage system configuration by global/campus scope</p>
+          <h1 className="text-3xl font-bold tracking-tight">System Settings</h1>
+          <p className="mt-1 text-muted-foreground">
+            Configure booking, reminders, lockers, and transfer behavior with guided descriptions.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => loadSettings(true)} disabled={refreshing}>
@@ -355,26 +512,28 @@ const SettingsManagementPage: React.FC = () => {
           </Button>
           <Button onClick={openCreate}>
             <Plus className="mr-2 h-4 w-4" />
-            Add Setting
+            Add New Setting
           </Button>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Filters</CardTitle>
-          <CardDescription>Filter by key, category, and setting scope</CardDescription>
+          <CardTitle>Find Settings</CardTitle>
+          <CardDescription>
+            Search by setting name, description, category, or scope.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="space-y-2">
-              <Label>Search by key/description</Label>
+              <Label>Search</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="notification..."
+                  placeholder="e.g. reminder before class"
                   className="pl-9"
                 />
               </div>
@@ -413,7 +572,7 @@ const SettingsManagementPage: React.FC = () => {
 
             <div className="flex items-end gap-3">
               <Switch id="include-inactive" checked={includeInactive} onCheckedChange={setIncludeInactive} />
-              <Label htmlFor="include-inactive">Show inactive settings</Label>
+              <Label htmlFor="include-inactive">Show disabled settings</Label>
             </div>
           </div>
         </CardContent>
@@ -421,8 +580,10 @@ const SettingsManagementPage: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Check effective setting</CardTitle>
-          <CardDescription>Check resolved value by campus - global - default priority</CardDescription>
+          <CardTitle>Check Applied Value</CardTitle>
+          <CardDescription>
+            Verify the final value currently applied (campus value first, then global, then default).
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -464,7 +625,7 @@ const SettingsManagementPage: React.FC = () => {
 
             <div className="flex items-end">
               <Button onClick={fetchEffective} disabled={effectiveLoading} className="w-full">
-                {effectiveLoading ? 'Checking...' : 'Get effective value'}
+                {effectiveLoading ? 'Checking...' : 'Check applied value'}
               </Button>
             </div>
           </div>
@@ -478,7 +639,8 @@ const SettingsManagementPage: React.FC = () => {
                 <span className="font-semibold">Type:</span> {effectiveSetting.valueType}
               </p>
               <p>
-                <span className="font-semibold">Value:</span> {renderValue(effectiveSetting.value, effectiveSetting.valueType)}
+                <span className="font-semibold">Applied value:</span>{' '}
+                {renderValue(effectiveSetting.value, effectiveSetting.valueType)}
               </p>
             </div>
           )}
@@ -487,117 +649,154 @@ const SettingsManagementPage: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Settings list ({visibleSettings.length})</CardTitle>
-          <CardDescription>Current system configuration</CardDescription>
+          <CardTitle>Settings Catalog ({visibleSettings.length})</CardTitle>
+          <CardDescription>
+            Each setting card explains what it does so non-technical admins can update safely.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Key</TableHead>
-                  <TableHead>Value</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Scope</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visibleSettings.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
-                      No settings match the current filters
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  visibleSettings.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.key}</TableCell>
-                      <TableCell className="max-w-[320px] truncate" title={renderValue(item.value, item.valueType)}>
-                        {renderValue(item.value, item.valueType)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{item.valueType}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        {item.campusId ? (
-                          <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Campus</Badge>
-                        ) : (
-                          <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100">Global</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>{item.category || 'general'}</TableCell>
-                      <TableCell>
+          {visibleSettings.length === 0 ? (
+            <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground">
+              No settings match the current filters.
+            </div>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {visibleSettings.map((item) => {
+                const template = TEMPLATE_BY_KEY[item.key];
+                const readableName = template?.title || humanizeSettingKey(item.key);
+                const readableDescription =
+                  item.description || template?.shortDescription || 'No description yet.';
+                const readableValue = `${renderValue(item.value, item.valueType)}${
+                  template?.unit ? ` ${template.unit}` : ''
+                }`;
+
+                return (
+                  <Card key={item.id} className="border-border/80">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <CardTitle className="text-base leading-6">{readableName}</CardTitle>
+                          <CardDescription>{readableDescription}</CardDescription>
+                        </div>
                         {item.isActive ? (
                           <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Active</Badge>
                         ) : (
-                          <Badge variant="secondary">Inactive</Badge>
+                          <Badge variant="secondary">Disabled</Badge>
                         )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button variant="ghost" size="icon" onClick={() => openEdit(item)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => requestDelete(item.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="rounded-lg bg-muted/40 p-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Current value</p>
+                        <p className="mt-1 break-words text-sm font-semibold">{readableValue}</p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <Badge variant="outline">{item.valueType}</Badge>
+                        <Badge variant="outline">{item.category || 'general'}</Badge>
+                        <Badge className={item.campusId ? 'bg-blue-100 text-blue-700 hover:bg-blue-100' : 'bg-purple-100 text-purple-700 hover:bg-purple-100'}>
+                          {item.campusId ? 'Campus scope' : 'Global scope'}
+                        </Badge>
+                      </div>
+
+                      <div className="rounded-md border border-dashed p-2 text-xs text-muted-foreground">
+                        Key: {item.key}
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="ghost" size="icon" onClick={() => openEdit(item)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => requestDelete(item.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <Dialog open={isFormOpen} onOpenChange={(value) => (!saving ? setIsFormOpen(value) : undefined)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingSetting ? 'Edit setting' : 'Create new setting'}</DialogTitle>
+            <DialogTitle>{editingSetting ? 'Edit Setting' : 'Create Setting'}</DialogTitle>
             <DialogDescription>
-              Update system configuration parameters. Keys should use a namespace (e.g. notification.xxx)
+              Use preset templates for common settings so admins can update values safely.
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 py-2">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Key</Label>
+                <Label>Setting function</Label>
+                <Select value={selectedTemplateValue} onValueChange={handleTemplateChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select setting template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SETTING_TEMPLATES.map((template) => (
+                      <SelectItem key={template.key} value={template.key}>
+                        {template.title}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={CUSTOM_TEMPLATE_KEY}>Custom setting</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Setting key</Label>
                 <Input
                   value={formData.key}
                   onChange={(event) => setFormData((prev) => ({ ...prev, key: event.target.value }))}
                   placeholder="notification.notification_before_class"
+                  disabled={Boolean(activeTemplate)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  {activeTemplate
+                    ? 'Preset key is locked to prevent accidental technical changes.'
+                    : 'Use dot notation key, for example notification.notification_before_class.'}
+                </p>
               </div>
+            </div>
 
+            {activeTemplate && (
+              <div className="rounded-md border bg-muted/40 p-3">
+                <p className="text-sm font-semibold">{activeTemplate.title}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{activeTemplate.helperText}</p>
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Category</Label>
                 <Input
                   value={formData.category}
                   onChange={(event) => setFormData((prev) => ({ ...prev, category: event.target.value }))}
                   placeholder="notification"
+                  disabled={Boolean(activeTemplate)}
                 />
               </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Value type</Label>
+                <Label>Data type</Label>
                 <Select
                   value={formData.valueType}
                   onValueChange={(value) =>
                     setFormData((prev) => ({ ...prev, valueType: value as SettingValueType }))
                   }
+                  disabled={Boolean(activeTemplate)}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -658,7 +857,7 @@ const SettingsManagementPage: React.FC = () => {
             )}
 
             <div className="space-y-2">
-              <Label>Value</Label>
+              <Label>Value{activeTemplate?.unit ? ` (${activeTemplate.unit})` : ''}</Label>
               {formData.valueType === 'boolean' ? (
                 <Select
                   value={formData.valueBoolean}
@@ -686,7 +885,10 @@ const SettingsManagementPage: React.FC = () => {
                   type={formData.valueType === 'number' ? 'number' : 'text'}
                   value={formData.valueText}
                   onChange={(event) => setFormData((prev) => ({ ...prev, valueText: event.target.value }))}
-                  placeholder={formData.valueType === 'number' ? '30' : 'Setting value'}
+                  placeholder={
+                    activeTemplate?.placeholder ||
+                    (formData.valueType === 'number' ? '30' : 'Enter setting value')
+                  }
                 />
               )}
             </div>
@@ -697,7 +899,9 @@ const SettingsManagementPage: React.FC = () => {
                 rows={3}
                 value={formData.description}
                 onChange={(event) => setFormData((prev) => ({ ...prev, description: event.target.value }))}
-                placeholder="Describe the purpose of this setting"
+                placeholder={
+                  activeTemplate?.shortDescription || 'Describe what this setting controls for admins.'
+                }
               />
             </div>
 
@@ -707,7 +911,7 @@ const SettingsManagementPage: React.FC = () => {
                 checked={formData.isActive}
                 onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, isActive: checked }))}
               />
-              <Label htmlFor="setting-active">Setting active</Label>
+              <Label htmlFor="setting-active">Enable this setting</Label>
             </div>
           </div>
 
@@ -744,6 +948,14 @@ function inferValueType(value: unknown): SettingValueType {
   if (typeof value === 'number' && Number.isFinite(value)) return 'number';
   if (typeof value === 'boolean') return 'boolean';
   return 'json';
+}
+
+function humanizeSettingKey(key: string): string {
+  return String(key || '')
+    .replace(/[._]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function normalizeValueToText(value: unknown, valueType: SettingValueType): string {
