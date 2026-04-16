@@ -5,7 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 import accessLogService from '@/services/access-log.service';
 import { wsService } from '@/services/websocket.service';
 import { campusService } from '@/services/campus.service';
-import { AccessLogItem, AccessLogStatus } from '@/types/access-log.types';
+import { AccessLogItem, AccessLogStatus, QueryAccessLogsParams } from '@/types/access-log.types';
 import { Campus } from '@/types/models.types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -52,6 +52,11 @@ const ACCESS_LOG_ACTION_FILTERS: { value: string; label: string }[] = [
   { value: 'register', label: 'Fingerprint register' },
 ];
 
+const LECTURER_ACCESS_LOG_ACTION_FILTERS: { value: string; label: string }[] = [
+  { value: 'unlock', label: 'Unlock' },
+  { value: 'return', label: 'Return' },
+];
+
 
 const METHOD_LABELS: Record<string, string> = {
   faceid: 'Face ID',
@@ -80,18 +85,26 @@ const ACCESS_LOG_METHOD_FILTERS: { value: string; label: string }[] = [
   { value: 'iot_init', label: 'IoT init' },
 ];
 
+const LECTURER_ACCESS_LOG_METHOD_FILTERS: { value: string; label: string }[] = [
+  { value: 'FaceID', label: 'Face ID' },
+  { value: 'fingerprint', label: 'Fingerprint' },
+];
+
 interface AccessLogPageProps {
   hideHeader?: boolean;
   showInlineReload?: boolean;
   reloadSignal?: number;
+  /** Optional initial filters applied on mount. Use `action` as string or string[] to request multiple actions. */
+  initialFilters?: Partial<QueryAccessLogsParams & { hideFilters?: boolean }>;
 }
 
 const AccessLogPage: React.FC<AccessLogPageProps> = ({
   hideHeader = false,
   showInlineReload = true,
   reloadSignal,
+  initialFilters,
 }) => {
-  const { roleDetails } = useAuth();
+  const { roleDetails, user } = useAuth();
   const { toast } = useToast();
 
   const userScope = String(roleDetails?.scope || '').toUpperCase();
@@ -106,6 +119,7 @@ const AccessLogPage: React.FC<AccessLogPageProps> = ({
   const [keyword, setKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
   const [action, setAction] = useState('all');
+  const [actionList, setActionList] = useState<string[] | null>(null);
   const [method, setMethod] = useState('all');
   /** Maps to QueryAccessLogsDto.status only (do not also send `success` — avoids conflicting AND on BE). */
   const [status, setStatus] = useState<'all' | AccessLogStatus>('all');
@@ -129,6 +143,26 @@ const AccessLogPage: React.FC<AccessLogPageProps> = ({
   );
 
   const campusQueryReady = !canFilterCampus || (campusesLoaded && campusFilter !== null);
+  const initialFiltersAppliedRef = useRef(false);
+  const hideFiltersFromProps = (initialFilters && (initialFilters as any).hideFilters) || false;
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(!hideFiltersFromProps);
+  const actionFilterOptions = hideFiltersFromProps
+    ? LECTURER_ACCESS_LOG_ACTION_FILTERS
+    : ACCESS_LOG_ACTION_FILTERS;
+  const methodFilterOptions = hideFiltersFromProps
+    ? LECTURER_ACCESS_LOG_METHOD_FILTERS
+    : ACCESS_LOG_METHOD_FILTERS;
+
+  const handleActionChange = (value: string) => {
+    setAction(value);
+    if (hideFiltersFromProps && value === 'all') {
+      // Lecturer "all" still means the allowed lecturer actions only.
+      setActionList(LECTURER_ACCESS_LOG_ACTION_FILTERS.map((item) => item.value));
+    } else {
+      setActionList(null);
+    }
+    setPage(1);
+  };
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedKeyword(keyword.trim()), 320);
@@ -156,6 +190,51 @@ const AccessLogPage: React.FC<AccessLogPageProps> = ({
     loadCampuses();
   }, [loadCampuses]);
 
+  // When embedded for lecturer (hideFilters), default campus to user's campus if available
+  useEffect(() => {
+    if (!hideFiltersFromProps) return;
+    if (!user) return;
+    // If user has campus info and campusFilter not yet set, apply it
+    const userCampusId = (user.campusId as any)?._id || (user.campusId as any)?._id;
+    if (userCampusId && campusFilter === null) {
+      campusUserOverrideRef.current = true;
+      setCampusFilter(userCampusId);
+    }
+  }, [hideFiltersFromProps, user, campusFilter]);
+
+  // Apply initial filters if provided (only once)
+  useEffect(() => {
+    if (!initialFilters || initialFiltersAppliedRef.current) return;
+    // Wait for campus defaults to be ready when GLOBAL scope
+    if (canFilterCampus && !campusesLoaded) return;
+
+    initialFiltersAppliedRef.current = true;
+    if ((initialFilters as any).action) {
+      const a = (initialFilters as any).action;
+      if (Array.isArray(a)) {
+        // Keep the UI select showing "All actions" so user can see full options,
+        // but store the array to send to the API when loading rows.
+        setActionList(a);
+        setAction('all');
+      } else {
+        setAction(String(a));
+        setActionList(null);
+      }
+    }
+    if (initialFilters.keyword) {
+      setKeyword(initialFilters.keyword as string);
+    }
+    if (initialFilters.method) setMethod(initialFilters.method as string);
+    if (initialFilters.status) setStatus(initialFilters.status as any);
+    if (initialFilters.startDate) setStartDate(initialFilters.startDate as string);
+    if (initialFilters.endDate) setEndDate(initialFilters.endDate as string);
+    if (initialFilters.campusId) {
+      campusUserOverrideRef.current = true;
+      setCampusFilter(initialFilters.campusId as string);
+    }
+    setPage(1);
+  }, [initialFilters, canFilterCampus, campusesLoaded]);
+
   useEffect(() => {
     if (!canFilterCampus || !campusesLoaded || campusUserOverrideRef.current) return;
     if (campusDefaultsAppliedRef.current) return;
@@ -175,11 +254,13 @@ const AccessLogPage: React.FC<AccessLogPageProps> = ({
           setListLoading(true);
         }
 
+        const actionParam = actionList ?? (action !== 'all' ? action : undefined);
+
         const response = await accessLogService.getAll({
           page,
           limit: DEFAULT_LIMIT,
           keyword: debouncedKeyword || undefined,
-          action: action !== 'all' ? action : undefined,
+          action: actionParam as any,
           method: method !== 'all' ? method : undefined,
           status: status !== 'all' ? status : undefined,
           startDate: startDate || undefined,
@@ -207,6 +288,7 @@ const AccessLogPage: React.FC<AccessLogPageProps> = ({
       page,
       debouncedKeyword,
       action,
+      actionList,
       method,
       status,
       startDate,
@@ -402,161 +484,447 @@ const AccessLogPage: React.FC<AccessLogPageProps> = ({
         </div>
       ) : null}
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Filters</CardTitle>
-          <CardDescription>
-            Filters are sent to the access-logs API (keyword, action, method, outcome, dates
-            {canFilterCampus ? ', campus' : ''}) so results match the backend query.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div
-            className={`flex flex-col gap-4 ${canFilterCampus ? 'lg:flex-row lg:items-start' : ''}`}
-          >
-            <div className="min-w-0 flex-1 space-y-2">
-              <Label htmlFor="access-log-keyword">Search</Label>
-              <div className="relative w-full">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="access-log-keyword"
-                  value={keyword}
-                  onChange={(event) => {
-                    setKeyword(event.target.value);
-                    setPage(1);
-                  }}
-                  placeholder="User, room, device, reason…"
-                  className="w-full pl-9"
-                />
+      {hideFiltersFromProps ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Filters</CardTitle>
+            <CardDescription>
+              Showing a compact filter set for lecturers. Use "Show advanced filters" to expand.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!showAdvancedFilters ? (
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="access-log-keyword">Search</Label>
+                  <div className="relative w-full">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="access-log-keyword"
+                      value={keyword}
+                      onChange={(event) => {
+                        setKeyword(event.target.value);
+                        setPage(1);
+                      }}
+                      placeholder="User, room, device…"
+                      className="w-full pl-9"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div>
+                    <Label htmlFor="access-log-action">Action</Label>
+                    <Select value={action} onValueChange={handleActionChange}>
+                      <SelectTrigger id="access-log-action" className="w-full">
+                        <SelectValue placeholder="Action" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">
+                          All Actions
+                        </SelectItem>
+                        {actionFilterOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="access-log-method">Method</Label>
+                    <Select
+                      value={method}
+                      onValueChange={(value) => {
+                        setMethod(value);
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger id="access-log-method" className="w-full">
+                        <SelectValue placeholder="Method" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">
+                          All Methods
+                        </SelectItem>
+                        {methodFilterOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="access-log-status">Outcome</Label>
+                    <Select
+                      value={status}
+                      onValueChange={(value) => {
+                        setStatus(value as 'all' | AccessLogStatus);
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger id="access-log-status" className="w-full">
+                        <SelectValue placeholder="Outcome" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All outcomes</SelectItem>
+                        <SelectItem value="success">Success</SelectItem>
+                        <SelectItem value="failed">Failed</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="access-log-start" className="text-muted-foreground">From</Label>
+                    <Input
+                      id="access-log-start"
+                      type="date"
+                      className="h-9 w-full bg-background"
+                      value={startDate}
+                      onChange={(event) => {
+                        setStartDate(event.target.value);
+                        setPage(1);
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="access-log-end" className="text-muted-foreground">To</Label>
+                    <Input
+                      id="access-log-end"
+                      type="date"
+                      className="h-9 w-full bg-background"
+                      value={endDate}
+                      onChange={(event) => {
+                        setEndDate(event.target.value);
+                        setPage(1);
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Campus: {user?.campusId?.campusCode ? `${user?.campusId?.campusCode} — ${user?.campusId?.campusName}` : (canFilterCampus ? 'All campuses' : 'All campuses')}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setShowAdvancedFilters(true)}>
+                      Show advanced filters
+                    </Button>
+                    <Button size="sm" onClick={() => loadRows(true)} disabled={refreshing || listLoading}>
+                      Apply
+                    </Button>
+                  </div>
+                </div>
               </div>
+            ) : (
+              <>
+                <div className={`flex flex-col gap-4 ${canFilterCampus ? 'lg:flex-row lg:items-start' : ''}`}>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Label htmlFor="access-log-keyword">Search</Label>
+                    <div className="relative w-full">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="access-log-keyword"
+                        value={keyword}
+                        onChange={(event) => {
+                          setKeyword(event.target.value);
+                          setPage(1);
+                        }}
+                        placeholder="User, room, device, reason…"
+                        className="w-full pl-9"
+                      />
+                    </div>
+                  </div>
+
+                  {canFilterCampus ? (
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Label htmlFor="access-log-campus">Campus</Label>
+                      <Select value={campusFilter ?? 'all'} onValueChange={onCampusFilterChange}>
+                        <SelectTrigger id="access-log-campus" className="w-full min-w-0">
+                          <SelectValue placeholder="Campus" className="truncate" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All campuses</SelectItem>
+                          {sortedCampuses.map((campus) => (
+                            <SelectItem key={campus._id} value={campus._id}>
+                              {campus.campusCode} — {campus.campusName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div className="space-y-2 min-w-0">
+                    <Label htmlFor="access-log-action">Action</Label>
+                    <Select value={action} onValueChange={handleActionChange}>
+                      <SelectTrigger id="access-log-action" className="w-full">
+                        <SelectValue placeholder="Action" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">
+                          {hideFiltersFromProps ? 'Unlock + Return' : 'All actions'}
+                        </SelectItem>
+                        {actionFilterOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2 min-w-0">
+                    <Label htmlFor="access-log-method">Method</Label>
+                    <Select
+                      value={method}
+                      onValueChange={(value) => {
+                        setMethod(value);
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger id="access-log-method" className="w-full">
+                        <SelectValue placeholder="Method" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">
+                          {hideFiltersFromProps ? 'Face ID + Fingerprint' : 'All methods'}
+                        </SelectItem>
+                        {methodFilterOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2 min-w-0">
+                    <Label htmlFor="access-log-status">Outcome</Label>
+                    <Select
+                      value={status}
+                      onValueChange={(value) => {
+                        setStatus(value as 'all' | AccessLogStatus);
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger id="access-log-status" className="w-full">
+                        <SelectValue placeholder="Outcome" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All outcomes</SelectItem>
+                        <SelectItem value="success">Success</SelectItem>
+                        <SelectItem value="failed">Failed</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border bg-muted/30 p-4">
+                  <p className="mb-3 text-sm font-medium text-foreground">Access period</p>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-end">
+                    <div className="space-y-2">
+                      <Label htmlFor="access-log-start" className="text-muted-foreground">From</Label>
+                      <Input
+                        id="access-log-start"
+                        type="date"
+                        className="h-9 w-full bg-background"
+                        value={startDate}
+                        onChange={(event) => {
+                          setStartDate(event.target.value);
+                          setPage(1);
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="access-log-end" className="text-muted-foreground">To</Label>
+                      <Input
+                        id="access-log-end"
+                        type="date"
+                        className="h-9 w-full bg-background"
+                        value={endDate}
+                        onChange={(event) => {
+                          setEndDate(event.target.value);
+                          setPage(1);
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button size="sm" variant="ghost" onClick={() => setShowAdvancedFilters(false)}>
+                    Hide advanced filters
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Filters</CardTitle>
+            <CardDescription>
+              Filters are sent to the access-logs API (keyword, action, method, outcome, dates
+              {canFilterCampus ? ', campus' : ''}) so results match the backend query.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div
+              className={`flex flex-col gap-4 ${canFilterCampus ? 'lg:flex-row lg:items-start' : ''}`}
+            >
+              <div className="min-w-0 flex-1 space-y-2">
+                <Label htmlFor="access-log-keyword">Search</Label>
+                <div className="relative w-full">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="access-log-keyword"
+                    value={keyword}
+                    onChange={(event) => {
+                      setKeyword(event.target.value);
+                      setPage(1);
+                    }}
+                    placeholder="User, room, device, reason…"
+                    className="w-full pl-9"
+                  />
+                </div>
+              </div>
+
+              {canFilterCampus ? (
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Label htmlFor="access-log-campus">Campus</Label>
+                  <Select value={campusFilter ?? 'all'} onValueChange={onCampusFilterChange}>
+                    <SelectTrigger id="access-log-campus" className="w-full min-w-0">
+                      <SelectValue placeholder="Campus" className="truncate" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All campuses</SelectItem>
+                      {sortedCampuses.map((campus) => (
+                        <SelectItem key={campus._id} value={campus._id}>
+                          {campus.campusCode} — {campus.campusName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
             </div>
 
-            {canFilterCampus ? (
-              <div className="min-w-0 flex-1 space-y-2">
-                <Label htmlFor="access-log-campus">Campus</Label>
-                <Select value={campusFilter ?? 'all'} onValueChange={onCampusFilterChange}>
-                  <SelectTrigger id="access-log-campus" className="w-full min-w-0">
-                    <SelectValue placeholder="Campus" className="truncate" />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="space-y-2 min-w-0">
+                <Label htmlFor="access-log-action">Action</Label>
+                <Select value={action} onValueChange={handleActionChange}>
+                  <SelectTrigger id="access-log-action" className="w-full">
+                    <SelectValue placeholder="Action" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All campuses</SelectItem>
-                    {sortedCampuses.map((campus) => (
-                      <SelectItem key={campus._id} value={campus._id}>
-                        {campus.campusCode} — {campus.campusName}
+                    <SelectItem value="all">
+                      {hideFiltersFromProps ? 'Unlock + Return' : 'All actions'}
+                    </SelectItem>
+                    {actionFilterOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-            ) : null}
-          </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="space-y-2 min-w-0">
-              <Label htmlFor="access-log-action">Action</Label>
-              <Select
-                value={action}
-                onValueChange={(value) => {
-                  setAction(value);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger id="access-log-action" className="w-full">
-                  <SelectValue placeholder="Action" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All actions</SelectItem>
-                  {ACCESS_LOG_ACTION_FILTERS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2 min-w-0">
-              <Label htmlFor="access-log-method">Method</Label>
-              <Select
-                value={method}
-                onValueChange={(value) => {
-                  setMethod(value);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger id="access-log-method" className="w-full">
-                  <SelectValue placeholder="Method" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All methods</SelectItem>
-                  {ACCESS_LOG_METHOD_FILTERS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2 min-w-0">
-              <Label htmlFor="access-log-status">Outcome</Label>
-              <Select
-                value={status}
-                onValueChange={(value) => {
-                  setStatus(value as 'all' | AccessLogStatus);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger id="access-log-status" className="w-full">
-                  <SelectValue placeholder="Outcome" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All outcomes</SelectItem>
-                  <SelectItem value="success">Success</SelectItem>
-                  <SelectItem value="failed">Failed</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="rounded-lg border bg-muted/30 p-4">
-            <p className="mb-3 text-sm font-medium text-foreground">Access period</p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-end">
-              <div className="space-y-2">
-                <Label htmlFor="access-log-start" className="text-muted-foreground">
-                  From
-                </Label>
-                <Input
-                  id="access-log-start"
-                  type="date"
-                  className="h-9 w-full bg-background"
-                  value={startDate}
-                  onChange={(event) => {
-                    setStartDate(event.target.value);
+              <div className="space-y-2 min-w-0">
+                <Label htmlFor="access-log-method">Method</Label>
+                <Select
+                  value={method}
+                  onValueChange={(value) => {
+                    setMethod(value);
                     setPage(1);
                   }}
-                />
+                >
+                  <SelectTrigger id="access-log-method" className="w-full">
+                    <SelectValue placeholder="Method" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      {hideFiltersFromProps ? 'Face ID + Fingerprint' : 'All methods'}
+                    </SelectItem>
+                    {methodFilterOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="access-log-end" className="text-muted-foreground">
-                  To
-                </Label>
-                <Input
-                  id="access-log-end"
-                  type="date"
-                  className="h-9 w-full bg-background"
-                  value={endDate}
-                  onChange={(event) => {
-                    setEndDate(event.target.value);
+
+              <div className="space-y-2 min-w-0">
+                <Label htmlFor="access-log-status">Outcome</Label>
+                <Select
+                  value={status}
+                  onValueChange={(value) => {
+                    setStatus(value as 'all' | AccessLogStatus);
                     setPage(1);
                   }}
-                />
+                >
+                  <SelectTrigger id="access-log-status" className="w-full">
+                    <SelectValue placeholder="Outcome" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All outcomes</SelectItem>
+                    <SelectItem value="success">Success</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <p className="mb-3 text-sm font-medium text-foreground">Access period</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="access-log-start" className="text-muted-foreground">
+                    From
+                  </Label>
+                  <Input
+                    id="access-log-start"
+                    type="date"
+                    className="h-9 w-full bg-background"
+                    value={startDate}
+                    onChange={(event) => {
+                      setStartDate(event.target.value);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="access-log-end" className="text-muted-foreground">
+                    To
+                  </Label>
+                  <Input
+                    id="access-log-end"
+                    type="date"
+                    className="h-9 w-full bg-background"
+                    value={endDate}
+                    onChange={(event) => {
+                      setEndDate(event.target.value);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-3">

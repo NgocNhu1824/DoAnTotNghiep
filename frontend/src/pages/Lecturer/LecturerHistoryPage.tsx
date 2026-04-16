@@ -327,6 +327,12 @@ const LecturerHistoryPage: React.FC = () => {
                 hideHeader
                 showInlineReload={false}
                 reloadSignal={reloadSignals['access-audit']}
+                initialFilters={{
+                  action: ['unlock', 'return'],
+                  startDate: getDateInputValue(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+                  endDate: getDateInputValue(new Date()),
+                  hideFilters: true,
+                }}
               />
             </TabsContent>
           ) : null}
