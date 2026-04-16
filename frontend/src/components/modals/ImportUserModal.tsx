@@ -207,7 +207,7 @@ const ImportUserModal: React.FC<ImportUserModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Import Users by Excel</DialogTitle>
           <DialogDescription>
