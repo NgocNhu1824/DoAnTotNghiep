@@ -304,6 +304,7 @@ const LecturerSchedulePage: React.FC = () => {
   const [roomDevicesLoading, setRoomDevicesLoading] = useState(false);
   const [selectedRoomForDevices, setSelectedRoomForDevices] = useState<Room | null>(null);
   const [selectedRoomForDevicesId, setSelectedRoomForDevicesId] = useState('');
+  const [incidentFeedback, setIncidentFeedback] = useState('');
   const lastNotifiedTransferIdRef = useRef<string | null>(null);
   const processedReturnParamsRef = useRef<string>('');
   const weekFetchSeqRef = useRef(0);
@@ -827,14 +828,37 @@ const LecturerSchedulePage: React.FC = () => {
   }, [mergedSchedules, pendingHighlightScheduleId]);
 
   useEffect(() => {
+    if (!incidentFeedback) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setIncidentFeedback('');
+    }, 7000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [incidentFeedback]);
+
+  useEffect(() => {
     const focusScheduleId = searchParams.get('focusScheduleId');
     const focusDate = searchParams.get('focusDate');
     const focusRawDate = searchParams.get('focusRawDate');
     const createdTransferId = searchParams.get('createdTransferId');
     const focusTransferId = searchParams.get('focusTransferId');
-    const paramsKey = `${focusScheduleId || ''}|${focusDate || ''}|${focusRawDate || ''}|${createdTransferId || ''}|${focusTransferId || ''}`;
+    const incidentReported = searchParams.get('incidentReported');
+    const incidentRoomCode = searchParams.get('incidentRoomCode');
+    const paramsKey = `${focusScheduleId || ''}|${focusDate || ''}|${focusRawDate || ''}|${createdTransferId || ''}|${focusTransferId || ''}|${incidentReported || ''}|${incidentRoomCode || ''}`;
 
-    if (!focusScheduleId && !focusDate && !focusRawDate && !createdTransferId && !focusTransferId) {
+    if (
+      !focusScheduleId &&
+      !focusDate &&
+      !focusRawDate &&
+      !createdTransferId &&
+      !focusTransferId &&
+      incidentReported !== '1'
+    ) {
       return;
     }
 
@@ -844,6 +868,19 @@ const LecturerSchedulePage: React.FC = () => {
     processedReturnParamsRef.current = paramsKey;
 
     const handleReturnParams = async () => {
+      if (incidentReported === '1') {
+        const roomCode = incidentRoomCode?.trim();
+        const message = roomCode
+          ? `Incident for room ${roomCode} has been reported.`
+          : 'Incident report submitted successfully.';
+
+        setIncidentFeedback(message);
+        toast({
+          title: 'Incident reported',
+          description: message,
+        });
+      }
+
       let targetDate: Date | null = parseDateParamToDate(focusDate) || parseDateParamToDate(focusRawDate);
 
       if (focusScheduleId) {
@@ -1161,6 +1198,7 @@ const LecturerSchedulePage: React.FC = () => {
     const query = new URLSearchParams({
       source: 'lecturer-schedule',
       scheduleId: String(schedule._id || ''),
+      focusDate: formatDateFromScheduleInput(schedule.dateStart),
     });
 
     navigate(`/public/incident-report/${encodeURIComponent(roomId)}?${query.toString()}`);
@@ -1298,6 +1336,12 @@ const LecturerSchedulePage: React.FC = () => {
                 </Select>
               </div>
             </div>
+
+            {incidentFeedback && (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                {incidentFeedback}
+              </div>
+            )}
 
         {error ? (
           <p className="text-red-600">{error}</p>

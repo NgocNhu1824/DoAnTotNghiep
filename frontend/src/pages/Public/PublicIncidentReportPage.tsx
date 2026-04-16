@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   Building2,
@@ -19,6 +19,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Textarea } from '../../components/ui/textarea';
+import { useAuth } from '../../context/AuthContext';
 
 type IncidentFormState = {
   incidentType: CreatePublicIncidentPayload['incidentType'];
@@ -43,7 +44,21 @@ const MAX_FILE_SIZE = 8 * 1024 * 1024;
 
 const PublicIncidentReportPage: React.FC = () => {
   const { roomId } = useParams<{ roomId: string }>();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { isAuthenticated, roleDetails } = useAuth();
   const { toast } = useToast();
+
+  const isLecturerFlow = useMemo(() => {
+    return (
+      searchParams.get('source') === 'lecturer-schedule' &&
+      isAuthenticated &&
+      roleDetails?.roleCode === 'LECTURER'
+    );
+  }, [isAuthenticated, roleDetails?.roleCode, searchParams]);
+
+  const sourceScheduleId = searchParams.get('scheduleId');
+  const sourceFocusDate = searchParams.get('focusDate');
 
   const [roomMeta, setRoomMeta] = useState<PublicIncidentRoomMeta | null>(null);
   const [loadingRoom, setLoadingRoom] = useState(true);
@@ -173,9 +188,27 @@ const PublicIncidentReportPage: React.FC = () => {
       setFormData(DEFAULT_FORM);
       setFiles([]);
 
+      if (isLecturerFlow) {
+        const returnQuery = new URLSearchParams({
+          incidentReported: '1',
+          incidentRoomCode: roomMeta.roomCode || '',
+        });
+
+        if (sourceScheduleId) {
+          returnQuery.set('focusScheduleId', sourceScheduleId);
+        }
+
+        if (sourceFocusDate) {
+          returnQuery.set('focusDate', sourceFocusDate);
+        }
+
+        navigate(`/lecturer/schedule?${returnQuery.toString()}`, { replace: true });
+        return;
+      }
+
       toast({
-        title: 'Submitted successfully',
-        description: 'Your incident report has been received.',
+        title: 'Report submitted',
+        description: 'Incident report submitted successfully.',
       });
     } catch (error: any) {
       toast({
@@ -229,7 +262,7 @@ const PublicIncidentReportPage: React.FC = () => {
               <Alert className="border-green-200 bg-green-50 text-green-800">
                 <CheckCircle2 className="h-4 w-4" />
                 <AlertDescription>
-                  Incident created successfully. Incident code: <b>{submitResult.code}</b>
+                  Incident reported successfully.
                 </AlertDescription>
               </Alert>
             )}
