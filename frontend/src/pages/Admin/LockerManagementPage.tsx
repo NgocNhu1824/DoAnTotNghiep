@@ -20,6 +20,7 @@ import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Badge } from '../../components/ui/badge';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion';
 import { wsService } from '../../services/websocket.service';
 import { PERMISSIONS } from '../../utils/permissions';
 
@@ -40,6 +41,16 @@ type SyncJob = {
   status: SyncJobStatus;
   message: string;
   updatedAt: string;
+};
+
+type EspGroup = {
+  groupKey: string;
+  deviceId: string | null;
+  displayDeviceId: string;
+  lockers: LockerEntity[];
+  esp32Status: string;
+  lastHeartbeat: string | null;
+  hasActiveLocker: boolean;
 };
 
 const ITEMS_PER_PAGE = 10;
@@ -130,7 +141,7 @@ const LockerManagementPage: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState<(typeof ACTIVE_OPTIONS)[number]['value']>('all');
   const [currentPage, setCurrentPage] = useState(0);
   const [syncJobs, setSyncJobs] = useState<SyncJob[]>([]);
-  const [syncingLockerIds, setSyncingLockerIds] = useState<Record<string, boolean>>({});
+  const [syncingEspDeviceIds, setSyncingEspDeviceIds] = useState<Record<string, boolean>>({});
   const [unlockingLockerIds, setUnlockingLockerIds] = useState<Record<string, boolean>>({});
   const syncJobsRef = useRef<SyncJob[]>([]);
   const lockersRef = useRef<LockerEntity[]>([]);
@@ -273,15 +284,10 @@ const LockerManagementPage: React.FC = () => {
       });
 
       if (status === 'completed' || status === 'failed') {
-        const matchedJob = syncJobsRef.current.find((item) => item.jobKey === jobKey);
-        const targetLockerId = matchedJob?.lockerId || inferredLocker?.lockerId;
-
-        if (targetLockerId) {
-          setSyncingLockerIds((prev) => ({
-            ...prev,
-            [targetLockerId]: false,
-          }));
-        }
+        setSyncingEspDeviceIds((prev) => ({
+          ...prev,
+          [deviceId]: false,
+        }));
 
         if (deviceId === '*') {
           setSyncAllLoading(false);
@@ -328,23 +334,74 @@ const LockerManagementPage: React.FC = () => {
     });
   }, [lockers, campusFilter, statusFilter, activeFilter, search]);
 
-  const sortedLockers = useMemo(
-    () =>
-      [...filteredLockers].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      ),
-    [filteredLockers]
-  );
+  const espGroups = useMemo(() => {
+    const grouped = new Map<string, EspGroup>();
 
-  const pageCount = Math.ceil(sortedLockers.length / ITEMS_PER_PAGE);
+    filteredLockers.forEach((locker) => {
+      const normalizedDeviceId = String(locker.deviceId || '').trim();
+      const hasDeviceId = normalizedDeviceId.length > 0;
+      const groupKey = hasDeviceId ? normalizedDeviceId : '__UNMAPPED__';
+
+      const existing = grouped.get(groupKey);
+      const lockerHeartbeat = locker.lastHeartbeat ? new Date(locker.lastHeartbeat).getTime() : 0;
+      const existingHeartbeat = existing?.lastHeartbeat ? new Date(existing.lastHeartbeat).getTime() : 0;
+
+      if (!existing) {
+        grouped.set(groupKey, {
+          groupKey,
+          deviceId: hasDeviceId ? normalizedDeviceId : null,
+          displayDeviceId: hasDeviceId ? normalizedDeviceId : 'Unmapped',
+          lockers: [locker],
+          esp32Status: locker.esp32Status ?? 'OFFLINE',
+          lastHeartbeat: locker.lastHeartbeat ?? null,
+          hasActiveLocker: locker.isActive,
+        });
+        return;
+      }
+
+      existing.lockers.push(locker);
+      if ((locker.esp32Status ?? 'OFFLINE') === 'ONLINE') {
+        existing.esp32Status = 'ONLINE';
+      }
+      if (lockerHeartbeat > existingHeartbeat) {
+        existing.lastHeartbeat = locker.lastHeartbeat ?? null;
+      }
+      existing.hasActiveLocker = existing.hasActiveLocker || locker.isActive;
+    });
+
+    return Array.from(grouped.values())
+      .map((group) => ({
+        ...group,
+        lockers: [...group.lockers].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        ),
+      }))
+      .sort((a, b) => {
+        const onlineA = a.esp32Status === 'ONLINE' ? 1 : 0;
+        const onlineB = b.esp32Status === 'ONLINE' ? 1 : 0;
+        if (onlineA !== onlineB) {
+          return onlineB - onlineA;
+        }
+
+        const heartbeatA = a.lastHeartbeat ? new Date(a.lastHeartbeat).getTime() : 0;
+        const heartbeatB = b.lastHeartbeat ? new Date(b.lastHeartbeat).getTime() : 0;
+        if (heartbeatA !== heartbeatB) {
+          return heartbeatB - heartbeatA;
+        }
+
+        return a.displayDeviceId.localeCompare(b.displayDeviceId);
+      });
+  }, [filteredLockers]);
+
+  const pageCount = Math.ceil(espGroups.length / ITEMS_PER_PAGE);
 
   useEffect(() => {
     setCurrentPage(0);
   }, [search, campusFilter, statusFilter, activeFilter]);
 
-  const paginatedLockers = useMemo(
-    () => sortedLockers.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE),
-    [sortedLockers, currentPage]
+  const paginatedEspGroups = useMemo(
+    () => espGroups.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE),
+    [espGroups, currentPage],
   );
 
   const statusCounts = useMemo(
@@ -360,6 +417,17 @@ const LockerManagementPage: React.FC = () => {
       ),
     [lockers]
   );
+
+  const espCounts = useMemo(() => {
+    return espGroups.reduce(
+      (acc, group) => {
+        acc.total += 1;
+        if (group.esp32Status === 'ONLINE') acc.available += 1;
+        return acc;
+      },
+      { total: 0, available: 0 },
+    );
+  }, [espGroups]);
 
   const getStatusBadge = (status: LockerStatus) => {
     const config = STATUS_BADGE_MAP[status];
@@ -484,41 +552,32 @@ const LockerManagementPage: React.FC = () => {
     }
   };
 
-  const handleSyncLocker = async (locker: LockerEntity) => {
-    const lockerId = String(locker.id || locker._id || '');
-    const lockerNumber = Number(locker.lockerNumber);
-    const deviceId = String(locker.deviceId || '').trim();
-
-    if (!locker.isActive) {
-      toast({
-        title: 'Cannot sync',
-        description: `Locker #${lockerNumber} is inactive`,
-        variant: 'destructive',
-      });
-      return;
-    }
-
+  const handleSyncEsp = async (group: EspGroup) => {
+    const deviceId = String(group.deviceId || '').trim();
     if (!deviceId) {
       toast({
-        title: 'Cannot sync',
-        description: `Locker #${lockerNumber} has no deviceId mapping`,
+        title: 'Cannot sync ESP',
+        description: 'This group has no deviceId mapping',
         variant: 'destructive',
       });
       return;
     }
 
     try {
-      setSyncingLockerIds((prev) => ({
+      setSyncingEspDeviceIds((prev) => ({
         ...prev,
-        [lockerId]: true,
+        [deviceId]: true,
       }));
 
       const result = await lockerService.requestDeviceResync(deviceId);
       const correlationId =
         result?.correlationId || `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
-      // mark as user-initiated so UI will respond only to this
       if (correlationId) userInitiatedSyncsRef.current.add(correlationId);
+
+      const representativeLocker = group.lockers[0];
+      const lockerId = representativeLocker ? String(representativeLocker.id || representativeLocker._id || '') : undefined;
+      const lockerNumber = representativeLocker?.lockerNumber;
 
       const queuedJob: SyncJob = {
         jobKey: `${correlationId}:${deviceId}`,
@@ -527,30 +586,27 @@ const LockerManagementPage: React.FC = () => {
         lockerId,
         lockerNumber,
         status: 'queued',
-        message: 'Resync requested. Waiting for gateway ack...',
+        message: 'ESP resync requested. Waiting for gateway ack...',
         updatedAt: new Date().toISOString(),
       };
 
-      setSyncJobs((prev) => [
-        queuedJob,
-        ...prev,
-      ].slice(0, 50));
+      setSyncJobs((prev) => [queuedJob, ...prev].slice(0, 50));
 
       toast({
-        title: 'Sync started',
-        description: `Requested resync for locker #${lockerNumber}`,
+        title: 'Sync ESP started',
+        description: `Requested resync for ESP ${deviceId}`,
       });
     } catch (err) {
       const axiosError = err as AxiosError<any>;
-      setSyncingLockerIds((prev) => ({
-        ...prev,
-        [lockerId]: false,
-      }));
       toast({
-        title: 'Sync failed',
-        description: axiosError.response?.data?.message || 'Failed to request resync',
+        title: 'Sync ESP failed',
+        description: axiosError.response?.data?.message || 'Failed to request ESP resync',
         variant: 'destructive',
       });
+      setSyncingEspDeviceIds((prev) => ({
+        ...prev,
+        [deviceId]: false,
+      }));
     }
   };
 
@@ -637,10 +693,10 @@ const LockerManagementPage: React.FC = () => {
   }
 
   const statCards = [
+    { label: 'Total ESP', value: espCounts.total, color: 'text-foreground' },
+    { label: 'Available ESP', value: espCounts.available, color: 'text-emerald-600' },
     { label: 'Total Lockers', value: lockers.length, color: 'text-foreground' },
-    { label: 'Available', value: statusCounts.available, color: 'text-emerald-600' },
-    { label: 'Occupied', value: statusCounts.occupied, color: 'text-amber-600' },
-    { label: 'Maintenance', value: statusCounts.maintenance, color: 'text-red-600' },
+    { label: 'Available Lockers', value: statusCounts.available, color: 'text-emerald-600' },
   ];
 
   return (
@@ -776,7 +832,7 @@ const LockerManagementPage: React.FC = () => {
         <CardContent>
           {syncJobs.length === 0 ? (
             <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-              No sync jobs yet. Click Sync on a locker row to start.
+              No sync jobs yet. Click Sync on a locker or ESP row to start.
             </div>
           ) : (
             <div className="rounded-md border overflow-x-auto">
@@ -819,128 +875,149 @@ const LockerManagementPage: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Locker List ({sortedLockers.length})</CardTitle>
-          <CardDescription>Monitor locker health and hardware connection status</CardDescription>
+          <CardTitle>ESP32 Connectivity ({espGroups.length})</CardTitle>
+          <CardDescription>Grouped by deviceId with realtime heartbeat and nested locker health</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border overflow-x-auto">
-            <Table className="min-w-[1080px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Locker #</TableHead>
-                  <TableHead>Locker Name</TableHead>
-                  <TableHead>Campus</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Battery</TableHead>
-                  <TableHead>ESP32</TableHead>
-                  <TableHead>Heartbeat</TableHead>
-                  <TableHead>Sync</TableHead>
-                  <TableHead>Activation</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedLockers.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
-                      No lockers found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  paginatedLockers.map((locker) => (
-                    <TableRow key={locker.id}>
-                      <TableCell className="font-medium">#{locker.lockerNumber}</TableCell>
-                      <TableCell className="max-w-[180px] truncate" title={locker.position}>{locker.position}</TableCell>
-                      <TableCell className="max-w-[180px] truncate" title={getCampusName(locker)}>{getCampusName(locker)}</TableCell>
-                      <TableCell>{getStatusBadge(locker.status)}</TableCell>
-                      <TableCell>{locker.batteryLevel}%</TableCell>
-                      <TableCell>{getEsp32Badge(locker.esp32Status)}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{formatHeartbeat(locker.lastHeartbeat)}</TableCell>
-                      <TableCell>
-                        <PermissionGuard
-                          permissions={[PERMISSIONS.MANAGE_LOCKERS]}
-                        >
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleSyncLocker(locker)}
-                            disabled={!locker.isActive || !locker.deviceId || syncingLockerIds[String(locker.id)]}
-                          >
-                            {syncingLockerIds[String(locker.id)] ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Syncing...
-                              </>
-                            ) : (
-                              <>
-                                <RefreshCw className="mr-2 h-4 w-4" />
-                                Sync
-                              </>
-                            )}
-                          </Button>
-                        </PermissionGuard>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={`border px-2 py-1 text-xs font-medium ${
-                            locker.isActive
-                              ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
-                              : 'border-red-100 bg-red-50 text-red-700'
-                          }`}
-                        >
-                          {locker.isActive ? 'Active' : 'Inactive'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <CrudActionButtons
-                          onView={() => {
-                            setSelectedLocker(locker);
-                            setIsViewOpen(true);
-                          }}
-                          onEdit={() => {
-                            setSelectedLocker(locker);
-                            setIsEditOpen(true);
-                          }}
-                          onDelete={() => requestDelete(locker)}
-                          viewPermission={PERMISSIONS.LOCKERS_READ}
-                          editPermission={PERMISSIONS.LOCKERS_UPDATE}
-                          deletePermission={PERMISSIONS.MANAGE_LOCKERS}
-                          extraActions={
-                            <PermissionGuard permissions={[PERMISSIONS.LOCKERS_UNLOCK]}>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleUnlockLocker(locker)}
-                                disabled={
-                                  unlockingLockerIds[String(locker.id)] ||
-                                  !locker.isActive ||
-                                  !locker.deviceId ||
-                                  !Number.isFinite(Number(locker.controlPin))
-                                }
-                              >
-                                {unlockingLockerIds[String(locker.id)] ? (
-                                  <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Opening...
-                                  </>
-                                ) : (
-                                  <>
-                                    <LockOpen className="mr-2 h-4 w-4" />
-                                    Open
-                                  </>
-                                )}
-                              </Button>
-                            </PermissionGuard>
-                          }
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          {paginatedEspGroups.length === 0 ? (
+            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+              No ESP groups found with current filters.
+            </div>
+          ) : (
+            <Accordion type="multiple" className="rounded-md border px-4">
+              {paginatedEspGroups.map((group) => {
+                const hasSyncableDevice = Boolean(group.deviceId) && group.hasActiveLocker;
+                const isSyncingDevice = group.deviceId ? Boolean(syncingEspDeviceIds[group.deviceId]) : false;
+
+                return (
+                  <AccordionItem value={group.groupKey} key={group.groupKey}>
+                    <AccordionTrigger className="py-4 hover:no-underline">
+                      <div className="flex w-full flex-col gap-3 pr-2 md:flex-row md:items-center md:justify-between">
+                        <div className="min-w-0 space-y-1 text-left">
+                          <p className="truncate text-sm font-semibold">{group.displayDeviceId}</p>
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span>{group.lockers.length} lockers</span>
+                            <span className="hidden md:inline">•</span>
+                            <span>Heartbeat: {formatHeartbeat(group.lastHeartbeat)}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {getEsp32Badge(group.esp32Status)}
+                          <PermissionGuard permissions={[PERMISSIONS.MANAGE_LOCKERS]}>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="cursor-pointer"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                handleSyncEsp(group);
+                              }}
+                              disabled={!hasSyncableDevice || isSyncingDevice}
+                            >
+                              {isSyncingDevice ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Syncing...
+                                </>
+                              ) : (
+                                <>
+                                  <RefreshCw className="mr-2 h-4 w-4" />
+                                  Sync ESP
+                                </>
+                              )}
+                            </Button>
+                          </PermissionGuard>
+                        </div>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="rounded-md border overflow-x-auto">
+                        <Table className="min-w-[900px]">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Locker #</TableHead>
+                              <TableHead>Locker Name</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Activation</TableHead>
+                              <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {group.lockers.map((locker) => (
+                              <TableRow key={locker.id}>
+                                <TableCell className="font-medium">#{locker.lockerNumber}</TableCell>
+                                <TableCell className="max-w-[220px] truncate" title={locker.position}>
+                                  {locker.position}
+                                </TableCell>
+                                <TableCell>{getStatusBadge(locker.status)}</TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className={`border px-2 py-1 text-xs font-medium ${
+                                      locker.isActive
+                                        ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                                        : 'border-red-100 bg-red-50 text-red-700'
+                                    }`}
+                                  >
+                                    {locker.isActive ? 'Active' : 'Inactive'}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <CrudActionButtons
+                                    onView={() => {
+                                      setSelectedLocker(locker);
+                                      setIsViewOpen(true);
+                                    }}
+                                    onEdit={() => {
+                                      setSelectedLocker(locker);
+                                      setIsEditOpen(true);
+                                    }}
+                                    onDelete={() => requestDelete(locker)}
+                                    viewPermission={PERMISSIONS.LOCKERS_READ}
+                                    editPermission={PERMISSIONS.LOCKERS_UPDATE}
+                                    deletePermission={PERMISSIONS.MANAGE_LOCKERS}
+                                    extraActions={
+                                      <PermissionGuard permissions={[PERMISSIONS.LOCKERS_UNLOCK]}>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => handleUnlockLocker(locker)}
+                                          disabled={
+                                            unlockingLockerIds[String(locker.id)] ||
+                                            !locker.isActive ||
+                                            !locker.deviceId ||
+                                            !Number.isFinite(Number(locker.controlPin))
+                                          }
+                                        >
+                                          {unlockingLockerIds[String(locker.id)] ? (
+                                            <>
+                                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                              Opening...
+                                            </>
+                                          ) : (
+                                            <>
+                                              <LockOpen className="mr-2 h-4 w-4" />
+                                              Open
+                                            </>
+                                          )}
+                                        </Button>
+                                      </PermissionGuard>
+                                    }
+                                  />
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
+          )}
 
           {pageCount > 1 && (
             <div className="mt-4 flex justify-center">
