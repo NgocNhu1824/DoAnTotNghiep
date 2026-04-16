@@ -12,7 +12,13 @@ class AccessLogService {
     if (params?.lockerId) query.append('lockerId', params.lockerId);
     if (params?.userId) query.append('userId', params.userId);
     if (params?.campusId) query.append('campusId', params.campusId);
-    if (params?.action) query.append('action', params.action);
+    if (params?.action) {
+      if (Array.isArray(params.action)) {
+        query.append('action', params.action.join(','));
+      } else {
+        query.append('action', params.action);
+      }
+    }
     if (params?.method) query.append('method', params.method);
     if (params?.status) query.append('status', params.status);
     if (params?.success !== undefined) query.append('success', String(params.success));

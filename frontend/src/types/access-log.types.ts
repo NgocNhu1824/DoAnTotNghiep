@@ -54,7 +54,7 @@ export interface QueryAccessLogsParams {
   lockerId?: string;
   userId?: string;
   campusId?: string;
-  action?: string;
+  action?: string | string[];
   method?: string;
   status?: AccessLogStatus;
   success?: boolean;
