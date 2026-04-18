@@ -46,3 +46,15 @@ export class Locker extends Document {
 }
 
 export const LockerSchema = SchemaFactory.createForClass(Locker);
+
+LockerSchema.index(
+  { deviceId: 1, controlPin: 1 },
+  {
+    unique: true,
+    name: 'uniq_device_pin_mapping',
+    partialFilterExpression: {
+      deviceId: { $type: 'string' },
+      controlPin: { $type: 'number' },
+    },
+  },
+);

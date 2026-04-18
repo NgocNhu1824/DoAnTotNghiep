@@ -113,8 +113,9 @@ bool connectGateway() {
 // Set to true if your relay module is active-HIGH (energize = HIGH).
 // Change this to invert the output logic without rewiring the relay.
 static const bool RELAY_ACTIVE_HIGH = true;
-const int RELAY_PIN = 23;
-int relayState = 0; // 0=off, 1=on
+const int RELAY_PINS[] = {23, 22, 21, 19, 18};
+const int RELAY_COUNT = sizeof(RELAY_PINS) / sizeof(RELAY_PINS[0]);
+int relayStates[RELAY_COUNT] = {0}; // each relay: 0=off, 1=on
 
 // ========== FINGERPRINT & LCD CONFIG ==========
 // Adjust UART pins for your wiring
@@ -385,17 +386,17 @@ bool verifyAndGet(int &outId, int &outConfidence) {
 // Change this to 1500ms to match backend default unlock duration.
 // If your hardware requires a longer pulse, increase this value.
 const unsigned long UNLOCK_PULSE_MS = 1500;
-bool pulseActive = false;
-unsigned long pulseOffAt = 0;
-// persistent hold (no auto-off) mode
-bool holdActive = false;
+bool pulseActive[RELAY_COUNT] = {false};
+unsigned long pulseOffAt[RELAY_COUNT] = {0};
+// persistent hold (no auto-off) mode per relay
+bool holdActive[RELAY_COUNT] = {false};
 
 // duration and rate-limit config
 const unsigned long MIN_UNLOCK_MS = 100;
 const unsigned long MAX_UNLOCK_MS = 5000;
 // rate-limit slightly larger than default pulse to avoid overlapping commands
 const unsigned long COMMAND_RATE_LIMIT_MS = 3500; // 1 command per 3.5s
-unsigned long lastCommandAt = 0;
+unsigned long lastCommandAtByRelay[RELAY_COUNT] = {0};
 
 // ======================== TIMING ========================
 unsigned long lastHeartbeatAt = 0;
@@ -410,74 +411,117 @@ unsigned long lastSyncAt = 0;
 const unsigned long SYNC_DEDUPE_MS = 8000; // ignore duplicate sync requests within 8s
 
 // ======================== HELPERS ========================
-void applyRelayOutput(int value01) {
-  relayState = (value01 == 1) ? 1 : 0;
-  int outLevel = (RELAY_ACTIVE_HIGH) ? (relayState ? HIGH : LOW) : (relayState ? LOW : HIGH);
-  digitalWrite(RELAY_PIN, outLevel);
-  Serial.print("[RELAY] applyRelayOutput value="); Serial.print(value01);
-  Serial.print(" relayState="); Serial.print(relayState);
-  Serial.print(" pin="); Serial.print(RELAY_PIN);
-  Serial.print(" outLevel="); Serial.println(outLevel);
+int getRelayIndexByPin(int pin) {
+  for (int i = 0; i < RELAY_COUNT; ++i) {
+    if (RELAY_PINS[i] == pin) {
+      return i;
+    }
+  }
+  return -1;
 }
 
-void startUnlockPulse(unsigned long durationMs) {
-  // durationMs == 0 => persistent hold until explicit close
-  if (durationMs == 0) {
-    holdActive = true;
-    pulseActive = false;
-    pulseOffAt = 0;
-    applyRelayOutput(1);
-    Serial.println("[PULSE] hold applied (persistent)");
-  } else {
-    holdActive = false;
-    applyRelayOutput(1);
-    pulseActive = true;
-    pulseOffAt = millis() + durationMs;
+void appendRelayDevices(JsonArray devices) {
+  for (int i = 0; i < RELAY_COUNT; ++i) {
+    JsonObject relay = devices.createNestedObject();
+    relay["pin"] = RELAY_PINS[i];
+
+    char name[16];
+    snprintf(name, sizeof(name), "lock_%d", i + 1);
+    relay["name"] = name;
+
+    relay["type"] = "relay";
+    relay["state"] = relayStates[i];
   }
 }
 
-void processUnlockPulse(unsigned long nowMs) {
-  if (!pulseActive) return;
-  if (nowMs >= pulseOffAt) {
-    pulseActive = false;
-    applyRelayOutput(0);
+void appendSolenoids(JsonArray solenoids) {
+  for (int i = 0; i < RELAY_COUNT; ++i) {
+    JsonObject solenoid = solenoids.createNestedObject();
+
+    char solenoidId[20];
+    snprintf(solenoidId, sizeof(solenoidId), "solenoid_%d", RELAY_PINS[i]);
+    solenoid["id"] = solenoidId;
+
+    solenoid["connected"] = true;
+    solenoid["state"] = relayStates[i];
+  }
+}
+
+void applyRelayOutputByIndex(int relayIndex, int value01) {
+  if (relayIndex < 0 || relayIndex >= RELAY_COUNT) return;
+
+  relayStates[relayIndex] = (value01 == 1) ? 1 : 0;
+  int outLevel = (RELAY_ACTIVE_HIGH)
+    ? (relayStates[relayIndex] ? HIGH : LOW)
+    : (relayStates[relayIndex] ? LOW : HIGH);
+
+  int pin = RELAY_PINS[relayIndex];
+  digitalWrite(pin, outLevel);
+
+  Serial.print("[RELAY] applyRelayOutput value="); Serial.print(value01);
+  Serial.print(" relayState="); Serial.print(relayStates[relayIndex]);
+  Serial.print(" pin="); Serial.print(pin);
+  Serial.print(" outLevel="); Serial.println(outLevel);
+}
+
+void startUnlockPulseByIndex(int relayIndex, unsigned long durationMs) {
+  if (relayIndex < 0 || relayIndex >= RELAY_COUNT) return;
+
+  // durationMs == 0 => persistent hold until explicit close
+  if (durationMs == 0) {
+    holdActive[relayIndex] = true;
+    pulseActive[relayIndex] = false;
+    pulseOffAt[relayIndex] = 0;
+    applyRelayOutputByIndex(relayIndex, 1);
+
+    Serial.print("[PULSE] hold applied pin=");
+    Serial.println(RELAY_PINS[relayIndex]);
+  } else {
+    holdActive[relayIndex] = false;
+    applyRelayOutputByIndex(relayIndex, 1);
+    pulseActive[relayIndex] = true;
+    pulseOffAt[relayIndex] = millis() + durationMs;
+  }
+}
+
+void processUnlockPulses(unsigned long nowMs) {
+  for (int i = 0; i < RELAY_COUNT; ++i) {
+    if (!pulseActive[i]) continue;
+    if (nowMs < pulseOffAt[i]) continue;
+
+    pulseActive[i] = false;
+    applyRelayOutputByIndex(i, 0);
 
     DynamicJsonDocument d(256);
     d["type"] = "state";
     d["deviceId"] = DEVICE_ID;
-    d["pin"] = RELAY_PIN;
+    d["pin"] = RELAY_PINS[i];
     d["value"] = 0;
     String out; serializeJson(d, out);
     wsClient.send(out);
 
-    Serial.println("[PULSE] auto-off completed");
+    Serial.print("[PULSE] auto-off completed pin=");
+    Serial.println(RELAY_PINS[i]);
   }
 }
 
 String buildInitPayload() {
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(2048);
   doc["type"] = "init";
   doc["deviceId"] = DEVICE_ID;
   JsonArray devices = doc.createNestedArray("devices");
-  JsonObject dd = devices.createNestedObject();
-  dd["pin"] = RELAY_PIN;
-  dd["name"] = "lock_1";
-  dd["type"] = "relay";
-  dd["state"] = relayState;
+  appendRelayDevices(devices);
   String out; serializeJson(doc, out); return out;
 }
 
 String buildHeartbeatPayload() {
-  DynamicJsonDocument doc(256);
+  DynamicJsonDocument doc(1024);
   doc["type"] = "heartbeat";
   doc["deviceId"] = DEVICE_ID;
   doc["battery"] = random(55,100);
   doc["uptimeMs"] = millis();
   JsonArray sol = doc.createNestedArray("solenoids");
-  JsonObject s = sol.createNestedObject();
-  s["id"] = "solenoid_23";
-  s["connected"] = true;
-  s["state"] = relayState;
+  appendSolenoids(sol);
   String out; serializeJson(doc, out); return out;
 }
 
@@ -530,7 +574,19 @@ void handleCommandMsg(const String& msg) {
   if (commandId.length() == 0) commandId = String("cmd-") + String(millis());
 
   int pin = -1;
-  if (cmd.containsKey("pin")) pin = cmd["pin"] | -1;
+  if (cmd.containsKey("pin")) {
+    if (cmd["pin"].is<int>() || cmd["pin"].is<long>() || cmd["pin"].is<unsigned long>()) {
+      pin = (int)cmd["pin"];
+    } else if (cmd["pin"].is<const char*>()) {
+      const char* pinRaw = cmd["pin"];
+      if (pinRaw) pin = atoi(pinRaw);
+    }
+  }
+  if (pin < 0 && RELAY_COUNT == 1) {
+    pin = RELAY_PINS[0];
+  }
+
+  int relayIndex = getRelayIndexByPin(pin);
 
   String action;
   if (cmd.containsKey("action") && cmd["action"].is<const char*>()) {
@@ -601,8 +657,21 @@ void handleCommandMsg(const String& msg) {
   }
 #endif
 
+  if (relayIndex < 0) {
+    DynamicJsonDocument ack(256);
+    ack["deviceId"] = DEVICE_ID;
+    ack["commandId"] = commandId;
+    ack["status"] = "failed";
+    ack["message"] = "pin_not_supported";
+    ack["pin"] = pin;
+    ack["action"] = action;
+    String ackStr; serializeJson(ack, ackStr);
+    wsClient.send(ackStr);
+    return;
+  }
+
   unsigned long now = millis();
-  if (now - lastCommandAt < COMMAND_RATE_LIMIT_MS) {
+  if (now - lastCommandAtByRelay[relayIndex] < COMMAND_RATE_LIMIT_MS) {
     DynamicJsonDocument ack(256);
     ack["deviceId"] = DEVICE_ID;
     ack["commandId"] = commandId;
@@ -616,20 +685,7 @@ void handleCommandMsg(const String& msg) {
     Serial.println("[CMD] rate_limited");
     return;
   }
-  lastCommandAt = now;
-
-  if (pin != RELAY_PIN) {
-    DynamicJsonDocument ack(256);
-    ack["deviceId"] = DEVICE_ID;
-    ack["commandId"] = commandId;
-    ack["status"] = "failed";
-    ack["message"] = "pin_not_supported";
-    ack["pin"] = pin;
-    ack["action"] = action;
-    String ackStr; serializeJson(ack, ackStr);
-    wsClient.send(ackStr);
-    return;
-  }
+  lastCommandAtByRelay[relayIndex] = now;
 
   if (value01 == 1) {
     Serial.print("[CMD] requested durationMs="); Serial.println(durationMs);
@@ -646,7 +702,7 @@ void handleCommandMsg(const String& msg) {
       safeLcdOncePrintAt(0,1, usageAction == "return" ? "Please wait..." : "Opening locker...");
     }
 
-    startUnlockPulse(durationMs);
+    startUnlockPulseByIndex(relayIndex, durationMs);
     DynamicJsonDocument s(512);
     s["type"] = "state";
     s["deviceId"] = DEVICE_ID;
@@ -668,8 +724,10 @@ void handleCommandMsg(const String& msg) {
     if (correlationId.length() > 0) ack["correlationId"] = correlationId;
     String ackStr; serializeJson(ack, ackStr); wsClient.send(ackStr);
   } else {
-    pulseActive = false;
-    applyRelayOutput(0);
+    pulseActive[relayIndex] = false;
+    holdActive[relayIndex] = false;
+    pulseOffAt[relayIndex] = 0;
+    applyRelayOutputByIndex(relayIndex, 0);
 
     safeLcdClear();
     safeLcdOncePrintAt(0,0, usageAction == "return" ? "Return completed" : "Locker closed");
@@ -707,8 +765,10 @@ void setup() {
   delay(300);
   randomSeed((uint32_t)esp_random());
 
-  pinMode(RELAY_PIN, OUTPUT);
-  applyRelayOutput(0);
+  for (int i = 0; i < RELAY_COUNT; ++i) {
+    pinMode(RELAY_PINS[i], OUTPUT);
+    applyRelayOutputByIndex(i, 0);
+  }
 
   // init I2C on standard ESP32 pins (SDA=21, SCL=22) and scan for LCD address
   Wire.begin(21, 22);
@@ -761,7 +821,9 @@ void setup() {
 
   // Boot self-test pulse to help validate wiring/polarity: short pulse
   Serial.println("[BOOT] starting boot self-test pulse (1500ms)");
-  startUnlockPulse(1500);
+  if (RELAY_COUNT > 0) {
+    startUnlockPulseByIndex(0, 1500);
+  }
 
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
@@ -815,23 +877,16 @@ void setup() {
         }
         lastSyncAt = now;
 
-        DynamicJsonDocument outDoc(512);
+        DynamicJsonDocument outDoc(2048);
         outDoc["type"] = "sync_snapshot";
         outDoc["deviceId"] = DEVICE_ID;
         if (correlationId.length() > 0) outDoc["correlationId"] = correlationId;
 
         JsonArray devices = outDoc.createNestedArray("devices");
-        JsonObject dev = devices.createNestedObject();
-        dev["pin"] = RELAY_PIN;
-        dev["name"] = "lock_1";
-        dev["type"] = "relay";
-        dev["state"] = relayState;
+        appendRelayDevices(devices);
 
         JsonArray sol = outDoc.createNestedArray("solenoids");
-        JsonObject s = sol.createNestedObject();
-        s["id"] = "solenoid_23";
-        s["connected"] = true;
-        s["state"] = relayState;
+        appendSolenoids(sol);
 
         String out; serializeJson(outDoc, out);
         wsClient.send(out);
@@ -904,7 +959,7 @@ void loop() {
   wsClient.poll();
 
   unsigned long now = millis();
-  processUnlockPulse(now);
+  processUnlockPulses(now);
 
   // Fingerprint state machine
   if (fingerMode == F_WAIT_CAPTURE) {

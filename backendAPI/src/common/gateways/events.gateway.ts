@@ -26,12 +26,33 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   private logger: Logger = new Logger('EventsGateway');
 
+  private normalizeGatewayId(value: unknown): string | null {
+    const normalized = String(value || '').trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private gatewayRoom(gatewayId: string): string {
+    return `gateway:${gatewayId}`;
+  }
+
   afterInit(server: Server) {
     this.logger.log('🔌 WebSocket Gateway initialized');
   }
 
   handleConnection(client: Socket) {
-    this.logger.log(`✅ Client connected: ${client.id}`);
+    const gatewayId = this.normalizeGatewayId(
+      client.handshake?.auth?.gatewayId || client.handshake?.query?.gatewayId,
+    );
+
+    if (gatewayId) {
+      const room = this.gatewayRoom(gatewayId);
+      client.join(room);
+      client.data.gatewayId = gatewayId;
+      this.logger.log(`✅ Client connected: ${client.id} (gatewayId=${gatewayId}, room=${room})`);
+    } else {
+      this.logger.log(`✅ Client connected: ${client.id}`);
+    }
+
     // Send connection notification to the client
     client.emit('connection', {
       message: 'Connected to Classroom Management System',
@@ -40,6 +61,12 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   }
 
   handleDisconnect(client: Socket) {
+    const gatewayId = this.normalizeGatewayId(client.data?.gatewayId);
+    if (gatewayId) {
+      this.logger.log(`❌ Client disconnected: ${client.id} (gatewayId=${gatewayId})`);
+      return;
+    }
+
     this.logger.log(`❌ Client disconnected: ${client.id}`);
   }
 
@@ -222,14 +249,23 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     deviceId: string;
     action: string;
     pin?: number;
+    gatewayId?: string;
     correlationId?: string;
     durationMs?: number;
     [key: string]: any;
   }) {
-    this.server.emit('hardware:command', {
+    const payload = {
       ...data,
       timestamp: new Date(),
-    });
+    };
+    const gatewayId = this.normalizeGatewayId(data.gatewayId);
+
+    if (gatewayId) {
+      this.server.to(this.gatewayRoom(gatewayId)).emit('hardware:command', payload);
+      return;
+    }
+
+    this.server.emit('hardware:command', payload);
   }
 
   // Push full configuration update to serial gateway.
@@ -244,24 +280,40 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   }
 
   // Ask gateway to request a full device resync.
-  requestHardwareResync(deviceId: string) {
+  requestHardwareResync(deviceId: string, gatewayId?: string) {
     const correlationId = `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    this.server.emit('hardware:sync:request', {
+    const normalizedGatewayId = this.normalizeGatewayId(gatewayId);
+    const payload = {
       deviceId,
+      gatewayId: normalizedGatewayId || undefined,
       correlationId,
       timestamp: new Date(),
-    });
+    };
+
+    if (normalizedGatewayId) {
+      this.server.to(this.gatewayRoom(normalizedGatewayId)).emit('hardware:sync:request', payload);
+    } else {
+      this.server.emit('hardware:sync:request', payload);
+    }
 
     return { correlationId };
   }
 
-  requestHardwareResyncAll() {
+  requestHardwareResyncAll(gatewayId?: string) {
     const correlationId = `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    this.server.emit('hardware:sync:request', {
+    const normalizedGatewayId = this.normalizeGatewayId(gatewayId);
+    const payload = {
       all: true,
+      gatewayId: normalizedGatewayId || undefined,
       correlationId,
       timestamp: new Date(),
-    });
+    };
+
+    if (normalizedGatewayId) {
+      this.server.to(this.gatewayRoom(normalizedGatewayId)).emit('hardware:sync:request', payload);
+    } else {
+      this.server.emit('hardware:sync:request', payload);
+    }
 
     return { correlationId };
   }

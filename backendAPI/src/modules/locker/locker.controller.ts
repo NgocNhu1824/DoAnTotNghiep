@@ -295,8 +295,13 @@ export class Esp32Controller {
   }
 
   @Post('resync/all')
-  requestResyncAll() {
-    return this.lockerService.requestResyncAll();
+  requestResyncAll(@Body() body?: { gatewayId?: string }) {
+    return this.lockerService.requestResyncAll(body?.gatewayId);
+  }
+
+  @Post('resync/gateway')
+  requestResyncByGateway(@Body() body: { gatewayId: string }) {
+    return this.lockerService.requestResyncByGateway(body.gatewayId);
   }
 
   @Post('control')

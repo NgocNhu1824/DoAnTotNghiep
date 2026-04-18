@@ -59,6 +59,7 @@ interface RoomDashboardSummary {
     roomId: string;
     roomCode: string;
     roomName: string;
+    roomType: string | null;
     building: string;
     floor: number;
     campusId: string | null;
@@ -1365,7 +1366,7 @@ export class RoomService {
     const [rooms, usageRows] = await Promise.all([
       this.roomModel
         .find(roomFilter)
-        .select('_id roomCode roomName building floor status isActive campusId')
+        .select('_id roomCode roomName roomType building floor status isActive campusId')
         .populate('campusId', 'campusCode campusName')
         .sort({ building: 1, floor: 1, roomCode: 1 })
         .lean()
@@ -1403,6 +1404,7 @@ export class RoomService {
         roomId,
         roomCode: String(room.roomCode || ''),
         roomName: String(room.roomName || ''),
+        roomType: room?.roomType ? String(room.roomType) : null,
         building: String(room.building || ''),
         floor: Number(room.floor || 0),
         campusId: campus?._id ? String(campus._id) : null,

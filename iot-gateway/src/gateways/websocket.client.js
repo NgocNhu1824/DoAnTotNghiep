@@ -5,8 +5,17 @@ function createWebsocketClient(options) {
     url,
     namespace,
     authToken,
+    gatewayId,
     logger,
   } = options;
+
+  const authPayload = {};
+  if (authToken) {
+    authPayload.token = authToken;
+  }
+  if (gatewayId) {
+    authPayload.gatewayId = gatewayId;
+  }
 
   const socket = io(`${url}${namespace}`, {
     transports: ['websocket'],
@@ -14,7 +23,7 @@ function createWebsocketClient(options) {
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 8000,
-    auth: authToken ? { token: authToken } : undefined,
+    auth: Object.keys(authPayload).length > 0 ? authPayload : undefined,
   });
 
   socket.on('connect', () => {

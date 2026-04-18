@@ -24,7 +24,6 @@ export class AuditLogInterceptor implements NestInterceptor {
     const action = method === 'POST' ? 'CREATE' : method === 'DELETE' ? 'DELETE' : 'UPDATE';
 
     const user = request?.user || {};
-    const userId = user?.sub || user?._id || 'anonymous';
     const userEmail = user?.email || 'unknown';
     const ip = request?.ip || 'unknown';
     const bodyKeys = request?.body ? Object.keys(request.body) : [];
@@ -34,7 +33,7 @@ export class AuditLogInterceptor implements NestInterceptor {
         next: async () => {
           const durationMs = Date.now() - start;
           const statusCode = response?.statusCode ?? 'unknown';
-          const line = `[${new Date().toISOString()}] action=${action} method=${method} path=${url} status=${statusCode} durationMs=${durationMs} user=${userEmail}(${userId}) ip=${ip} keys=${bodyKeys.join(',')}`;
+          const line = `[${new Date().toISOString()}] action=${action} method=${method} path=${url} status=${statusCode} durationMs=${durationMs} user=${userEmail} ip=${ip} keys=${bodyKeys.join(',')}`;
           await this.auditLogsService.appendLog(line);
         },
       }),

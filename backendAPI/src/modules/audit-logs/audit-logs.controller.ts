@@ -1,4 +1,4 @@
-import { Controller, Get, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { AuditLogsService } from './audit-logs.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -12,28 +12,43 @@ export class AuditLogsController {
 
   /**
    * GET /api/audit-logs
-   * View audit log content
+   * View monthly audit log content
    */
   @Get()
   @RequirePermissions('logs.read')
-  async getLogContent() {
-    const content = await this.auditLogsService.getLogContent();
+  async getLogContent(@Query('fileName') fileName?: string) {
+    const { fileName: resolvedFileName, content } = await this.auditLogsService.getLogContent(fileName);
     return {
       success: true,
       data: content,
+      fileName: resolvedFileName,
+    };
+  }
+
+  /**
+   * GET /api/audit-logs/files
+   * List available monthly audit log files
+   */
+  @Get('files')
+  @RequirePermissions('logs.read')
+  async listLogFiles() {
+    const files = await this.auditLogsService.listLogFiles();
+    return {
+      success: true,
+      data: files,
     };
   }
 
   /**
    * GET /api/audit-logs/download
-   * Download audit log file
+   * Download monthly audit log file
    */
   @Get('download')
   @RequirePermissions('logs.read')
-  async downloadLog(@Res() res: Response) {
-    const stream = await this.auditLogsService.getLogStream();
+  async downloadLog(@Res() res: Response, @Query('fileName') fileName?: string) {
+    const { fileName: resolvedFileName, stream } = await this.auditLogsService.getLogStream(fileName);
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="audit-log.txt"');
+    res.setHeader('Content-Disposition', `attachment; filename="${resolvedFileName}"`);
     stream.pipe(res);
   }
 }

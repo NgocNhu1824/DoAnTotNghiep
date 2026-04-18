@@ -31,6 +31,14 @@ class GatewayService {
     return this.pendingCommands.get(deviceId);
   }
 
+  emitSyncAck(payload = {}) {
+    this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+      ...payload,
+      gatewayId: this.gatewayId || null,
+      timestamp: payload.timestamp || new Date().toISOString(),
+    });
+  }
+
   cleanupFingerprintSessions(maxAgeMs = 10 * 60 * 1000) {
     const now = Date.now();
     for (const [correlationId, session] of this.pendingFingerprintSessions.entries()) {
@@ -158,7 +166,7 @@ class GatewayService {
       return;
     }
 
-    this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+    this.emitSyncAck({
       correlationId: correlation,
       deviceId: '*',
       status: tracker.failed > 0 ? 'failed' : 'completed',
@@ -168,7 +176,6 @@ class GatewayService {
         success: tracker.success,
         failed: tracker.failed,
       },
-      timestamp: new Date().toISOString(),
     });
 
     this.pendingRealtimeSyncAll.delete(correlation);
@@ -253,11 +260,10 @@ class GatewayService {
     const correlationId = String(payload.correlationId || `sync-${Date.now()}`);
 
     if (!deviceId) {
-      this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+      this.emitSyncAck({
         correlationId,
         status: 'failed',
         message: 'deviceId is required in realtime sync snapshot.',
-        timestamp: new Date().toISOString(),
       });
       return;
     }
@@ -297,14 +303,13 @@ class GatewayService {
       });
     }
 
-    this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+    this.emitSyncAck({
       correlationId,
       deviceId,
       status: initResult.ok ? 'completed' : 'failed',
       message: initResult.ok
         ? 'Realtime sync snapshot applied to backend.'
         : 'Failed to apply realtime sync snapshot to backend.',
-      timestamp: new Date().toISOString(),
     });
 
     this.markRealtimeSyncAllProgress(correlationId, deviceId, initResult.ok);
@@ -413,21 +418,19 @@ class GatewayService {
   }
 
   async syncDeviceFromSnapshot({ correlationId, deviceId, snapshot }) {
-    this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+    this.emitSyncAck({
       correlationId,
       deviceId,
       status: 'started',
       message: 'Gateway accepted sync request',
-      timestamp: new Date().toISOString(),
     });
 
     if (!snapshot || !Array.isArray(snapshot.devices) || snapshot.devices.length === 0) {
-      this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+      this.emitSyncAck({
         correlationId,
         deviceId,
         status: 'failed',
         message: 'No telemetry is available for this ESP32 yet. Please send init/state first.',
-        timestamp: new Date().toISOString(),
       });
       return false;
     }
@@ -446,18 +449,27 @@ class GatewayService {
       });
     }
 
-    this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+    this.emitSyncAck({
       correlationId,
       deviceId,
       status: initResult.ok ? 'completed' : 'failed',
       message: initResult.ok ? 'Sync applied to backend' : 'Failed to apply sync to backend',
-      timestamp: new Date().toISOString(),
     });
 
     return initResult.ok;
   }
 
   async handleSyncRequest(request = {}) {
+    const targetGatewayId = String(request.gatewayId || '').trim();
+    if (targetGatewayId && targetGatewayId !== this.gatewayId) {
+      this.logger.info(
+        'Ignored sync request for another gateway',
+        `target=${targetGatewayId}`,
+        `current=${this.gatewayId || 'n/a'}`,
+      );
+      return;
+    }
+
     const correlationId = String(request.correlationId || `sync-${Date.now()}`);
     const isAll = request.all === true;
     const requestedDeviceId = String(request.deviceId || '').trim();
@@ -486,44 +498,40 @@ class GatewayService {
             startedAt: Date.now(),
           });
 
-          this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+          this.emitSyncAck({
             correlationId,
             deviceId: '*',
             status: 'started',
             message: `Realtime sync requested for ${dispatchedRealtimeIds.length} connected ESP32 devices.`,
-            timestamp: new Date().toISOString(),
           });
           return;
         }
 
-        this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+        this.emitSyncAck({
           correlationId,
           deviceId: '*',
           status: 'failed',
           message: 'Realtime devices are connected but sync requests could not be dispatched.',
-          timestamp: new Date().toISOString(),
         });
       }
 
       const snapshotEntries = Array.from(this.deviceSnapshots.entries());
 
       if (snapshotEntries.length === 0) {
-        this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+        this.emitSyncAck({
           correlationId,
           deviceId: '*',
           status: 'failed',
           message: 'No ESP32 telemetry is available yet. Power on devices and send init/state before Sync IoT.',
-          timestamp: new Date().toISOString(),
         });
         return;
       }
 
-      this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+      this.emitSyncAck({
         correlationId,
         deviceId: '*',
         status: 'started',
         message: `Gateway accepted sync-all request (${snapshotEntries.length} devices)` ,
-        timestamp: new Date().toISOString(),
       });
 
       let successCount = 0;
@@ -543,7 +551,7 @@ class GatewayService {
         }
       }
 
-      this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+      this.emitSyncAck({
         correlationId,
         deviceId: '*',
         status: failedCount > 0 ? 'failed' : 'completed',
@@ -553,18 +561,16 @@ class GatewayService {
           success: successCount,
           failed: failedCount,
         },
-        timestamp: new Date().toISOString(),
       });
 
       return;
     }
 
     if (!deviceId) {
-      this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+      this.emitSyncAck({
         correlationId,
         status: 'failed',
         message: 'deviceId is required',
-        timestamp: new Date().toISOString(),
       });
       return;
     }
@@ -581,7 +587,7 @@ class GatewayService {
       : false;
 
     if (realtimeRequested) {
-      this.wsClient.emit(this.events.HARDWARE_SYNC_ACK, {
+      this.emitSyncAck({
         correlationId,
         deviceId: realtimeTargetDeviceId || deviceId,
         status: 'started',
@@ -589,7 +595,6 @@ class GatewayService {
           realtimeTargetDeviceId && realtimeTargetDeviceId !== deviceId
             ? `Realtime sync request was sent to connected ESP32 device ${realtimeTargetDeviceId}.`
             : 'Realtime sync request was sent to ESP32 device.',
-        timestamp: new Date().toISOString(),
       });
       return;
     }
@@ -603,6 +608,16 @@ class GatewayService {
   }
 
   async handleHardwareCommand(data = {}) {
+    const targetGatewayId = String(data.gatewayId || '').trim();
+    if (targetGatewayId && targetGatewayId !== this.gatewayId) {
+      this.logger.info(
+        'Ignored hardware command for another gateway',
+        `target=${targetGatewayId}`,
+        `current=${this.gatewayId || 'n/a'}`,
+      );
+      return;
+    }
+
     const correlationId = String(data.correlationId || `cmd-${Date.now()}`);
     const deviceId = String(data.deviceId || this.defaultDeviceId || '').trim();
     const pin = Number(data.pin);

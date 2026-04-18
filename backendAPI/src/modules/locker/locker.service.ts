@@ -35,6 +35,7 @@ export class LockerService {
   // In-memory dedupe for resync requests to avoid flooding devices
   private lastResyncAt: Map<string, number> = new Map();
   private lastResyncAllAt: number = 0;
+  private lastResyncAllByGateway: Map<string, number> = new Map();
   private readonly RESYNC_DEDUPE_MS = 8000; // ignore repeated resyncs within 8s
 
   constructor(
@@ -191,6 +192,77 @@ export class LockerService {
     return Number.isFinite(current) && current > 0 ? current + 1 : 1;
   }
 
+  private async upsertAutoLockerByPin(params: {
+    deviceId: string;
+    pin: number;
+    esp32Id: Types.ObjectId;
+    campusId: Types.ObjectId | null;
+  }): Promise<'created' | 'existing'> {
+    const { deviceId, pin, esp32Id, campusId } = params;
+    const maxAttempts = 6;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const lockerNumber = await this.getNextLockerNumber();
+
+      try {
+        const result: any = await this.lockerModel.updateOne(
+          {
+            deviceId,
+            controlPin: pin,
+          },
+          {
+            $setOnInsert: {
+              lockerNumber,
+              position: `AUTO-${deviceId}-PIN-${pin}`,
+              deviceId,
+              controlPin: pin,
+              esp32Id,
+              campusId,
+              status: 'available',
+              batteryLevel: 100,
+              isActive: true,
+              lastConnection: new Date(),
+              roomId: null,
+              roomName: 'Unmapped',
+            },
+          },
+          { upsert: true },
+        );
+
+        const upsertedCount = Number(result?.upsertedCount || 0);
+        if (upsertedCount > 0) {
+          return 'created';
+        }
+
+        return 'existing';
+      } catch (error: any) {
+        if (error?.code !== 11000) {
+          throw error;
+        }
+
+        const keyPattern = error?.keyPattern || {};
+        const rawMessage = String(error?.message || '');
+        const duplicateLockerNumber = keyPattern?.lockerNumber === 1 || rawMessage.includes('lockerNumber');
+        const duplicateDevicePin =
+          (keyPattern?.deviceId === 1 && keyPattern?.controlPin === 1) ||
+          rawMessage.includes('uniq_device_pin_mapping');
+
+        if (duplicateDevicePin) {
+          return 'existing';
+        }
+
+        if (duplicateLockerNumber) {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    this.logger.warn(`Auto locker init exhausted retries for ${deviceId} pin ${pin}`);
+    return 'existing';
+  }
+
   private async autoInitializeLockersForDevice(
     esp32: ESP32 & { _id: Types.ObjectId },
     devices: Array<{ pin: number; name: string; type?: string; state?: number }>,
@@ -213,48 +285,18 @@ export class LockerService {
       );
     }
 
-    let nextLockerNumber = await this.getNextLockerNumber();
-
     for (const device of devices) {
       const pin = Number(device.pin);
       if (!Number.isFinite(pin)) {
         continue;
       }
 
-      const existingLocker = await this.lockerModel
-        .findOne({
-          deviceId: esp32.deviceId,
-          controlPin: pin,
-        })
-        .select('_id')
-        .lean();
-
-      if (existingLocker?._id) {
-        continue;
-      }
-
-      try {
-        await this.lockerModel.create({
-          lockerNumber: nextLockerNumber,
-          position: `AUTO-${esp32.deviceId}-PIN-${pin}`,
-          deviceId: esp32.deviceId,
-          controlPin: pin,
-          esp32Id: esp32._id,
-          campusId: fallbackCampusId,
-          status: 'available',
-          batteryLevel: 100,
-          isActive: true,
-          lastConnection: new Date(),
-          roomId: null,
-          roomName: 'Unmapped',
-        });
-        nextLockerNumber += 1;
-      } catch (error: any) {
-        // Ignore duplicate locker number race, continue initializing remaining pins.
-        if (error?.code !== 11000) {
-          throw error;
-        }
-      }
+      await this.upsertAutoLockerByPin({
+        deviceId: esp32.deviceId,
+        pin,
+        esp32Id: esp32._id,
+        campusId: fallbackCampusId,
+      });
     }
   }
 
@@ -341,6 +383,20 @@ export class LockerService {
     }
 
     return String(value).trim();
+  }
+
+  private async resolveGatewayIdForDevice(deviceId: string): Promise<string | null> {
+    const normalizedDeviceId = String(deviceId || '').trim();
+    if (!normalizedDeviceId) {
+      return null;
+    }
+
+    const esp32 = await this.esp32Model
+      .findOne({ deviceId: normalizedDeviceId })
+      .select('gatewayId')
+      .lean();
+
+    return this.normalizeNullableString((esp32 as any)?.gatewayId);
   }
 
   private isTechnicalAccessMethod(method: string) {
@@ -1155,6 +1211,20 @@ export class LockerService {
         throw new BadRequestException('controlPin does not belong to selected ESP32');
       }
 
+      const duplicatedPinMapping = await this.lockerModel
+        .findOne({
+          deviceId: esp32.deviceId,
+          controlPin,
+        })
+        .select('lockerNumber')
+        .lean();
+
+      if (duplicatedPinMapping?._id) {
+        throw new BadRequestException(
+          `controlPin ${controlPin} on device ${esp32.deviceId} is already mapped to locker #${duplicatedPinMapping.lockerNumber}`,
+        );
+      }
+
       dto.controlPin = controlPin;
     }
 
@@ -1253,6 +1323,7 @@ export class LockerService {
           ...this.mapResponse(locker),
           solenoids: mappedSolenoids,
           devices: mappedDevices,
+          gatewayId: this.normalizeNullableString((esp32 as any)?.gatewayId),
           esp32Status: esp32?.status ?? 'OFFLINE',
           lastHeartbeat: esp32?.lastHeartbeat ?? null,
           roomMapping: {
@@ -1392,6 +1463,31 @@ export class LockerService {
         }
 
         updateData.controlPin = controlPin;
+      }
+    }
+
+    const effectiveDeviceId =
+      updateData.deviceId !== undefined
+        ? this.normalizeNullableString(updateData.deviceId)
+        : this.normalizeNullableString(existingLocker.deviceId);
+    const effectiveControlPinValue =
+      updateData.controlPin !== undefined ? updateData.controlPin : existingLocker.controlPin;
+    const effectiveControlPin = Number(effectiveControlPinValue);
+
+    if (effectiveDeviceId && Number.isFinite(effectiveControlPin)) {
+      const duplicatedPinMapping = await this.lockerModel
+        .findOne({
+          deviceId: effectiveDeviceId,
+          controlPin: effectiveControlPin,
+          _id: { $ne: new Types.ObjectId(id) },
+        })
+        .select('lockerNumber')
+        .lean();
+
+      if (duplicatedPinMapping?._id) {
+        throw new BadRequestException(
+          `controlPin ${effectiveControlPin} on device ${effectiveDeviceId} is already mapped to locker #${duplicatedPinMapping.lockerNumber}`,
+        );
       }
     }
 
@@ -1662,53 +1758,90 @@ export class LockerService {
   }
 
   async requestResync(deviceId: string) {
-    if (!deviceId) {
+    const normalizedDeviceId = String(deviceId || '').trim();
+    if (!normalizedDeviceId) {
       throw new BadRequestException('deviceId is required');
     }
 
     const now = Date.now();
-    const last = this.lastResyncAt.get(deviceId) || 0;
+    const last = this.lastResyncAt.get(normalizedDeviceId) || 0;
     if (now - last < this.RESYNC_DEDUPE_MS) {
       return {
         success: true,
         message: 'duplicate_resync_ignored',
-        data: { deviceId, correlationId: null },
+        data: { deviceId: normalizedDeviceId, correlationId: null },
       };
     }
 
-    this.lastResyncAt.set(deviceId, now);
-    const { correlationId } = this.eventsGateway.requestHardwareResync(deviceId);
+    this.lastResyncAt.set(normalizedDeviceId, now);
+    const gatewayId = await this.resolveGatewayIdForDevice(normalizedDeviceId);
+    const { correlationId } = this.eventsGateway.requestHardwareResync(
+      normalizedDeviceId,
+      gatewayId || undefined,
+    );
 
     return {
       success: true,
       message: 'Resync request was emitted to gateway',
       data: {
-        deviceId,
+        deviceId: normalizedDeviceId,
+        gatewayId,
         correlationId,
       },
     };
   }
 
-  async requestResyncAll() {
+  async requestResyncAll(gatewayId?: string | null) {
+    const normalizedGatewayId = this.normalizeNullableString(gatewayId);
     const now = Date.now();
-    if (now - this.lastResyncAllAt < this.RESYNC_DEDUPE_MS) {
-      return {
-        success: true,
-        message: 'duplicate_resync_all_ignored',
-        data: { correlationId: null },
-      };
+
+    if (normalizedGatewayId) {
+      const lastByGateway = this.lastResyncAllByGateway.get(normalizedGatewayId) || 0;
+      if (now - lastByGateway < this.RESYNC_DEDUPE_MS) {
+        return {
+          success: true,
+          message: 'duplicate_resync_gateway_ignored',
+          data: {
+            gatewayId: normalizedGatewayId,
+            correlationId: null,
+          },
+        };
+      }
+
+      this.lastResyncAllByGateway.set(normalizedGatewayId, now);
+    } else {
+      if (now - this.lastResyncAllAt < this.RESYNC_DEDUPE_MS) {
+        return {
+          success: true,
+          message: 'duplicate_resync_all_ignored',
+          data: { correlationId: null },
+        };
+      }
+
+      this.lastResyncAllAt = now;
     }
 
-    this.lastResyncAllAt = now;
-    const { correlationId } = this.eventsGateway.requestHardwareResyncAll();
+    const { correlationId } = this.eventsGateway.requestHardwareResyncAll(normalizedGatewayId || undefined);
 
     return {
       success: true,
-      message: 'Resync-all request was emitted to gateway',
+      message: normalizedGatewayId
+        ? 'Gateway-scoped resync-all request was emitted to gateway'
+        : 'Resync-all request was emitted to gateway',
       data: {
         correlationId,
+        gatewayId: normalizedGatewayId,
       },
     };
+  }
+
+  async requestResyncByGateway(gatewayId: string) {
+    const normalizedGatewayId = this.normalizeNullableString(gatewayId);
+    if (!normalizedGatewayId) {
+      throw new BadRequestException('gatewayId is required');
+    }
+
+    return this.requestResyncAll(normalizedGatewayId);
   }
 
   async sendPinControl(payload: { deviceId: string; pin: number; action: 'on' | 'off' }) {
@@ -1723,11 +1856,13 @@ export class LockerService {
     if (!device) {
       throw new NotFoundException('ESP32 device not found');
     }
+    const gatewayId = this.normalizeNullableString((device as any)?.gatewayId);
 
     const correlationId = `cmd-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
     this.eventsGateway.sendHardwareCommand({
       deviceId: payload.deviceId,
+      gatewayId: gatewayId || undefined,
       pin,
       action,
       correlationId,
@@ -1779,7 +1914,12 @@ export class LockerService {
       throw new BadRequestException('Locker is not mapped to ESP32 device');
     }
 
-    return locker;
+    const gatewayId = await this.resolveGatewayIdForDevice(deviceId);
+
+    return {
+      ...locker,
+      gatewayId,
+    };
   }
 
   async unlockLocker(
@@ -1885,6 +2025,7 @@ export class LockerService {
 
     const hardwareCommand = {
       deviceId,
+      gatewayId: this.normalizeNullableString((locker as any).gatewayId) || undefined,
       pin,
       action: 'on',
       correlationId,
@@ -2038,6 +2179,7 @@ export class LockerService {
     const command: Record<string, any> = {
       correlationId,
       deviceId,
+      gatewayId: this.normalizeNullableString((locker as any).gatewayId) || undefined,
       action: 'finger_register',
       userId: currentUserId,
       roomId: resolvedRoomId ? String(resolvedRoomId) : null,
@@ -2208,6 +2350,7 @@ export class LockerService {
     const command: Record<string, any> = {
       correlationId,
       deviceId,
+      gatewayId: this.normalizeNullableString((locker as any).gatewayId) || undefined,
       action: 'finger_verify',
       userId: currentUserId,
       roomId: resolvedRoomId ? String(resolvedRoomId) : null,
@@ -2319,8 +2462,10 @@ export class LockerService {
     const numericPin = Number(idSolenoid);
     if (Number.isFinite(numericPin)) {
       const correlationId = `cmd-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      const gatewayId = this.normalizeNullableString((esp32 as any)?.gatewayId);
       this.eventsGateway.sendHardwareCommand({
         deviceId: deviceEsp32,
+        gatewayId: gatewayId || undefined,
         pin: numericPin,
         action: action === 'open' ? 'on' : 'off',
         correlationId,

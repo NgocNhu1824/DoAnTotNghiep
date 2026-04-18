@@ -83,6 +83,7 @@ export interface RoomDashboardRow {
   roomId: string;
   roomCode: string;
   roomName: string;
+  roomType: string | null;
   building: string | null;
   floor: number;
   campusId: string | null;

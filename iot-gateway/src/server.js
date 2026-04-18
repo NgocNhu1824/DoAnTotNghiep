@@ -29,6 +29,7 @@ async function bootstrap() {
     url: config.websocket.url,
     namespace: config.websocket.namespace,
     authToken: config.websocket.authToken,
+    gatewayId: config.device.gatewayId,
     logger: wsLogger,
   });
 

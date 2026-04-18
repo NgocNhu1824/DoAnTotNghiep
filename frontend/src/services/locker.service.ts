@@ -108,12 +108,23 @@ export const lockerService = {
     };
   },
 
-  requestAllDeviceResync: async (): Promise<{ correlationId?: string | null }> => {
-    const res = await api.post('/esp32/resync/all');
+  requestAllDeviceResync: async (gatewayId?: string): Promise<{ correlationId?: string | null; gatewayId?: string | null }> => {
+    const res = await api.post('/esp32/resync/all', gatewayId ? { gatewayId } : {});
     const payload = res?.data ?? res;
 
     return {
       correlationId: payload?.correlationId ?? null,
+      gatewayId: payload?.gatewayId ?? gatewayId ?? null,
+    };
+  },
+
+  requestGatewayResync: async (gatewayId: string): Promise<{ correlationId?: string | null; gatewayId?: string | null }> => {
+    const res = await api.post('/esp32/resync/gateway', { gatewayId });
+    const payload = res?.data ?? res;
+
+    return {
+      correlationId: payload?.correlationId ?? null,
+      gatewayId: payload?.gatewayId ?? gatewayId ?? null,
     };
   },
 
@@ -146,6 +157,7 @@ export const lockerService = {
     solenoids: { id: string; connected: boolean }[];
     devices: { pin: number; name: string; type?: string; state?: 0 | 1 }[];
     deviceId: string;
+    gatewayId?: string | null;
   }[]> => {
     try {
       const res = await api.get('/esp32');
@@ -163,6 +175,7 @@ export const lockerService = {
           id: device._id,
           name: device.deviceId || 'Unnamed Device',
           deviceId: device.deviceId,
+          gatewayId: device.gatewayId ?? null,
           status: device.status ?? 'UNKNOWN',
           assignedLockerCount: Array.isArray(device.lockers) ? device.lockers.length : 0,
           lockCount: Array.isArray(device.solenoids) && device.solenoids.length > 0

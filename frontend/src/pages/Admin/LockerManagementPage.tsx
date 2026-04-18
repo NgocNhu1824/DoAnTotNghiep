@@ -36,6 +36,7 @@ type SyncJob = {
   jobKey: string;
   correlationId: string;
   deviceId: string;
+  gatewayId?: string | null;
   lockerId?: string;
   lockerNumber?: number;
   status: SyncJobStatus;
@@ -47,10 +48,19 @@ type EspGroup = {
   groupKey: string;
   deviceId: string | null;
   displayDeviceId: string;
+  gatewayId: string | null;
+  displayGatewayId: string;
   lockers: LockerEntity[];
   esp32Status: string;
   lastHeartbeat: string | null;
   hasActiveLocker: boolean;
+};
+
+type GatewayGroup = {
+  gatewayId: string;
+  deviceCount: number;
+  onlineDeviceCount: number;
+  lockerCount: number;
 };
 
 const ITEMS_PER_PAGE = 10;
@@ -89,6 +99,11 @@ const normalizeSyncMessage = (rawMessage: string) => {
   return message || 'No message provided';
 };
 
+const normalizeGatewayId = (value: unknown) => {
+  const normalized = String(value || '').trim();
+  return normalized.length > 0 ? normalized : null;
+};
+
 const isFptCampus = (campus: Campus) => {
   const normalizedCode = String(campus.campusCode || '')
     .toLowerCase()
@@ -117,6 +132,7 @@ const normalizeLocker = (locker: any): LockerEntity => ({
   batteryLevel: Number(locker?.batteryLevel ?? 0),
   solenoids: Array.isArray(locker?.solenoids) ? locker.solenoids : [],
   devices: Array.isArray(locker?.devices) ? locker.devices : [],
+  gatewayId: normalizeGatewayId(locker?.gatewayId),
   esp32Status: locker?.esp32Status ?? 'OFFLINE',
   lastHeartbeat: locker?.lastHeartbeat ?? null,
 });
@@ -142,8 +158,8 @@ const LockerManagementPage: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(0);
   const [syncJobs, setSyncJobs] = useState<SyncJob[]>([]);
   const [syncingEspDeviceIds, setSyncingEspDeviceIds] = useState<Record<string, boolean>>({});
+  const [syncingGatewayIds, setSyncingGatewayIds] = useState<Record<string, boolean>>({});
   const [unlockingLockerIds, setUnlockingLockerIds] = useState<Record<string, boolean>>({});
-  const syncJobsRef = useRef<SyncJob[]>([]);
   const lockersRef = useRef<LockerEntity[]>([]);
   // Track correlationIds initiated by user actions so UI ignores external/automatic syncs
   const userInitiatedSyncsRef = useRef<Set<string>>(new Set());
@@ -174,10 +190,6 @@ const LockerManagementPage: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, []);
-
-  useEffect(() => {
-    syncJobsRef.current = syncJobs;
-  }, [syncJobs]);
 
   useEffect(() => {
     lockersRef.current = lockers;
@@ -217,6 +229,7 @@ const LockerManagementPage: React.FC = () => {
     return {
       lockerId: lockerId || undefined,
       lockerNumber,
+      gatewayId: normalizeGatewayId(picked.gatewayId),
     };
   };
 
@@ -245,8 +258,9 @@ const LockerManagementPage: React.FC = () => {
           ? (statusRaw as SyncJobStatus)
           : 'queued';
       const deviceId = String(payload.deviceId || 'unknown-device').trim() || 'unknown-device';
-      const jobKey = `${correlationId}:${deviceId}`;
       const inferredLocker = resolveLockerByDeviceId(deviceId);
+      const gatewayId = normalizeGatewayId(payload.gatewayId) || inferredLocker?.gatewayId || null;
+      const jobKey = `${correlationId}:${deviceId}:${gatewayId || 'unknown-gateway'}`;
       const message = normalizeSyncMessage(String(payload.message || 'No message'));
       const updatedAt = new Date().toISOString();
 
@@ -258,6 +272,7 @@ const LockerManagementPage: React.FC = () => {
               jobKey,
               correlationId,
               deviceId,
+              gatewayId,
               lockerId: inferredLocker?.lockerId,
               lockerNumber: inferredLocker?.lockerNumber,
               status,
@@ -273,6 +288,7 @@ const LockerManagementPage: React.FC = () => {
             ? {
                 ...item,
                 deviceId,
+                gatewayId: item.gatewayId || gatewayId,
                 lockerId: item.lockerId || inferredLocker?.lockerId,
                 lockerNumber: item.lockerNumber ?? inferredLocker?.lockerNumber,
                 status,
@@ -284,25 +300,31 @@ const LockerManagementPage: React.FC = () => {
       });
 
       if (status === 'completed' || status === 'failed') {
-        setSyncingEspDeviceIds((prev) => ({
-          ...prev,
-          [deviceId]: false,
-        }));
+        if (deviceId !== '*') {
+          setSyncingEspDeviceIds((prev) => ({
+            ...prev,
+            [deviceId]: false,
+          }));
+        }
 
         if (deviceId === '*') {
           setSyncAllLoading(false);
+
+          if (gatewayId) {
+            setSyncingGatewayIds((prev) => ({
+              ...prev,
+              [gatewayId]: false,
+            }));
+          }
 
           if (status === 'completed') {
             fetchData();
           }
         }
 
-        const hasSummaryJob = syncJobsRef.current.some(
-          (item) => item.correlationId === correlationId && item.deviceId === '*',
-        );
-
-        // Keep tracking while sync-all still emits per-device updates.
-        if (!hasSummaryJob || (deviceId === '*' && status === 'completed')) {
+        // For one-device sync, stop tracking once terminal ack is received.
+        // Keep tracking sync-all/sync-gateway correlation so all gateway updates are displayed.
+        if (deviceId !== '*') {
           userInitiatedSyncsRef.current.delete(correlationId);
         }
       }
@@ -328,7 +350,8 @@ const LockerManagementPage: React.FC = () => {
         !searchValue ||
         String(locker.lockerNumber).includes(searchValue) ||
         locker.position.toLowerCase().includes(searchValue) ||
-        (locker.deviceId || '').toLowerCase().includes(searchValue);
+        (locker.deviceId || '').toLowerCase().includes(searchValue) ||
+        (locker.gatewayId || '').toLowerCase().includes(searchValue);
 
       return matchesCampus && matchesStatus && matchesActive && matchesSearch;
     });
@@ -339,6 +362,7 @@ const LockerManagementPage: React.FC = () => {
 
     filteredLockers.forEach((locker) => {
       const normalizedDeviceId = String(locker.deviceId || '').trim();
+      const normalizedGatewayId = normalizeGatewayId(locker.gatewayId);
       const hasDeviceId = normalizedDeviceId.length > 0;
       const groupKey = hasDeviceId ? normalizedDeviceId : '__UNMAPPED__';
 
@@ -351,6 +375,8 @@ const LockerManagementPage: React.FC = () => {
           groupKey,
           deviceId: hasDeviceId ? normalizedDeviceId : null,
           displayDeviceId: hasDeviceId ? normalizedDeviceId : 'Unmapped',
+          gatewayId: normalizedGatewayId,
+          displayGatewayId: normalizedGatewayId || 'Unknown gateway',
           lockers: [locker],
           esp32Status: locker.esp32Status ?? 'OFFLINE',
           lastHeartbeat: locker.lastHeartbeat ?? null,
@@ -365,6 +391,10 @@ const LockerManagementPage: React.FC = () => {
       }
       if (lockerHeartbeat > existingHeartbeat) {
         existing.lastHeartbeat = locker.lastHeartbeat ?? null;
+      }
+      if (!existing.gatewayId && normalizedGatewayId) {
+        existing.gatewayId = normalizedGatewayId;
+        existing.displayGatewayId = normalizedGatewayId;
       }
       existing.hasActiveLocker = existing.hasActiveLocker || locker.isActive;
     });
@@ -392,6 +422,50 @@ const LockerManagementPage: React.FC = () => {
         return a.displayDeviceId.localeCompare(b.displayDeviceId);
       });
   }, [filteredLockers]);
+
+  const gatewayGroups = useMemo<GatewayGroup[]>(() => {
+    const grouped = new Map<
+      string,
+      {
+        deviceIds: Set<string>;
+        onlineDeviceIds: Set<string>;
+        lockerCount: number;
+      }
+    >();
+
+    lockers.forEach((locker) => {
+      const gatewayId = normalizeGatewayId(locker.gatewayId);
+      if (!gatewayId) {
+        return;
+      }
+
+      const existing = grouped.get(gatewayId) || {
+        deviceIds: new Set<string>(),
+        onlineDeviceIds: new Set<string>(),
+        lockerCount: 0,
+      };
+
+      const deviceId = String(locker.deviceId || '').trim();
+      if (deviceId) {
+        existing.deviceIds.add(deviceId);
+        if ((locker.esp32Status ?? 'OFFLINE') === 'ONLINE') {
+          existing.onlineDeviceIds.add(deviceId);
+        }
+      }
+
+      existing.lockerCount += 1;
+      grouped.set(gatewayId, existing);
+    });
+
+    return Array.from(grouped.entries())
+      .map(([gatewayId, value]) => ({
+        gatewayId,
+        deviceCount: value.deviceIds.size,
+        onlineDeviceCount: value.onlineDeviceIds.size,
+        lockerCount: value.lockerCount,
+      }))
+      .sort((a, b) => a.gatewayId.localeCompare(b.gatewayId));
+  }, [lockers]);
 
   const pageCount = Math.ceil(espGroups.length / ITEMS_PER_PAGE);
 
@@ -461,12 +535,6 @@ const LockerManagementPage: React.FC = () => {
     return date.toLocaleString();
   };
 
-  const getCampusName = (locker: LockerEntity) => {
-    if (locker.campusName) return locker.campusName;
-    const found = campuses.find((item) => item._id === locker.campusId);
-    return found?.campusName || '-';
-  };
-
   const handleUpdate = async (lockerId: string, payload: LockerPayload) => {
     try {
       await lockerService.update(lockerId, payload);
@@ -527,11 +595,12 @@ const LockerManagementPage: React.FC = () => {
       if (correlationId) userInitiatedSyncsRef.current.add(correlationId);
 
       const queuedJob: SyncJob = {
-        jobKey: `${correlationId}:*`,
+        jobKey: `${correlationId}:*:all-gateways`,
         correlationId,
         deviceId: '*',
+        gatewayId: 'ALL',
         status: 'queued',
-        message: 'Sync IoT requested. Waiting for gateway to process cached telemetry...',
+        message: 'Sync IoT requested for all gateways. Waiting for gateway ack...',
         updatedAt: new Date().toISOString(),
       };
 
@@ -552,8 +621,62 @@ const LockerManagementPage: React.FC = () => {
     }
   };
 
+  const handleSyncGateway = async (gatewayId: string) => {
+    const normalizedGatewayId = normalizeGatewayId(gatewayId);
+    if (!normalizedGatewayId) {
+      toast({
+        title: 'Cannot sync gateway',
+        description: 'gatewayId is missing',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setSyncingGatewayIds((prev) => ({
+        ...prev,
+        [normalizedGatewayId]: true,
+      }));
+
+      const result = await lockerService.requestGatewayResync(normalizedGatewayId);
+      const correlationId =
+        result?.correlationId || `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+      if (correlationId) userInitiatedSyncsRef.current.add(correlationId);
+
+      const queuedJob: SyncJob = {
+        jobKey: `${correlationId}:*:${normalizedGatewayId}`,
+        correlationId,
+        deviceId: '*',
+        gatewayId: normalizedGatewayId,
+        status: 'queued',
+        message: `Gateway resync requested for ${normalizedGatewayId}. Waiting for gateway ack...`,
+        updatedAt: new Date().toISOString(),
+      };
+
+      setSyncJobs((prev) => [queuedJob, ...prev].slice(0, 50));
+
+      toast({
+        title: 'Sync gateway started',
+        description: `Requested resync for gateway ${normalizedGatewayId}`,
+      });
+    } catch (err) {
+      const axiosError = err as AxiosError<any>;
+      toast({
+        title: 'Sync gateway failed',
+        description: axiosError.response?.data?.message || 'Failed to request gateway sync',
+        variant: 'destructive',
+      });
+      setSyncingGatewayIds((prev) => ({
+        ...prev,
+        [normalizedGatewayId]: false,
+      }));
+    }
+  };
+
   const handleSyncEsp = async (group: EspGroup) => {
     const deviceId = String(group.deviceId || '').trim();
+    const gatewayId = normalizeGatewayId(group.gatewayId);
     if (!deviceId) {
       toast({
         title: 'Cannot sync ESP',
@@ -580,9 +703,10 @@ const LockerManagementPage: React.FC = () => {
       const lockerNumber = representativeLocker?.lockerNumber;
 
       const queuedJob: SyncJob = {
-        jobKey: `${correlationId}:${deviceId}`,
+        jobKey: `${correlationId}:${deviceId}:${gatewayId || 'unknown-gateway'}`,
         correlationId,
         deviceId,
+        gatewayId,
         lockerId,
         lockerNumber,
         status: 'queued',
@@ -594,7 +718,9 @@ const LockerManagementPage: React.FC = () => {
 
       toast({
         title: 'Sync ESP started',
-        description: `Requested resync for ESP ${deviceId}`,
+        description: gatewayId
+          ? `Requested resync for ESP ${deviceId} on gateway ${gatewayId}`
+          : `Requested resync for ESP ${deviceId}`,
       });
     } catch (err) {
       const axiosError = err as AxiosError<any>;
@@ -740,7 +866,7 @@ const LockerManagementPage: React.FC = () => {
                 <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
                 <Input
                   id="locker-search"
-                  placeholder="Locker number, locker name, or device ID..."
+                  placeholder="Locker number, locker name, device ID, or gateway ID..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -815,6 +941,71 @@ const LockerManagementPage: React.FC = () => {
       </div>
 
       <Card>
+        <CardHeader>
+          <CardTitle>Gateway Sync Control ({gatewayGroups.length})</CardTitle>
+          <CardDescription>Sync all ESP32 under a specific gatewayId</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {gatewayGroups.length === 0 ? (
+            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+              No gatewayId found in current locker data.
+            </div>
+          ) : (
+            <div className="rounded-md border overflow-x-auto">
+              <Table className="min-w-[760px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Gateway ID</TableHead>
+                    <TableHead>Devices</TableHead>
+                    <TableHead>Online</TableHead>
+                    <TableHead>Lockers</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {gatewayGroups.map((group) => {
+                    const isSyncingGateway = Boolean(syncingGatewayIds[group.gatewayId]);
+                    return (
+                      <TableRow key={group.gatewayId}>
+                        <TableCell className="font-medium">{group.gatewayId}</TableCell>
+                        <TableCell>{group.deviceCount}</TableCell>
+                        <TableCell>{group.onlineDeviceCount}</TableCell>
+                        <TableCell>{group.lockerCount}</TableCell>
+                        <TableCell className="text-right">
+                          <PermissionGuard permissions={[PERMISSIONS.MANAGE_LOCKERS]}>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="cursor-pointer"
+                              onClick={() => handleSyncGateway(group.gatewayId)}
+                              disabled={isSyncingGateway}
+                            >
+                              {isSyncingGateway ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Syncing...
+                                </>
+                              ) : (
+                                <>
+                                  <RefreshCw className="mr-2 h-4 w-4" />
+                                  Sync Gateway
+                                </>
+                              )}
+                            </Button>
+                          </PermissionGuard>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <CardTitle>Device Sync Monitor</CardTitle>
@@ -822,7 +1013,13 @@ const LockerManagementPage: React.FC = () => {
           </div>
           <Button
             variant="outline"
-            onClick={() => setSyncJobs([])}
+            onClick={() => {
+              setSyncJobs([]);
+              setSyncAllLoading(false);
+              setSyncingEspDeviceIds({});
+              setSyncingGatewayIds({});
+              userInitiatedSyncsRef.current.clear();
+            }}
             disabled={syncJobs.length === 0}
             className="w-full sm:w-auto"
           >
@@ -832,16 +1029,17 @@ const LockerManagementPage: React.FC = () => {
         <CardContent>
           {syncJobs.length === 0 ? (
             <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-              No sync jobs yet. Click Sync on a locker or ESP row to start.
+              No sync jobs yet. Click Sync IoT, Sync Gateway, or Sync ESP to start.
             </div>
           ) : (
             <div className="rounded-md border overflow-x-auto">
-              <Table className="min-w-[760px]">
+              <Table className="min-w-[920px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Time</TableHead>
                     <TableHead>Locker</TableHead>
                     <TableHead>Device</TableHead>
+                    <TableHead>Gateway</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Message</TableHead>
                     <TableHead>Correlation</TableHead>
@@ -857,6 +1055,7 @@ const LockerManagementPage: React.FC = () => {
                         {Number.isFinite(Number(job.lockerNumber)) ? `#${job.lockerNumber}` : '-'}
                       </TableCell>
                       <TableCell>{job.deviceId}</TableCell>
+                      <TableCell>{job.gatewayId || '-'}</TableCell>
                       <TableCell>{getSyncBadge(job.status)}</TableCell>
                       <TableCell className="max-w-[380px] truncate" title={job.message}>
                         {job.message}
@@ -897,6 +1096,8 @@ const LockerManagementPage: React.FC = () => {
                           <p className="truncate text-sm font-semibold">{group.displayDeviceId}</p>
                           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span>{group.lockers.length} lockers</span>
+                            <span className="hidden md:inline">•</span>
+                            <span>Gateway: {group.displayGatewayId}</span>
                             <span className="hidden md:inline">•</span>
                             <span>Heartbeat: {formatHeartbeat(group.lastHeartbeat)}</span>
                           </div>

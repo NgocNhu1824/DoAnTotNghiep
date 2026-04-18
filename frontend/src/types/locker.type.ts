@@ -6,6 +6,7 @@ export interface LockerEntity {
   lockerNumber: number;
   position: string;
   deviceId: string | null;
+  gatewayId?: string | null;
   controlPin?: number | null;
   campusId: string | null;
   campusName: string;
