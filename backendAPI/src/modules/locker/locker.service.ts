@@ -171,6 +171,8 @@ export class LockerService {
   }
 
   private normalizeDevices(devices: Array<any> = []) {
+    const seenPins = new Set<number>();
+
     return (devices || [])
       .filter((device) => device && Number.isFinite(Number(device.pin)))
       .map((device) => ({
@@ -178,7 +180,14 @@ export class LockerService {
         name: String(device.name || `pin_${device.pin}`),
         type: String(device.type || 'relay'),
         state: Number(device.state) === 1 ? 1 : 0,
-      }));
+      }))
+      .filter((device) => {
+        if (seenPins.has(device.pin)) {
+          return false;
+        }
+        seenPins.add(device.pin);
+        return true;
+      });
   }
 
   private async getNextLockerNumber(): Promise<number> {
@@ -1627,17 +1636,34 @@ export class LockerService {
       { upsert: true, new: true },
     );
 
-    await this.autoInitializeLockersForDevice(updated, normalizedDevices);
+    let initWarning: string | null = null;
 
-    this.eventsGateway.broadcastHardwareUpdate('init', {
-      deviceId: payload.deviceId,
-      devices: updated.devices,
-      gatewayId: payload.gatewayId || null,
-    });
+    try {
+      await this.autoInitializeLockersForDevice(updated, normalizedDevices);
+    } catch (error: any) {
+      initWarning = 'auto_locker_init_failed';
+      this.logger.error(
+        `Auto locker init failed for ${payload.deviceId}: ${error?.message || 'Unknown error'}`,
+        error?.stack,
+      );
+    }
+
+    try {
+      this.eventsGateway.broadcastHardwareUpdate('init', {
+        deviceId: payload.deviceId,
+        devices: updated.devices,
+        gatewayId: payload.gatewayId || null,
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `Hardware init broadcast failed for ${payload.deviceId}: ${error?.message || 'Unknown error'}`,
+      );
+    }
 
     return {
       success: true,
-      message: 'Init sync completed',
+      message: initWarning ? 'Init sync completed with warnings' : 'Init sync completed',
+      warning: initWarning,
       data: updated,
     };
   }
