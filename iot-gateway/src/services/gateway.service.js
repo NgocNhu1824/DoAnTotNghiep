@@ -16,8 +16,10 @@ class GatewayService {
     this.deviceSnapshots = new Map();
     this.pendingCommands = new Map();
     this.pendingRealtimeSyncAll = new Map();
+    this.pendingRealtimeSyncTimers = new Map();
     this.pendingFingerprintSessions = new Map();
     this.realtimeBridge = null;
+    this.realtimeSyncTimeoutMs = 12000;
   }
 
   setRealtimeBridge(bridge) {
@@ -142,6 +144,53 @@ class GatewayService {
     return normalizedConnected.length === 1 ? normalizedConnected[0] : null;
   }
 
+  buildRealtimeSyncTimerKey(correlationId, deviceId) {
+    return `${String(correlationId || '').trim()}::${String(deviceId || '').trim()}`;
+  }
+
+  clearRealtimeSyncTimeout(correlationId, deviceId) {
+    const key = this.buildRealtimeSyncTimerKey(correlationId, deviceId);
+    const timer = this.pendingRealtimeSyncTimers.get(key);
+    if (!timer) {
+      return;
+    }
+
+    clearTimeout(timer);
+    this.pendingRealtimeSyncTimers.delete(key);
+  }
+
+  scheduleRealtimeSyncTimeout(correlationId, deviceId, options = {}) {
+    const normalizedCorrelationId = String(correlationId || '').trim();
+    const normalizedDeviceId = String(deviceId || '').trim();
+    if (!normalizedCorrelationId || !normalizedDeviceId) {
+      return;
+    }
+
+    this.clearRealtimeSyncTimeout(normalizedCorrelationId, normalizedDeviceId);
+
+    const timer = setTimeout(() => {
+      this.pendingRealtimeSyncTimers.delete(
+        this.buildRealtimeSyncTimerKey(normalizedCorrelationId, normalizedDeviceId),
+      );
+
+      this.emitSyncAck({
+        correlationId: normalizedCorrelationId,
+        deviceId: normalizedDeviceId,
+        status: 'failed',
+        message: `Realtime sync timeout after ${this.realtimeSyncTimeoutMs}ms: no sync_snapshot received from ESP32.`,
+      });
+
+      if (options.trackAllProgress) {
+        this.markRealtimeSyncAllProgress(normalizedCorrelationId, normalizedDeviceId, false);
+      }
+    }, this.realtimeSyncTimeoutMs);
+
+    this.pendingRealtimeSyncTimers.set(
+      this.buildRealtimeSyncTimerKey(normalizedCorrelationId, normalizedDeviceId),
+      timer,
+    );
+  }
+
   markRealtimeSyncAllProgress(correlationId, deviceId, ok) {
     const correlation = String(correlationId || '').trim();
     const normalizedDeviceId = String(deviceId || '').trim();
@@ -153,6 +202,8 @@ class GatewayService {
     if (!tracker || !tracker.pendingDeviceIds.has(normalizedDeviceId)) {
       return;
     }
+
+    this.clearRealtimeSyncTimeout(correlation, normalizedDeviceId);
 
     tracker.pendingDeviceIds.delete(normalizedDeviceId);
     if (ok) {
@@ -259,6 +310,8 @@ class GatewayService {
     const deviceId = String(payload.deviceId || this.defaultDeviceId || '').trim();
     const correlationId = String(payload.correlationId || `sync-${Date.now()}`);
 
+    this.clearRealtimeSyncTimeout(correlationId, deviceId);
+
     if (!deviceId) {
       this.emitSyncAck({
         correlationId,
@@ -274,6 +327,13 @@ class GatewayService {
     const batteryLevel = Number.isFinite(Number(batteryRaw))
       ? Math.max(0, Math.min(100, Number(batteryRaw)))
       : undefined;
+
+    this.logger.info(
+      'Received realtime sync snapshot',
+      deviceId,
+      `correlation=${correlationId}`,
+      `devices=${devices.length}`,
+    );
 
     if (devices.length > 0) {
       this.updateTelemetrySnapshot(
@@ -498,6 +558,12 @@ class GatewayService {
             startedAt: Date.now(),
           });
 
+          dispatchedRealtimeIds.forEach((id) => {
+            this.scheduleRealtimeSyncTimeout(correlationId, id, {
+              trackAllProgress: true,
+            });
+          });
+
           this.emitSyncAck({
             correlationId,
             deviceId: '*',
@@ -587,6 +653,10 @@ class GatewayService {
       : false;
 
     if (realtimeRequested) {
+      this.scheduleRealtimeSyncTimeout(correlationId, realtimeTargetDeviceId || deviceId, {
+        trackAllProgress: false,
+      });
+
       this.emitSyncAck({
         correlationId,
         deviceId: realtimeTargetDeviceId || deviceId,
@@ -759,29 +829,12 @@ class GatewayService {
     snapshot.lastSeenAt = new Date().toISOString();
     this.deviceSnapshots.set(deviceId, snapshot);
 
-    this.logger.warn(
-      'State arrived before init, sending inferred init from snapshot then retrying state',
+    this.logger.info(
+      'State cached locally because backend requires init sync. Waiting for manual Sync IoT.',
       deviceId,
       `pin=${pin}`,
       `devices=${inferredDevices.length}`,
     );
-
-    const initResult = await this.postSafe('/esp32/sync/init', {
-      deviceId,
-      gatewayId: this.gatewayId,
-      devices: inferredDevices,
-    });
-
-    if (!initResult.ok) {
-      this.logger.warn('Inferred init failed; state retry skipped', deviceId, `pin=${pin}`);
-      return;
-    }
-
-    await this.postSafe('/esp32/sync/state', {
-      deviceId,
-      pin,
-      value,
-    });
   }
 
   async syncHeartbeat(payload, deviceId) {
@@ -894,8 +947,12 @@ class GatewayService {
     this.updateTelemetrySnapshot(type, data, deviceId);
 
     if (type === 'init') {
-      await this.syncInit(data, deviceId);
-      this.logger.info('Synced init payload', deviceId);
+      const deviceCount = Array.isArray(data.devices) ? data.devices.length : 0;
+      this.logger.info(
+        'Cached init payload only (manual sync mode, no auto backend init sync)',
+        deviceId,
+        `devices=${deviceCount}`,
+      );
       return data;
     }
 

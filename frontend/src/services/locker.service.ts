@@ -98,33 +98,39 @@ export const lockerService = {
     return res;
   },
 
-  requestDeviceResync: async (deviceId: string): Promise<{ deviceId: string; correlationId?: string | null }> => {
+  requestDeviceResync: async (deviceId: string): Promise<{ deviceId: string; correlationId?: string | null; message?: string | null }> => {
     const res = await api.post('/esp32/resync', { deviceId });
-    const payload = res?.data ?? res;
+    const root = (res ?? {}) as any;
+    const payload = root?.data ?? root;
 
     return {
       deviceId: payload?.deviceId ?? deviceId,
       correlationId: payload?.correlationId ?? null,
+      message: root?.message ?? payload?.message ?? null,
     };
   },
 
-  requestAllDeviceResync: async (gatewayId?: string): Promise<{ correlationId?: string | null; gatewayId?: string | null }> => {
+  requestAllDeviceResync: async (gatewayId?: string): Promise<{ correlationId?: string | null; gatewayId?: string | null; message?: string | null }> => {
     const res = await api.post('/esp32/resync/all', gatewayId ? { gatewayId } : {});
-    const payload = res?.data ?? res;
+    const root = (res ?? {}) as any;
+    const payload = root?.data ?? root;
 
     return {
       correlationId: payload?.correlationId ?? null,
       gatewayId: payload?.gatewayId ?? gatewayId ?? null,
+      message: root?.message ?? payload?.message ?? null,
     };
   },
 
-  requestGatewayResync: async (gatewayId: string): Promise<{ correlationId?: string | null; gatewayId?: string | null }> => {
+  requestGatewayResync: async (gatewayId: string): Promise<{ correlationId?: string | null; gatewayId?: string | null; message?: string | null }> => {
     const res = await api.post('/esp32/resync/gateway', { gatewayId });
-    const payload = res?.data ?? res;
+    const root = (res ?? {}) as any;
+    const payload = root?.data ?? root;
 
     return {
       correlationId: payload?.correlationId ?? null,
       gatewayId: payload?.gatewayId ?? gatewayId ?? null,
+      message: root?.message ?? payload?.message ?? null,
     };
   },
 

@@ -588,11 +588,20 @@ const LockerManagementPage: React.FC = () => {
     try {
       setSyncAllLoading(true);
       const result = await lockerService.requestAllDeviceResync();
-      const correlationId =
-        result?.correlationId || `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      const correlationId = String(result?.correlationId || '').trim();
+
+      if (!correlationId) {
+        setSyncAllLoading(false);
+        toast({
+          title: 'Sync IoT is already running',
+          description:
+            result?.message || 'A recent sync request is still being processed. Please wait a few seconds and try again.',
+        });
+        return;
+      }
 
       // mark as user-initiated so UI will respond only to this
-      if (correlationId) userInitiatedSyncsRef.current.add(correlationId);
+      userInitiatedSyncsRef.current.add(correlationId);
 
       const queuedJob: SyncJob = {
         jobKey: `${correlationId}:*:all-gateways`,
@@ -639,10 +648,23 @@ const LockerManagementPage: React.FC = () => {
       }));
 
       const result = await lockerService.requestGatewayResync(normalizedGatewayId);
-      const correlationId =
-        result?.correlationId || `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      const correlationId = String(result?.correlationId || '').trim();
 
-      if (correlationId) userInitiatedSyncsRef.current.add(correlationId);
+      if (!correlationId) {
+        setSyncingGatewayIds((prev) => ({
+          ...prev,
+          [normalizedGatewayId]: false,
+        }));
+
+        toast({
+          title: 'Sync gateway is already running',
+          description:
+            result?.message || 'A recent gateway sync request is still being processed. Please wait a few seconds and try again.',
+        });
+        return;
+      }
+
+      userInitiatedSyncsRef.current.add(correlationId);
 
       const queuedJob: SyncJob = {
         jobKey: `${correlationId}:*:${normalizedGatewayId}`,
@@ -693,10 +715,23 @@ const LockerManagementPage: React.FC = () => {
       }));
 
       const result = await lockerService.requestDeviceResync(deviceId);
-      const correlationId =
-        result?.correlationId || `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      const correlationId = String(result?.correlationId || '').trim();
 
-      if (correlationId) userInitiatedSyncsRef.current.add(correlationId);
+      if (!correlationId) {
+        setSyncingEspDeviceIds((prev) => ({
+          ...prev,
+          [deviceId]: false,
+        }));
+
+        toast({
+          title: 'Sync ESP is already running',
+          description:
+            result?.message || 'A recent ESP sync request is still being processed. Please wait a few seconds and try again.',
+        });
+        return;
+      }
+
+      userInitiatedSyncsRef.current.add(correlationId);
 
       const representativeLocker = group.lockers[0];
       const lockerId = representativeLocker ? String(representativeLocker.id || representativeLocker._id || '') : undefined;
