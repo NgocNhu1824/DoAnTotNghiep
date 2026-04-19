@@ -28,9 +28,29 @@ interface Props {
   onSave: (id: string, data: LockerPayload) => Promise<void>;
   locker?: LockerEntity;
   campuses: Campus[];
+  allLockers?: LockerEntity[];
 }
 
-const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, campuses }) => {
+const lockerEntityKey = (entity: Pick<LockerEntity, 'id' | '_id'>) =>
+  String(entity.id || entity._id || '').trim();
+
+const roomTakenByOtherLocker = (
+  roomId: string | null | undefined,
+  currentLockerKey: string,
+  allLockers: LockerEntity[] | undefined,
+) => {
+  const rid = String(roomId || '').trim();
+  if (!rid) {
+    return false;
+  }
+  return (allLockers || []).some((l) => {
+    const lk = lockerEntityKey(l);
+    const mapped = String(l.roomId || '').trim();
+    return mapped === rid && lk.length > 0 && lk !== currentLockerKey;
+  });
+};
+
+const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, campuses, allLockers }) => {
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [esp32Devices, setEsp32Devices] = useState<Esp32Device[]>([]);
@@ -125,6 +145,22 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, cam
     [esp32Devices, form.esp32Id]
   );
 
+  const currentLockerKey = locker ? lockerEntityKey(locker) : '';
+
+  const selectableRooms = useMemo(() => {
+    if (!locker) {
+      return rooms;
+    }
+    const currentRoom = String(form.roomId || '').trim();
+    return rooms.filter((room) => {
+      const roomId = String(room._id || '').trim();
+      if (!roomTakenByOtherLocker(roomId, currentLockerKey, allLockers)) {
+        return true;
+      }
+      return currentRoom.length > 0 && roomId === currentRoom;
+    });
+  }, [rooms, allLockers, locker, currentLockerKey, form.roomId]);
+
   const availableControlPins = useMemo(() => {
     if (!selectedEsp32) return [] as number[];
 
@@ -166,16 +202,14 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, cam
       nextErrors.position = 'Position is required';
     }
 
-    if (form.batteryLevel < 0 || form.batteryLevel > 100) {
-      nextErrors.batteryLevel = 'Battery level must be between 0 and 100';
-    }
-
     if (!form.campusId) {
       nextErrors.campusId = 'Please select a campus';
     }
 
     if (!form.roomId) {
       nextErrors.roomId = 'Please select a room';
+    } else if (roomTakenByOtherLocker(form.roomId, lockerEntityKey(locker), allLockers)) {
+      nextErrors.roomId = 'This room is already assigned to another locker';
     }
 
     if (!form.deviceId) {
@@ -195,7 +229,10 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, cam
 
     try {
       setSubmitting(true);
-      await onSave(locker.id, form);
+      await onSave(locker.id, {
+        ...form,
+        batteryLevel: locker.batteryLevel,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -240,41 +277,6 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, cam
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="locker-battery-edit">Battery Level (%)</Label>
-            <Input
-              id="locker-battery-edit"
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              value={form.batteryLevel}
-              onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  batteryLevel: parseIntegerWithoutLeadingZero(e.target.value, 0),
-                }))
-              }
-            />
-            {errors.batteryLevel && <p className="text-sm text-destructive">{errors.batteryLevel}</p>}
-          </div>
-
-          <div className="space-y-2">
-            <Label>Status</Label>
-            <Select
-              value={form.status}
-              onValueChange={(value) => setForm((prev) => ({ ...prev, status: value as LockerStatus }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="available">Available</SelectItem>
-                <SelectItem value="occupied">Occupied</SelectItem>
-                <SelectItem value="maintenance">Maintenance</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
             <Label>Campus</Label>
             <Select
               value={form.campusId ?? ''}
@@ -302,7 +304,7 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, cam
           </div>
 
           <div className="space-y-2">
-            <Label>Room</Label>
+            <Label htmlFor="locker-room-edit">Room</Label>
             <Select
               value={form.roomId ?? ''}
               onValueChange={(value) => {
@@ -315,7 +317,7 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, cam
               }}
               disabled={!form.campusId || loadingRooms}
             >
-              <SelectTrigger>
+              <SelectTrigger id="locker-room-edit">
                 <SelectValue
                   placeholder={
                     !form.campusId
@@ -326,8 +328,8 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, cam
                   }
                 />
               </SelectTrigger>
-              <SelectContent>
-                {rooms.map((room) => (
+              <SelectContent className="max-h-[min(280px,var(--radix-select-content-available-height))]">
+                {selectableRooms.map((room) => (
                   <SelectItem key={room._id} value={room._id}>
                     {room.roomName}
                   </SelectItem>
@@ -335,6 +337,39 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, cam
               </SelectContent>
             </Select>
             {errors.roomId && <p className="text-sm text-destructive">{errors.roomId}</p>}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Locker status</Label>
+            <Select
+              value={form.status}
+              onValueChange={(value) => setForm((prev) => ({ ...prev, status: value as LockerStatus }))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="available">Available</SelectItem>
+                <SelectItem value="occupied">Occupied</SelectItem>
+                <SelectItem value="maintenance">Maintenance</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Activation</Label>
+            <Select
+              value={form.isActive ? 'active' : 'inactive'}
+              onValueChange={(value) => setForm((prev) => ({ ...prev, isActive: value === 'active' }))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
@@ -425,23 +460,7 @@ const EditLockerModal: React.FC<Props> = ({ isOpen, onClose, onSave, locker, cam
             {errors.controlPin && <p className="text-sm text-destructive">{errors.controlPin}</p>}
           </div>
 
-          <div className="space-y-2">
-            <Label>Activation</Label>
-            <Select
-              value={form.isActive ? 'active' : 'inactive'}
-              onValueChange={(value) => setForm((prev) => ({ ...prev, isActive: value === 'active' }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="inactive">Inactive</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
+          <div className="space-y-2 md:col-span-2">
             <Label>Selected Device ID</Label>
             <Input value={form.deviceId || '-'} readOnly className="bg-muted" />
           </div>

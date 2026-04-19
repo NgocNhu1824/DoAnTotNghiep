@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ReactPaginate from 'react-paginate';
 import {
   Activity,
   AlertTriangle,
@@ -366,7 +367,7 @@ const DashboardPage: React.FC = () => {
   const [usageFilter, setUsageFilter] = useState<UsageFilter>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
   const [roomTypeFilter, setRoomTypeFilter] = useState<string>('all');
-  const [roomGridPage, setRoomGridPage] = useState(1);
+  const [roomGridPageIndex, setRoomGridPageIndex] = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
   const [roomMetaById, setRoomMetaById] = useState<
     Record<string, { roomType: string | null; building: string | null }>
@@ -666,47 +667,22 @@ const DashboardPage: React.FC = () => {
     });
   }, [rowsForDisplay, buildingFilter, roomTypeFilter, searchTerm, usageFilter]);
 
-  const totalRoomGridPages = useMemo(() => {
+  const roomGridPageCount = useMemo(() => {
     return Math.max(1, Math.ceil(filteredRows.length / ROOM_GRID_PAGE_SIZE));
   }, [filteredRows.length]);
 
   const pagedFilteredRows = useMemo(() => {
-    const startIndex = (roomGridPage - 1) * ROOM_GRID_PAGE_SIZE;
+    const startIndex = roomGridPageIndex * ROOM_GRID_PAGE_SIZE;
     return filteredRows.slice(startIndex, startIndex + ROOM_GRID_PAGE_SIZE);
-  }, [filteredRows, roomGridPage]);
-
-  const roomGridPageItems = useMemo(() => {
-    if (totalRoomGridPages <= 7) {
-      return Array.from({ length: totalRoomGridPages }, (_, index) => index + 1) as Array<number | string>;
-    }
-
-    const items: Array<number | string> = [1];
-    const start = Math.max(2, roomGridPage - 1);
-    const end = Math.min(totalRoomGridPages - 1, roomGridPage + 1);
-
-    if (start > 2) {
-      items.push('ellipsis-left');
-    }
-
-    for (let page = start; page <= end; page += 1) {
-      items.push(page);
-    }
-
-    if (end < totalRoomGridPages - 1) {
-      items.push('ellipsis-right');
-    }
-
-    items.push(totalRoomGridPages);
-    return items;
-  }, [roomGridPage, totalRoomGridPages]);
+  }, [filteredRows, roomGridPageIndex]);
 
   useEffect(() => {
-    setRoomGridPage(1);
+    setRoomGridPageIndex(0);
   }, [searchTerm, usageFilter, buildingFilter, roomTypeFilter]);
 
   useEffect(() => {
-    setRoomGridPage((previousPage) => Math.min(previousPage, totalRoomGridPages));
-  }, [totalRoomGridPages]);
+    setRoomGridPageIndex((previous) => Math.min(previous, Math.max(0, roomGridPageCount - 1)));
+  }, [roomGridPageCount]);
 
   const stats = useMemo(() => {
     const summary = dashboard?.summary || emptyDashboardData.summary;
@@ -790,8 +766,8 @@ const DashboardPage: React.FC = () => {
           </Select>
         </div>
 
-        <div className="mb-4 flex flex-col gap-2 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between items-right">
-          <span className="inline-flex items-right gap-2">
+        <div className="mb-4 flex flex-col gap-2 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+          <span className="inline-flex items-center gap-2">
             {wsConnected ? (
               <>
                 <Wifi className="h-4 w-4 text-emerald-800" />
@@ -873,7 +849,7 @@ const DashboardPage: React.FC = () => {
           ))}
         </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-3">
           {filteredRows.length === 0 && (
             <div className="col-span-full rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
               No rooms found for current scope.
@@ -886,98 +862,65 @@ const DashboardPage: React.FC = () => {
             return (
               <div
                 key={row.roomId}
-                className="aspect-square rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+                className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition-shadow motion-safe:hover:-translate-y-0.5 hover:shadow-md"
               >
-                <div className="flex h-full flex-col">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-                      <RoomTypeIcon className="h-5 w-5" />
-                    </div>
-
-                    <Badge
-                      className={`${getUsageStatusClassName(row.usageStatus)} border border-transparent px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide`}
-                    >
-                      {getUsageStatusLabel(row.usageStatus)}
-                    </Badge>
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">
+                    <RoomTypeIcon className="h-4 w-4" />
                   </div>
-
-                  <div className="mt-3">
-                    <p className="truncate text-3xl font-bold leading-none text-slate-900">{row.roomCode}</p>
-                    <p className="mt-1 truncate text-xs text-slate-600">{row.roomName}</p>
-                  </div>
-
-                  <div className="mt-3 border-t border-slate-100 pt-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Current user</p>
-                    <p className="mt-1 truncate text-xs font-semibold text-slate-700">
-                      {row.currentUserName || 'No current user'}
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <p className="truncate text-lg font-bold leading-tight tracking-tight text-slate-900">
+                      {row.roomCode}
                     </p>
-                    <p className="mt-1 truncate text-xs text-slate-500">{formatRoomTypeLabel(row.roomType)}</p>
-                    <p className="mt-0.5 truncate text-[11px] text-slate-400">
-                      Building: {row.building || 'Unknown'}
-                    </p>
+                    <p className="line-clamp-1 text-[11px] leading-snug text-slate-600">{row.roomName}</p>
                   </div>
+                  <Badge
+                    className={`shrink-0 whitespace-nowrap ${getUsageStatusClassName(row.usageStatus)} border border-transparent px-1.5 py-0 text-[9px] font-semibold uppercase leading-tight tracking-wide`}
+                  >
+                    {getUsageStatusLabel(row.usageStatus)}
+                  </Badge>
+                </div>
+
+                <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2.5">
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Current user</p>
+                    <p className="truncate text-xs font-medium text-slate-800">{row.currentUserName || 'No current user'}</p>
+                  </div>
+                  <p className="line-clamp-1 text-[11px] text-slate-500">{formatRoomTypeLabel(row.roomType)}</p>
+                  <p className="line-clamp-1 text-[11px] text-slate-400">Building: {row.building || 'Unknown'}</p>
                 </div>
               </div>
             );
           })}
         </div>
 
-        {filteredRows.length > ROOM_GRID_PAGE_SIZE && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">
-              Page {roomGridPage}/{totalRoomGridPages}
+        {roomGridPageCount > 1 ? (
+          <div className="mt-4 space-y-2">
+            <p className="text-center text-xs text-muted-foreground">
+              Showing {roomGridPageIndex * ROOM_GRID_PAGE_SIZE + 1}–
+              {Math.min((roomGridPageIndex + 1) * ROOM_GRID_PAGE_SIZE, filteredRows.length)} of {filteredRows.length}{' '}
+              · Page {roomGridPageIndex + 1}/{roomGridPageCount}
             </p>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-xs"
-                disabled={roomGridPage <= 1}
-                onClick={() => setRoomGridPage((previousPage) => Math.max(1, previousPage - 1))}
-              >
-                Prev
-              </Button>
-
-              {roomGridPageItems.map((item, index) => {
-                if (typeof item !== 'number') {
-                  return (
-                    <span key={`${item}-${index}`} className="px-1 text-xs text-muted-foreground">
-                      ...
-                    </span>
-                  );
-                }
-
-                return (
-                  <Button
-                    key={item}
-                    type="button"
-                    size="sm"
-                    variant={roomGridPage === item ? 'default' : 'outline'}
-                    className="h-7 min-w-7 px-2 text-xs"
-                    onClick={() => setRoomGridPage(item)}
-                  >
-                    {item}
-                  </Button>
-                );
-              })}
-
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-xs"
-                disabled={roomGridPage >= totalRoomGridPages}
-                onClick={() =>
-                  setRoomGridPage((previousPage) => Math.min(totalRoomGridPages, previousPage + 1))
-                }
-              >
-                Next
-              </Button>
+            <div className="flex justify-center">
+              <ReactPaginate
+                forcePage={Math.min(roomGridPageIndex, Math.max(roomGridPageCount - 1, 0))}
+                pageCount={roomGridPageCount}
+                onPageChange={(e: { selected: number }) => setRoomGridPageIndex(e.selected)}
+                previousLabel="← Prev"
+                nextLabel="Next →"
+                breakLabel="…"
+                marginPagesDisplayed={2}
+                pageRangeDisplayed={3}
+                containerClassName="flex flex-wrap items-center justify-center gap-2"
+                pageClassName="rounded-md border px-3 py-1 text-sm font-medium text-muted-foreground hover:bg-muted"
+                previousClassName="rounded-md border px-3 py-1 text-sm font-medium hover:bg-muted"
+                nextClassName="rounded-md border px-3 py-1 text-sm font-medium hover:bg-muted"
+                activeClassName="border-primary bg-primary text-primary-foreground"
+                disabledClassName="cursor-not-allowed opacity-50"
+              />
             </div>
           </div>
-        )}
+        ) : null}
       </Card>
 
       <Card title="Usage Per Week / Month / Year" description="Number of rooms used over week, month, and year.">

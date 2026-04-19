@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactPaginate from 'react-paginate';
 import { AxiosError } from 'axios';
-import { Loader2, LockOpen, RefreshCw, Search } from 'lucide-react';
+import { Activity, Loader2, LockOpen, Radio, RefreshCw, Search, Server } from 'lucide-react';
 
 import { lockerService } from '../../services/locker.service';
 import { campusService } from '../../services/campus.service';
@@ -11,7 +11,6 @@ import ViewLockerModal from '@/components/modals/ViewLockerModal';
 import PermissionGuard from '../../components/PermissionGuard';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import CrudActionButtons from '../../components/common/CrudActionButtons';
-import CreateActionButton from '../../components/common/CreateActionButton';
 import { useToast } from '../../hooks/use-toast';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -873,16 +872,17 @@ const LockerManagementPage: React.FC = () => {
   };
 
   const getSyncBadge = (status: SyncJobStatus) => {
-    if (status === 'completed') {
-      return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">completed</Badge>;
-    }
-    if (status === 'failed') {
-      return <Badge className="bg-red-100 text-red-700 hover:bg-red-100">failed</Badge>;
-    }
-    if (status === 'started') {
-      return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">started</Badge>;
-    }
-    return <Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100">queued</Badge>;
+    const map: Record<SyncJobStatus, string> = {
+      completed: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+      failed: 'border-red-100 bg-red-50 text-red-700',
+      started: 'border-blue-100 bg-blue-50 text-blue-700',
+      queued: 'border-slate-200 bg-slate-50 text-slate-700',
+    };
+    return (
+      <Badge variant="outline" className={`border px-2 py-1 text-xs font-medium capitalize ${map[status]}`}>
+        {status}
+      </Badge>
+    );
   };
 
   if (loading) {
@@ -893,6 +893,9 @@ const LockerManagementPage: React.FC = () => {
     );
   }
 
+  const emptyStateClassName =
+    'flex min-h-[120px] flex-col items-center justify-center rounded-md border border-dashed px-6 py-10 text-center text-sm text-muted-foreground';
+
   const statCards = [
     { label: 'Total ESP', value: espCounts.total, color: 'text-foreground' },
     { label: 'Available ESP', value: espCounts.available, color: 'text-emerald-600' },
@@ -902,46 +905,54 @@ const LockerManagementPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-3xl font-bold tracking-tight">Locker Management</h1>
-          <p className="text-muted-foreground mt-2">Manage lockers and monitor ESP32 connectivity</p>
+          <p className="mt-2 max-w-2xl text-muted-foreground">
+            Filter lockers, sync telemetry with gateways and ESP32 devices, and monitor connectivity from one place.
+          </p>
         </div>
-        <CreateActionButton
-          permission={PERMISSIONS.MANAGE_LOCKERS}
-          onClick={handleSyncAllIoT}
-          showIcon={false}
-          className="w-full sm:w-auto"
-          disabled={syncAllLoading}
-        >
-          {syncAllLoading ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Syncing IoT...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Sync IoT
-            </>
-          )}
-        </CreateActionButton>
+        <div className="flex w-full flex-shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <PermissionGuard permissions={[PERMISSIONS.MANAGE_LOCKERS]}>
+            <Button
+              type="button"
+              variant="default"
+              size="default"
+              className="w-full gap-2 sm:w-auto"
+              onClick={handleSyncAllIoT}
+              disabled={syncAllLoading}
+            >
+              {syncAllLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Syncing IoT…
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Sync IoT
+                </>
+              )}
+            </Button>
+          </PermissionGuard>
+        </div>
       </div>
 
+      {/* Filters */}
       <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-          <CardDescription>Search and filter lockers by criteria</CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Filters</CardTitle>
+          <CardDescription>Search and filter lockers; ESP groups below respect these filters.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-2 lg:col-span-2">
               <Label htmlFor="locker-search">Search</Label>
               <div className="relative">
-                <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="locker-search"
-                  placeholder="Locker number, locker name, device ID, or gateway ID..."
+                  placeholder="Locker number, name, device ID, or gateway ID…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -950,16 +961,16 @@ const LockerManagementPage: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <Label>Campus</Label>
+              <Label htmlFor="locker-campus-filter">Campus</Label>
               <Select value={campusFilter} onValueChange={setCampusFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All" />
+                <SelectTrigger id="locker-campus-filter">
+                  <SelectValue placeholder="All campuses" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="all">All campuses</SelectItem>
                   {campuses.map((campus) => (
                     <SelectItem key={campus._id} value={campus._id}>
-                      {campus.campusName}
+                      {campus.campusCode ? `${campus.campusCode} — ${campus.campusName}` : campus.campusName}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -967,13 +978,13 @@ const LockerManagementPage: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <Label>Status</Label>
+              <Label htmlFor="locker-status-filter">Locker status</Label>
               <Select
                 value={statusFilter}
                 onValueChange={(value) => setStatusFilter(value as 'all' | LockerStatus)}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="All" />
+                <SelectTrigger id="locker-status-filter">
+                  <SelectValue placeholder="All statuses" />
                 </SelectTrigger>
                 <SelectContent>
                   {LOCKER_STATUS_OPTIONS.map((option) => (
@@ -985,10 +996,13 @@ const LockerManagementPage: React.FC = () => {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Activation</Label>
-              <Select value={activeFilter} onValueChange={(value) => setActiveFilter(value as (typeof ACTIVE_OPTIONS)[number]['value'])}>
-                <SelectTrigger>
+            <div className="space-y-2 sm:col-span-2 lg:col-span-4">
+              <Label htmlFor="locker-active-filter">Activation</Label>
+              <Select
+                value={activeFilter}
+                onValueChange={(value) => setActiveFilter(value as (typeof ACTIVE_OPTIONS)[number]['value'])}
+              >
+                <SelectTrigger id="locker-active-filter" className="max-w-md">
                   <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1004,6 +1018,7 @@ const LockerManagementPage: React.FC = () => {
         </CardContent>
       </Card>
 
+      {/* Statistics */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         {statCards.map((stat) => (
           <Card key={stat.label}>
@@ -1016,17 +1031,20 @@ const LockerManagementPage: React.FC = () => {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Gateway Sync Control ({gatewayGroups.length})</CardTitle>
-          <CardDescription>Sync all ESP32 under a specific gatewayId</CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
+            <Server className="h-5 w-5 shrink-0 text-muted-foreground" />
+            Gateway sync ({gatewayGroups.length})
+          </CardTitle>
+          <CardDescription>Resync all ESP32 devices that report under a gateway ID.</CardDescription>
         </CardHeader>
         <CardContent>
           {gatewayGroups.length === 0 ? (
-            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-              No gatewayId found in current locker data.
+            <div className={emptyStateClassName}>
+              <span>No gateway ID is present in the current locker data.</span>
             </div>
           ) : (
-            <div className="rounded-md border overflow-x-auto">
+            <div className="relative overflow-x-auto rounded-md border">
               <Table className="min-w-[760px]">
                 <TableHeader>
                   <TableRow>
@@ -1050,9 +1068,9 @@ const LockerManagementPage: React.FC = () => {
                           <PermissionGuard permissions={[PERMISSIONS.MANAGE_LOCKERS]}>
                             <Button
                               type="button"
-                              variant="outline"
+                              variant="default"
                               size="sm"
-                              className="cursor-pointer"
+                              className="shrink-0 gap-2 whitespace-nowrap"
                               onClick={() => handleSyncGateway(group.gatewayId)}
                               disabled={isSyncingGateway}
                             >
@@ -1081,13 +1099,19 @@ const LockerManagementPage: React.FC = () => {
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <CardTitle>Device Sync Monitor</CardTitle>
-            <CardDescription>Realtime sync ack from gateway via hardware:update</CardDescription>
+        <CardHeader className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
+              <Activity className="h-5 w-5 shrink-0 text-muted-foreground" />
+              Sync activity
+            </CardTitle>
+            <CardDescription>Live sync acknowledgements from the gateway.</CardDescription>
           </div>
           <Button
-            variant="outline"
+            type="button"
+            variant="default"
+            size="sm"
+            className="w-full shrink-0 gap-2 sm:w-auto"
             onClick={() => {
               setSyncJobs([]);
               setSyncAllLoading(false);
@@ -1097,18 +1121,17 @@ const LockerManagementPage: React.FC = () => {
               syncRequestMetaRef.current = {};
             }}
             disabled={syncJobs.length === 0}
-            className="w-full sm:w-auto"
           >
-            Clear Logs
+            Clear log
           </Button>
         </CardHeader>
         <CardContent>
           {syncJobs.length === 0 ? (
-            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-              No sync jobs yet. Click Sync IoT, Sync Gateway, or Sync ESP to start.
+            <div className={emptyStateClassName}>
+              <span>No sync jobs yet. Use Sync IoT, Sync gateway, or Sync ESP to begin.</span>
             </div>
           ) : (
-            <div className="rounded-md border overflow-x-auto">
+            <div className="relative overflow-x-auto rounded-md border">
               <Table className="min-w-[920px]">
                 <TableHeader>
                   <TableRow>
@@ -1149,43 +1172,37 @@ const LockerManagementPage: React.FC = () => {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>ESP32 Connectivity ({espGroups.length})</CardTitle>
-          <CardDescription>Grouped by deviceId with realtime heartbeat and nested locker health</CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
+            <Radio className="h-5 w-5 shrink-0 text-muted-foreground" />
+            ESP32 groups ({espGroups.length})
+          </CardTitle>
+          <CardDescription>Grouped by device ID with heartbeat and per-locker status.</CardDescription>
         </CardHeader>
         <CardContent>
           {paginatedEspGroups.length === 0 ? (
-            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-              No ESP groups found with current filters.
+            <div className={emptyStateClassName}>
+              <span>No ESP groups match the current filters.</span>
             </div>
           ) : (
-            <Accordion type="multiple" className="rounded-md border px-4">
+            <Accordion type="multiple" className="rounded-md border bg-muted/20 px-2 sm:px-4">
               {paginatedEspGroups.map((group) => {
                 const hasSyncableDevice = Boolean(group.deviceId) && group.hasActiveLocker;
                 const isSyncingDevice = group.deviceId ? Boolean(syncingEspDeviceIds[group.deviceId]) : false;
 
                 return (
                   <AccordionItem value={group.groupKey} key={group.groupKey}>
-                    <AccordionTrigger className="py-4 hover:no-underline">
-                      <div className="flex w-full flex-col gap-3 pr-2 md:flex-row md:items-center md:justify-between">
-                        <div className="min-w-0 space-y-1 text-left">
-                          <p className="truncate text-sm font-semibold">{group.displayDeviceId}</p>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                            <span>{group.lockers.length} lockers</span>
-                            <span className="hidden md:inline">•</span>
-                            <span>Gateway: {group.displayGatewayId}</span>
-                            <span className="hidden md:inline">•</span>
-                            <span>Heartbeat: {formatHeartbeat(group.lastHeartbeat)}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
+                    <AccordionTrigger
+                      className="py-4 hover:no-underline"
+                      suffix={
+                        <>
                           {getEsp32Badge(group.esp32Status)}
                           <PermissionGuard permissions={[PERMISSIONS.MANAGE_LOCKERS]}>
                             <Button
                               type="button"
-                              variant="outline"
+                              variant="default"
                               size="sm"
-                              className="cursor-pointer"
+                              className="shrink-0 gap-2 whitespace-nowrap"
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
@@ -1206,16 +1223,28 @@ const LockerManagementPage: React.FC = () => {
                               )}
                             </Button>
                           </PermissionGuard>
+                        </>
+                      }
+                    >
+                      <div className="min-w-0 space-y-1 text-left">
+                        <p className="truncate text-sm font-semibold">{group.displayDeviceId}</p>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span>{group.lockers.length} lockers</span>
+                          <span className="hidden md:inline">•</span>
+                          <span>Gateway: {group.displayGatewayId}</span>
+                          <span className="hidden md:inline">•</span>
+                          <span>Heartbeat: {formatHeartbeat(group.lastHeartbeat)}</span>
                         </div>
                       </div>
                     </AccordionTrigger>
-                    <AccordionContent>
-                      <div className="rounded-md border overflow-x-auto">
-                        <Table className="min-w-[900px]">
+                    <AccordionContent className="pb-4">
+                      <div className="relative overflow-x-auto rounded-md border">
+                        <Table className="min-w-[1020px]">
                           <TableHeader>
                             <TableRow>
                               <TableHead>Locker #</TableHead>
                               <TableHead>Locker Name</TableHead>
+                              <TableHead>Room</TableHead>
                               <TableHead>Status</TableHead>
                               <TableHead>Activation</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
@@ -1227,6 +1256,12 @@ const LockerManagementPage: React.FC = () => {
                                 <TableCell className="font-medium">#{locker.lockerNumber}</TableCell>
                                 <TableCell className="max-w-[220px] truncate" title={locker.position}>
                                   {locker.position}
+                                </TableCell>
+                                <TableCell
+                                  className="max-w-[200px] truncate text-muted-foreground"
+                                  title={[locker.roomName, locker.roomId].filter(Boolean).join(' · ') || undefined}
+                                >
+                                  {locker.roomName?.trim() || (locker.roomId ? String(locker.roomId) : '—')}
                                 </TableCell>
                                 <TableCell>{getStatusBadge(locker.status)}</TableCell>
                                 <TableCell>
@@ -1258,8 +1293,10 @@ const LockerManagementPage: React.FC = () => {
                                     extraActions={
                                       <PermissionGuard permissions={[PERMISSIONS.LOCKERS_UNLOCK]}>
                                         <Button
-                                          variant="outline"
+                                          type="button"
+                                          variant="default"
                                           size="sm"
+                                          className="shrink-0 gap-2 whitespace-nowrap"
                                           onClick={() => handleUnlockLocker(locker)}
                                           disabled={
                                             unlockingLockerIds[String(locker.id)] ||
@@ -1297,19 +1334,22 @@ const LockerManagementPage: React.FC = () => {
           )}
 
           {pageCount > 1 && (
-            <div className="mt-4 flex justify-center">
+            <div className="mt-6 flex justify-center">
               <ReactPaginate
                 forcePage={Math.min(currentPage, Math.max(pageCount - 1, 0))}
                 pageCount={pageCount}
                 onPageChange={(e: { selected: number }) => setCurrentPage(e.selected)}
-                previousLabel="Previous"
-                nextLabel="Next"
-                containerClassName="flex items-center gap-2"
-                pageClassName="rounded-md border px-3 py-1 text-sm"
-                previousClassName="rounded-md border px-3 py-1 text-sm"
-                nextClassName="rounded-md border px-3 py-1 text-sm"
-                activeClassName="bg-primary text-primary-foreground border-primary"
-                disabledClassName="opacity-50 cursor-not-allowed"
+                previousLabel="← Prev"
+                nextLabel="Next →"
+                breakLabel="…"
+                marginPagesDisplayed={2}
+                pageRangeDisplayed={3}
+                containerClassName="flex flex-wrap items-center justify-center gap-2"
+                pageClassName="rounded-md border px-3 py-1 text-sm font-medium text-muted-foreground hover:bg-muted"
+                previousClassName="rounded-md border px-3 py-1 text-sm font-medium hover:bg-muted"
+                nextClassName="rounded-md border px-3 py-1 text-sm font-medium hover:bg-muted"
+                activeClassName="border-primary bg-primary text-primary-foreground"
+                disabledClassName="cursor-not-allowed opacity-50"
               />
             </div>
           )}
@@ -1325,6 +1365,7 @@ const LockerManagementPage: React.FC = () => {
         onSave={handleUpdate}
         locker={selectedLocker ?? undefined}
         campuses={campuses}
+        allLockers={lockers}
       />
 
       <ViewLockerModal

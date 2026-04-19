@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import ReactPaginate from 'react-paginate';
 import PermissionGuard from '../../components/PermissionGuard';
 import { userService } from '../../services/user.service';
 import { campusService } from '../../services/campus.service';
@@ -36,6 +37,8 @@ function resolveDefaultCampusId(campuses: Campus[]): string | null {
 
 type UserStatusFilter = 'all' | 'active' | 'suspended';
 
+const USERS_PER_PAGE = 10;
+
 const UserManagementPage: React.FC = () => {
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [listLoading, setListLoading] = useState(false);
@@ -58,6 +61,7 @@ const UserManagementPage: React.FC = () => {
   const [confirmDestructive, setConfirmDestructive] = useState(false);
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
   const campusUserOverrideRef = useRef(false);
+  const [currentPage, setCurrentPage] = useState(0);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -103,6 +107,17 @@ const UserManagementPage: React.FC = () => {
     if (statusFilter === 'active') return users.filter((u) => u.isActive);
     return users.filter((u) => !u.isActive);
   }, [users, statusFilter]);
+
+  const pageCount = Math.ceil(displayUsers.length / USERS_PER_PAGE);
+
+  const paginatedUsers = useMemo(
+    () => displayUsers.slice(currentPage * USERS_PER_PAGE, (currentPage + 1) * USERS_PER_PAGE),
+    [displayUsers, currentPage],
+  );
+
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [debouncedSearch, roleFilter, campusFilter, statusFilter]);
 
   // Fetch campuses
   const fetchCampuses = async () => {
@@ -334,7 +349,16 @@ const UserManagementPage: React.FC = () => {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">User list ({displayUsers.length})</CardTitle>
-          <CardDescription>Users in the current filter</CardDescription>
+          <CardDescription>
+            Users in the current filter
+            {displayUsers.length > 0 ? (
+              <span className="text-muted-foreground">
+                {' '}
+                · Showing {currentPage * USERS_PER_PAGE + 1}–
+                {Math.min((currentPage + 1) * USERS_PER_PAGE, displayUsers.length)} of {displayUsers.length}
+              </span>
+            ) : null}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="relative rounded-md border">
@@ -363,7 +387,7 @@ const UserManagementPage: React.FC = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  displayUsers.map((user) => (
+                  paginatedUsers.map((user) => (
                     <TableRow key={user._id}>
                       <TableCell>
                         <div className="flex items-center gap-3">
@@ -438,6 +462,27 @@ const UserManagementPage: React.FC = () => {
               </TableBody>
             </Table>
           </div>
+
+          {pageCount > 1 ? (
+            <div className="mt-6 flex justify-center">
+              <ReactPaginate
+                forcePage={Math.min(currentPage, Math.max(pageCount - 1, 0))}
+                pageCount={pageCount}
+                onPageChange={(e: { selected: number }) => setCurrentPage(e.selected)}
+                previousLabel="← Prev"
+                nextLabel="Next →"
+                breakLabel="…"
+                marginPagesDisplayed={2}
+                pageRangeDisplayed={3}
+                containerClassName="flex flex-wrap items-center justify-center gap-2"
+                pageClassName="rounded-md border px-3 py-1 text-sm font-medium text-muted-foreground hover:bg-muted"
+                previousClassName="rounded-md border px-3 py-1 text-sm font-medium hover:bg-muted"
+                nextClassName="rounded-md border px-3 py-1 text-sm font-medium hover:bg-muted"
+                activeClassName="border-primary bg-primary text-primary-foreground"
+                disabledClassName="cursor-not-allowed opacity-50"
+              />
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

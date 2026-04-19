@@ -25,24 +25,27 @@ function AccordionItem({
   );
 }
 
-function AccordionTrigger({
-  className,
-  children,
-  ...props
-}: React.ComponentProps<typeof AccordionPrimitive.Trigger>) {
+type AccordionTriggerProps = React.ComponentProps<typeof AccordionPrimitive.Trigger> & {
+  suffix?: React.ReactNode;
+};
+
+function AccordionTrigger({ className, children, suffix, ...props }: AccordionTriggerProps) {
   return (
-    <AccordionPrimitive.Header className="flex">
+    <AccordionPrimitive.Header className="flex w-full min-w-0 items-center gap-2 border-0 p-0">
       <AccordionPrimitive.Trigger
         data-slot="accordion-trigger"
         className={cn(
-          "focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-start justify-between gap-4 rounded-md py-4 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180",
+          "focus-visible:border-ring focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md py-4 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180",
           className,
         )}
         {...props}
       >
-        {children}
+        <span className="min-w-0 flex-1">{children}</span>
         <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4 shrink-0 translate-y-0.5 transition-transform duration-200" />
       </AccordionPrimitive.Trigger>
+      {suffix != null ? (
+        <div className="flex shrink-0 items-center gap-2 self-center pr-1">{suffix}</div>
+      ) : null}
     </AccordionPrimitive.Header>
   );
 }

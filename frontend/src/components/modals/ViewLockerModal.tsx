@@ -240,11 +240,6 @@ const ViewLockerModal: React.FC<Props> = ({ isOpen, onClose, onEdit, locker }) =
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="locker-battery-view">Battery Level</Label>
-            <Input id="locker-battery-view" value={`${currentLocker.batteryLevel}%`} readOnly className="bg-muted" />
-          </div>
-
-          <div className="space-y-1">
             <Label htmlFor="locker-campus-view">Campus</Label>
             <Input
               id="locker-campus-view"
