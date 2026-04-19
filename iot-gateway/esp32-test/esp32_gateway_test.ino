@@ -113,7 +113,7 @@ bool connectGateway() {
 // Set to true if your relay module is active-HIGH (energize = HIGH).
 // Change this to invert the output logic without rewiring the relay.
 static const bool RELAY_ACTIVE_HIGH = true;
-const int RELAY_PINS[] = {23, 22, 21, 19, 18};
+const int RELAY_PINS[] = {23, 2, 12, 13, 15};
 const int RELAY_COUNT = sizeof(RELAY_PINS) / sizeof(RELAY_PINS[0]);
 int relayStates[RELAY_COUNT] = {0}; // each relay: 0=off, 1=on
 

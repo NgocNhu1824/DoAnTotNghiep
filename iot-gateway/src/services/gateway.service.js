@@ -751,19 +751,25 @@ class GatewayService {
       return;
     }
 
-    this.logger.warn('State arrived before init, sending inferred init then retrying state', deviceId, `pin=${pin}`);
+    const snapshot = this.getOrCreateSnapshot(deviceId);
+    let inferredDevices = this.normalizeDevices(snapshot.devices);
+    inferredDevices = this.mergeDeviceState(inferredDevices, pin, value);
+
+    snapshot.devices = inferredDevices;
+    snapshot.lastSeenAt = new Date().toISOString();
+    this.deviceSnapshots.set(deviceId, snapshot);
+
+    this.logger.warn(
+      'State arrived before init, sending inferred init from snapshot then retrying state',
+      deviceId,
+      `pin=${pin}`,
+      `devices=${inferredDevices.length}`,
+    );
 
     const initResult = await this.postSafe('/esp32/sync/init', {
       deviceId,
       gatewayId: this.gatewayId,
-      devices: [
-        {
-          pin,
-          name: `pin_${pin}`,
-          type: 'relay',
-          state: value,
-        },
-      ],
+      devices: inferredDevices,
     });
 
     if (!initResult.ok) {
