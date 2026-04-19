@@ -63,6 +63,12 @@ type GatewayGroup = {
   lockerCount: number;
 };
 
+type SyncRequestMeta = {
+  kind: 'all' | 'gateway' | 'device';
+  gatewayId?: string | null;
+  deviceId?: string | null;
+};
+
 const ITEMS_PER_PAGE = 10;
 
 const LOCKER_STATUS_OPTIONS: { value: 'all' | LockerStatus; label: string }[] = [
@@ -163,6 +169,7 @@ const LockerManagementPage: React.FC = () => {
   const lockersRef = useRef<LockerEntity[]>([]);
   // Track correlationIds initiated by user actions so UI ignores external/automatic syncs
   const userInitiatedSyncsRef = useRef<Set<string>>(new Set());
+  const syncRequestMetaRef = useRef<Record<string, SyncRequestMeta>>({});
 
   const fetchData = async () => {
     try {
@@ -300,20 +307,33 @@ const LockerManagementPage: React.FC = () => {
       });
 
       if (status === 'completed' || status === 'failed') {
+        const requestMeta = syncRequestMetaRef.current[correlationId];
+
         if (deviceId !== '*') {
+          const targetDeviceIds = new Set<string>([deviceId]);
+          if (requestMeta?.kind === 'device' && requestMeta.deviceId) {
+            targetDeviceIds.add(String(requestMeta.deviceId));
+          }
+
           setSyncingEspDeviceIds((prev) => ({
             ...prev,
-            [deviceId]: false,
+            ...Array.from(targetDeviceIds).reduce((acc, id) => {
+              acc[id] = false;
+              return acc;
+            }, {} as Record<string, boolean>),
           }));
         }
 
         if (deviceId === '*') {
           setSyncAllLoading(false);
 
-          if (gatewayId) {
+          const targetGatewayId = gatewayId ||
+            (requestMeta?.kind === 'gateway' ? normalizeGatewayId(requestMeta.gatewayId) : null);
+
+          if (targetGatewayId) {
             setSyncingGatewayIds((prev) => ({
               ...prev,
-              [gatewayId]: false,
+              [targetGatewayId]: false,
             }));
           }
 
@@ -322,10 +342,14 @@ const LockerManagementPage: React.FC = () => {
           }
         }
 
-        // For one-device sync, stop tracking once terminal ack is received.
-        // Keep tracking sync-all/sync-gateway correlation so all gateway updates are displayed.
-        if (deviceId !== '*') {
+        const shouldStopTracking =
+          requestMeta?.kind === 'device'
+            ? deviceId !== '*'
+            : deviceId === '*';
+
+        if (shouldStopTracking) {
           userInitiatedSyncsRef.current.delete(correlationId);
+          delete syncRequestMetaRef.current[correlationId];
         }
       }
     };
@@ -335,6 +359,7 @@ const LockerManagementPage: React.FC = () => {
     return () => {
       socket.off('hardware:update', onHardwareUpdate);
       wsService.disconnect();
+      syncRequestMetaRef.current = {};
     };
   }, []);
 
@@ -602,6 +627,11 @@ const LockerManagementPage: React.FC = () => {
 
       // mark as user-initiated so UI will respond only to this
       userInitiatedSyncsRef.current.add(correlationId);
+      syncRequestMetaRef.current[correlationId] = {
+        kind: 'all',
+        gatewayId: 'ALL',
+        deviceId: '*',
+      };
 
       const queuedJob: SyncJob = {
         jobKey: `${correlationId}:*:all-gateways`,
@@ -665,6 +695,11 @@ const LockerManagementPage: React.FC = () => {
       }
 
       userInitiatedSyncsRef.current.add(correlationId);
+      syncRequestMetaRef.current[correlationId] = {
+        kind: 'gateway',
+        gatewayId: normalizedGatewayId,
+        deviceId: '*',
+      };
 
       const queuedJob: SyncJob = {
         jobKey: `${correlationId}:*:${normalizedGatewayId}`,
@@ -732,6 +767,11 @@ const LockerManagementPage: React.FC = () => {
       }
 
       userInitiatedSyncsRef.current.add(correlationId);
+      syncRequestMetaRef.current[correlationId] = {
+        kind: 'device',
+        gatewayId,
+        deviceId,
+      };
 
       const representativeLocker = group.lockers[0];
       const lockerId = representativeLocker ? String(representativeLocker.id || representativeLocker._id || '') : undefined;
@@ -1054,6 +1094,7 @@ const LockerManagementPage: React.FC = () => {
               setSyncingEspDeviceIds({});
               setSyncingGatewayIds({});
               userInitiatedSyncsRef.current.clear();
+              syncRequestMetaRef.current = {};
             }}
             disabled={syncJobs.length === 0}
             className="w-full sm:w-auto"
