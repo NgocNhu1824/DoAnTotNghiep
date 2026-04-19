@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -28,7 +29,7 @@ import { UpdateLockerDto } from './dto/update-locker.dto';
 type IotGatewayCommandTransport = 'websocket' | 'http' | 'hybrid';
 
 @Injectable()
-export class LockerService {
+export class LockerService implements OnModuleInit {
   private readonly logger = new Logger(LockerService.name);
   private static readonly DEFAULT_UNLOCK_BEFORE_CLASS_MINUTES = 5;
   private static readonly DEFAULT_OVERDUE_RETURN_WARNING_MINUTES = 15;
@@ -70,6 +71,51 @@ export class LockerService {
     private readonly configService: ConfigService,
     private readonly settingsService: SettingsService,
   ) {}
+
+  async onModuleInit() {
+    await this.ensureLockerIndexes();
+  }
+
+  private async ensureLockerIndexes() {
+    try {
+      const indexes = await this.lockerModel.collection.indexes();
+
+      const hasLegacyDeviceUnique = indexes.some(
+        (index: any) => index?.name === 'deviceId_1' && index?.unique === true,
+      );
+
+      if (hasLegacyDeviceUnique) {
+        await this.lockerModel.collection.dropIndex('deviceId_1');
+        this.logger.warn(
+          'Dropped legacy unique index deviceId_1 on lockers. Multi-pin mapping now uses uniq_device_pin_mapping (deviceId + controlPin).',
+        );
+      }
+
+      const hasDevicePinUnique = indexes.some(
+        (index: any) => index?.name === 'uniq_device_pin_mapping',
+      );
+
+      if (!hasDevicePinUnique) {
+        await this.lockerModel.collection.createIndex(
+          { deviceId: 1, controlPin: 1 },
+          {
+            unique: true,
+            name: 'uniq_device_pin_mapping',
+            partialFilterExpression: {
+              deviceId: { $type: 'string' },
+              controlPin: { $type: 'number' },
+            },
+          },
+        );
+
+        this.logger.log('Created missing uniq_device_pin_mapping index on lockers.');
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to ensure locker indexes: ${error?.message || 'Unknown error'}`,
+      );
+    }
+  }
 
   /* =========================
         HELPERS
