@@ -55,7 +55,7 @@ const int MAX_FINGER_SLOT = 200;
 
 // Template transfer config (AS608 char buffer <-> gateway payload).
 const size_t MAX_TEMPLATE_RAW_BYTES = 768;
-const size_t TEMPLATE_PACKET_CHUNK_BYTES = 32;
+const size_t TEMPLATE_PACKET_CHUNK_BYTES = 128;
 const uint8_t TEMPLATE_CHAR_BUFFER_ID = 1;
 
 #ifndef AS608_PACKET_START_CODE
@@ -121,10 +121,13 @@ String pendingUserId = "";
 int pendingFingerId = -1;
 String pendingTemplateData = "";
 String pendingTemplateEncoding = "";
+String pendingVerifyMode = "template_raw_db";
+bool pendingAllowEnrollFallbackOnMiss = false;
 int pendingVerifyPin = -1;
 unsigned long pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
 
 uint8_t gTemplateRawBuffer[MAX_TEMPLATE_RAW_BYTES];
+size_t gSensorTemplatePacketBytes = TEMPLATE_PACKET_CHUNK_BYTES;
 
 bool startsWith(const String& value, const char* prefix) {
   return value.startsWith(prefix);
@@ -602,20 +605,43 @@ bool readAs608Packet(
   outType = 0;
   outPayloadLen = 0;
 
-  uint8_t header[9] = {0};
-  for (size_t i = 0; i < sizeof(header); ++i) {
-    if (!readFingerprintByte(header[i], timeoutMs)) {
+  const unsigned long startedAt = millis();
+  uint8_t first = 0;
+  uint8_t second = 0;
+  bool foundStartCode = false;
+
+  while ((millis() - startedAt) < timeoutMs) {
+    if (!readFingerprintByte(first, timeoutMs)) {
+      return false;
+    }
+
+    if (first != (uint8_t)((AS608_PACKET_START_CODE >> 8) & 0xFF)) {
+      continue;
+    }
+
+    if (!readFingerprintByte(second, timeoutMs)) {
+      return false;
+    }
+
+    if (second == (uint8_t)(AS608_PACKET_START_CODE & 0xFF)) {
+      foundStartCode = true;
+      break;
+    }
+  }
+
+  if (!foundStartCode) {
+    return false;
+  }
+
+  uint8_t headerRest[7] = {0};
+  for (size_t i = 0; i < sizeof(headerRest); ++i) {
+    if (!readFingerprintByte(headerRest[i], timeoutMs)) {
       return false;
     }
   }
 
-  const uint16_t startCode = ((uint16_t)header[0] << 8) | header[1];
-  if (startCode != AS608_PACKET_START_CODE) {
-    return false;
-  }
-
-  outType = header[6];
-  const uint16_t packetLen = ((uint16_t)header[7] << 8) | header[8];
+  outType = headerRest[4];
+  const uint16_t packetLen = ((uint16_t)headerRest[5] << 8) | headerRest[6];
   if (packetLen < 2) {
     return false;
   }
@@ -627,8 +653,8 @@ bool readAs608Packet(
 
   uint32_t checksumCalc = 0;
   checksumCalc += outType;
-  checksumCalc += header[7];
-  checksumCalc += header[8];
+  checksumCalc += headerRest[5];
+  checksumCalc += headerRest[6];
 
   for (size_t i = 0; i < payloadLen; ++i) {
     uint8_t b = 0;
@@ -655,22 +681,47 @@ bool readAs608Packet(
   return true;
 }
 
-bool waitAs608AckOk(unsigned long timeoutMs, uint8_t& confirmationCode) {
+bool waitAs608AckOk(unsigned long timeoutMs, uint8_t& confirmationCode, size_t* outSkippedDataPackets = nullptr) {
   confirmationCode = 0xFF;
-  uint8_t packetType = 0;
-  uint8_t payload[64] = {0};
-  size_t payloadLen = 0;
-
-  if (!readAs608Packet(packetType, payload, sizeof(payload), payloadLen, timeoutMs)) {
-    return false;
+  if (outSkippedDataPackets) {
+    *outSkippedDataPackets = 0;
   }
 
-  if (packetType != AS608_PACKET_ACK || payloadLen < 1) {
-    return false;
+  const unsigned long startedAt = millis();
+
+  while ((millis() - startedAt) < timeoutMs) {
+    uint8_t packetType = 0;
+    uint8_t payload[320] = {0};
+    size_t payloadLen = 0;
+
+    unsigned long elapsed = millis() - startedAt;
+    unsigned long remaining = timeoutMs > elapsed ? (timeoutMs - elapsed) : 1;
+
+    if (!readAs608Packet(packetType, payload, sizeof(payload), payloadLen, remaining)) {
+      delay(2);
+      continue;
+    }
+
+    if (
+      outSkippedDataPackets &&
+      (packetType == AS608_PACKET_DATA || packetType == AS608_PACKET_END_DATA)
+    ) {
+      (*outSkippedDataPackets)++;
+    }
+
+    if (packetType != AS608_PACKET_ACK || payloadLen < 1) {
+      Serial.print("[FINGER] waitAck skip type=");
+      Serial.print(packetType, HEX);
+      Serial.print(" len=");
+      Serial.println((unsigned long)payloadLen);
+      continue;
+    }
+
+    confirmationCode = payload[0];
+    return confirmationCode == FINGERPRINT_OK;
   }
 
-  confirmationCode = payload[0];
-  return confirmationCode == FINGERPRINT_OK;
+  return false;
 }
 
 bool readTemplateFromCharBuffer(uint8_t bufferId, uint8_t* outTemplate, size_t outCap, size_t& outLen) {
@@ -719,41 +770,148 @@ bool readTemplateFromCharBuffer(uint8_t bufferId, uint8_t* outTemplate, size_t o
   return outLen > 0;
 }
 
-bool writeTemplateToCharBuffer(uint8_t bufferId, const uint8_t* templateData, size_t templateLen) {
+bool writeTemplateToCharBufferInternal(
+  uint8_t bufferId,
+  const uint8_t* templateData,
+  size_t templateLen,
+  size_t chunkBytes,
+  uint8_t downcharCommandCode,
+  uint8_t& outFinalConfirmCode
+) {
+  outFinalConfirmCode = 0xFF;
+
   if (!templateData || templateLen == 0) {
     return false;
   }
 
-  const uint8_t cmd[2] = { AS608_CMD_DOWNCHAR, bufferId };
+  if (chunkBytes == 0) {
+    return false;
+  }
+
+  const uint8_t cmd[2] = { downcharCommandCode, bufferId };
   flushFingerprintSerialInput();
   if (!writeAs608Packet(AS608_PACKET_COMMAND, cmd, sizeof(cmd))) {
     return false;
   }
 
   uint8_t confirmationCode = 0xFF;
-  if (!waitAs608AckOk(2000, confirmationCode)) {
+  if (!waitAs608AckOk(4000, confirmationCode)) {
     Serial.print("[FINGER] DOWNCHAR ack failed: ");
     Serial.println(confirmationCode);
+    outFinalConfirmCode = confirmationCode;
     return false;
   }
 
   size_t offset = 0;
   while (offset < templateLen) {
-    size_t chunkLen = templateLen - offset;
-    if (chunkLen > TEMPLATE_PACKET_CHUNK_BYTES) {
-      chunkLen = TEMPLATE_PACKET_CHUNK_BYTES;
+    const size_t remaining = templateLen - offset;
+    size_t chunkLen = remaining;
+    if (chunkLen > chunkBytes) {
+      chunkLen = chunkBytes;
     }
 
-    const bool isLast = (offset + chunkLen) >= templateLen;
-    const uint8_t packetType = isLast ? AS608_PACKET_END_DATA : AS608_PACKET_DATA;
+    // Some AS608 clones are strict about transfer termination:
+    // if data is exactly N * chunkBytes, they require a dedicated empty END_DATA packet.
+    const bool isLastChunk = (offset + chunkLen) >= templateLen;
+    const bool useEndPacketWithData = isLastChunk && (chunkLen < chunkBytes);
+    const uint8_t packetType = useEndPacketWithData ? AS608_PACKET_END_DATA : AS608_PACKET_DATA;
     if (!writeAs608Packet(packetType, templateData + offset, chunkLen)) {
       return false;
     }
 
     offset += chunkLen;
+    delay(2);
   }
 
-  return waitAs608AckOk(3000, confirmationCode);
+  if ((templateLen % chunkBytes) == 0) {
+    if (!writeAs608Packet(AS608_PACKET_END_DATA, nullptr, 0)) {
+      return false;
+    }
+    delay(2);
+  }
+
+  size_t skippedDataPackets = 0;
+  const bool ok = waitAs608AckOk(15000, confirmationCode, &skippedDataPackets);
+  if (!ok && skippedDataPackets > 0) {
+    Serial.print("[FINGER] DOWNCHAR saw DATA packets while waiting ACK: ");
+    Serial.println((unsigned long)skippedDataPackets);
+  }
+
+  outFinalConfirmCode = confirmationCode;
+  return ok;
+}
+
+bool writeTemplateToCharBuffer(uint8_t bufferId, const uint8_t* templateData, size_t templateLen) {
+  const size_t chunkCandidates[5] = {
+    gSensorTemplatePacketBytes,
+    256,
+    TEMPLATE_PACKET_CHUNK_BYTES,
+    64,
+    32,
+  };
+
+  size_t triedChunks[5] = {0, 0, 0, 0, 0};
+  size_t triedCount = 0;
+  for (size_t i = 0; i < 5; ++i) {
+    const size_t chunkBytes = chunkCandidates[i];
+    bool alreadyTried = false;
+    for (size_t j = 0; j < triedCount; ++j) {
+      if (triedChunks[j] == chunkBytes) {
+        alreadyTried = true;
+        break;
+      }
+    }
+
+    if (alreadyTried) {
+      continue;
+    }
+
+    triedChunks[triedCount++] = chunkBytes;
+
+    uint8_t finalConfirmCode = 0xFF;
+    if (writeTemplateToCharBufferInternal(
+      bufferId,
+      templateData,
+      templateLen,
+      chunkBytes,
+      AS608_CMD_DOWNCHAR,
+      finalConfirmCode
+    )) {
+      return true;
+    }
+
+    Serial.print("[FINGER] DOWNCHAR retry chunk=");
+    Serial.print((unsigned long)chunkBytes);
+    Serial.print(" cmd=0x");
+    Serial.print((unsigned long)AS608_CMD_DOWNCHAR, HEX);
+    Serial.print(" confirm=");
+    Serial.println(finalConfirmCode);
+
+    // Some AS608 clones appear to swap UPCHAR/DOWNCHAR command codes.
+    // If default DOWNCHAR fails, retry same transfer with alternate command code.
+    uint8_t altConfirmCode = 0xFF;
+    if (writeTemplateToCharBufferInternal(
+      bufferId,
+      templateData,
+      templateLen,
+      chunkBytes,
+      AS608_CMD_UPCHAR,
+      altConfirmCode
+    )) {
+      Serial.print("[FINGER] DOWNCHAR fallback succeeded with cmd=0x");
+      Serial.println((unsigned long)AS608_CMD_UPCHAR, HEX);
+      return true;
+    }
+
+    Serial.print("[FINGER] DOWNCHAR retry chunk=");
+    Serial.print((unsigned long)chunkBytes);
+    Serial.print(" cmd=0x");
+    Serial.print((unsigned long)AS608_CMD_UPCHAR, HEX);
+    Serial.print(" confirm=");
+    Serial.println(altConfirmCode);
+  }
+
+  return false;
 }
 
 bool exportTemplateFromCharBufferBase64(uint8_t bufferId, String& outBase64, size_t& outBytes) {
@@ -846,7 +1004,45 @@ bool captureImageToBuffer(uint8_t slot, unsigned long timeoutMs) {
   return false;
 }
 
-bool enrollFingerprintToRawTemplate(String& outTemplateData, size_t& outTemplateBytes) {
+bool isValidFingerSlot(int slot) {
+  return slot >= 1 && slot <= MAX_FINGER_SLOT;
+}
+
+bool storeModelAtSlot(int slot) {
+  if (!isValidFingerSlot(slot)) {
+    return false;
+  }
+
+  int storeResult = finger.storeModel(slot);
+  if (storeResult == FINGERPRINT_OK) {
+    return true;
+  }
+
+  Serial.print("[FINGER] storeModel failed at slot ");
+  Serial.print(slot);
+  Serial.print(" code=");
+  Serial.println(storeResult);
+
+  int deleteResult = finger.deleteModel(slot);
+  Serial.print("[FINGER] deleteModel before retry slot=");
+  Serial.print(slot);
+  Serial.print(" code=");
+  Serial.println(deleteResult);
+
+  delay(120);
+  storeResult = finger.storeModel(slot);
+  if (storeResult != FINGERPRINT_OK) {
+    Serial.print("[FINGER] storeModel retry failed at slot ");
+    Serial.print(slot);
+    Serial.print(" code=");
+    Serial.println(storeResult);
+    return false;
+  }
+
+  return true;
+}
+
+bool enrollFingerprintToRawTemplate(String& outTemplateData, size_t& outTemplateBytes, int storeSlot = -1) {
   outTemplateData = "";
   outTemplateBytes = 0;
 
@@ -868,6 +1064,17 @@ bool enrollFingerprintToRawTemplate(String& outTemplateData, size_t& outTemplate
     Serial.print("[FINGER] createModel failed: ");
     Serial.println(cm);
     return false;
+  }
+
+  if (isValidFingerSlot(storeSlot)) {
+    if (!storeModelAtSlot(storeSlot)) {
+      Serial.print("[FINGER] failed to store model at slot ");
+      Serial.println(storeSlot);
+      return false;
+    }
+
+    Serial.print("[FINGER] model stored at slot ");
+    Serial.println(storeSlot);
   }
 
   return exportTemplateFromCharBufferBase64(1, outTemplateData, outTemplateBytes);
@@ -896,23 +1103,102 @@ bool verifyFingerprintWithTemplateData(
     return false;
   }
 
-  lcdShow("Place finger", "for verify");
-  if (!captureImageToBuffer(1, 10000)) {
-    return false;
-  }
-
   size_t decodedLen = 0;
   if (!decodeTemplateBase64(templateData, gTemplateRawBuffer, sizeof(gTemplateRawBuffer), decodedLen)) {
     Serial.println("[FINGER] verify failed to decode template base64");
     return false;
   }
 
-  if (!writeTemplateToCharBuffer(2, gTemplateRawBuffer, decodedLen)) {
-    Serial.println("[FINGER] verify failed to load template into char buffer");
+  Serial.print("[FINGER] verify decoded template bytes=");
+  Serial.println((unsigned long)decodedLen);
+
+  uint8_t templateBufferId = 1;
+  uint8_t captureBufferId = 2;
+
+  if (!writeTemplateToCharBuffer(templateBufferId, gTemplateRawBuffer, decodedLen)) {
+    Serial.println("[FINGER] verify DOWNCHAR buffer 1 failed, retry on buffer 2");
+    templateBufferId = 2;
+    captureBufferId = 1;
+    if (!writeTemplateToCharBuffer(templateBufferId, gTemplateRawBuffer, decodedLen)) {
+      Serial.println("[FINGER] verify failed to load template into any char buffer");
+      return false;
+    }
+  }
+
+  Serial.print("[FINGER] verify template buffer=");
+  Serial.print(templateBufferId);
+  Serial.print(" capture buffer=");
+  Serial.println(captureBufferId);
+
+  lcdShow("Place finger", "for verify");
+  if (!captureImageToBuffer(captureBufferId, 10000)) {
+    Serial.println("[FINGER] verify finger capture timeout");
     return false;
   }
 
   return compareTemplateBuffers(outConfidence);
+}
+
+bool verifyFingerprintWithLocalSensorSlot(
+  int expectedFingerId,
+  bool allowEnrollFallbackOnMiss,
+  int& outConfidence,
+  int& outMatchedFingerId,
+  bool& outAutoEnrolled
+) {
+  outConfidence = 0;
+  outMatchedFingerId = -1;
+  outAutoEnrolled = false;
+
+  lcdShow("Place finger", "for verify");
+  if (!captureImageToBuffer(1, 10000)) {
+    Serial.println("[FINGER] verify local search capture timeout");
+    return false;
+  }
+
+  int searchResult = finger.fingerFastSearch();
+  if (searchResult == FINGERPRINT_OK) {
+    outMatchedFingerId = (int)finger.fingerID;
+    outConfidence = (int)finger.confidence;
+
+    Serial.print("[FINGER] local search matched slot=");
+    Serial.print(outMatchedFingerId);
+    Serial.print(" confidence=");
+    Serial.println(outConfidence);
+
+    if (isValidFingerSlot(expectedFingerId) && outMatchedFingerId != expectedFingerId) {
+      Serial.print("[FINGER] local match mismatch expected=");
+      Serial.print(expectedFingerId);
+      Serial.print(" actual=");
+      Serial.println(outMatchedFingerId);
+    } else {
+      return true;
+    }
+  } else {
+    Serial.print("[FINGER] fingerFastSearch failed: ");
+    Serial.println(searchResult);
+  }
+
+  if (!allowEnrollFallbackOnMiss || !isValidFingerSlot(expectedFingerId)) {
+    return false;
+  }
+
+  Serial.print("[FINGER] local verify auto-enroll fallback slot=");
+  Serial.println(expectedFingerId);
+
+  lcdShow("First time floor", "Enroll fallback");
+  String enrolledTemplate = "";
+  size_t templateBytes = 0;
+  if (!enrollFingerprintToRawTemplate(enrolledTemplate, templateBytes, expectedFingerId)) {
+    Serial.println("[FINGER] local verify fallback enroll failed");
+    return false;
+  }
+
+  outMatchedFingerId = expectedFingerId;
+  outAutoEnrolled = true;
+  Serial.print("[FINGER] local fallback enrolled bytes=");
+  Serial.println((unsigned long)templateBytes);
+  return true;
 }
 
 void resetPendingFingerprintState() {
@@ -924,6 +1210,8 @@ void resetPendingFingerprintState() {
   pendingFingerId = -1;
   pendingTemplateData = "";
   pendingTemplateEncoding = "";
+  pendingVerifyMode = "template_raw_db";
+  pendingAllowEnrollFallbackOnMiss = false;
   pendingVerifyPin = -1;
   pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
 }
@@ -943,11 +1231,12 @@ void processPendingFingerprint() {
     lcdShow("Enrollment", "processing...");
     String enrolledTemplate = "";
     size_t templateBytes = 0;
-    bool enrolled = enrollFingerprintToRawTemplate(enrolledTemplate, templateBytes);
+    bool enrolled = enrollFingerprintToRawTemplate(enrolledTemplate, templateBytes, pendingFingerId);
     if (enrolled) {
+      int reportedEnrollFingerId = isValidFingerSlot(pendingFingerId) ? pendingFingerId : -1;
       sendFingerprintResult(
         true,
-        -1,
+        reportedEnrollFingerId,
         enrolledTemplate,
         pendingUserId,
         pendingCorrelationId,
@@ -963,12 +1252,30 @@ void processPendingFingerprint() {
   } else {
     lcdShow("Verification", "processing...");
     int confidence = 0;
-    bool matched = verifyFingerprintWithTemplateData(
-      pendingTemplateData,
-      pendingTemplateEncoding,
-      confidence
-    );
-    int reportedFingerId = matched ? pendingFingerId : -1;
+    int matchedFingerId = -1;
+    bool autoEnrolled = false;
+    bool matched = false;
+
+    String verifyMode = pendingVerifyMode;
+    verifyMode.toLowerCase();
+    if (verifyMode == "sensor_local_slot") {
+      matched = verifyFingerprintWithLocalSensorSlot(
+        pendingFingerId,
+        pendingAllowEnrollFallbackOnMiss,
+        confidence,
+        matchedFingerId,
+        autoEnrolled
+      );
+    } else {
+      matched = verifyFingerprintWithTemplateData(
+        pendingTemplateData,
+        pendingTemplateEncoding,
+        confidence
+      );
+      matchedFingerId = matched ? pendingFingerId : -1;
+    }
+
+    int reportedFingerId = matched ? matchedFingerId : -1;
     if (matched) {
       int relayIndex = getRelayIndexByPin(pendingVerifyPin);
       if (relayIndex >= 0) {
@@ -980,7 +1287,11 @@ void processPendingFingerprint() {
         Serial.print(" durationMs=");
         Serial.println(pendingVerifyDurationMs);
 
-        lcdShow("Verify success", String("Open pin ") + String(pendingVerifyPin));
+        if (autoEnrolled) {
+          lcdShow("Verify success", "Slot synced");
+        } else {
+          lcdShow("Verify success", String("Open pin ") + String(pendingVerifyPin));
+        }
       } else {
         Serial.println("[FINGER] verify matched but no valid relay pin in command");
         lcdShow("Verify success", "No relay pin");
@@ -989,7 +1300,7 @@ void processPendingFingerprint() {
       sendFingerprintResult(true, reportedFingerId, "", pendingUserId, pendingCorrelationId);
     } else {
       sendFingerprintResult(false, -1, "", pendingUserId, pendingCorrelationId);
-      lcdShow("Verify failed", "No template match");
+      lcdShow("Verify failed", "No finger match");
     }
   }
 
@@ -1083,6 +1394,39 @@ int extractIntValue(JsonObject obj, const char* key, int fallback = -1) {
   return fallback;
 }
 
+bool extractBoolValue(JsonObject obj, const char* key, bool fallback = false) {
+  if (!obj.containsKey(key)) {
+    return fallback;
+  }
+
+  if (obj[key].is<bool>()) {
+    return obj[key].as<bool>();
+  }
+
+  if (obj[key].is<int>() || obj[key].is<long>() || obj[key].is<unsigned long>()) {
+    return (long)obj[key] != 0;
+  }
+
+  if (obj[key].is<const char*>()) {
+    const char* raw = obj[key];
+    if (!raw) {
+      return fallback;
+    }
+
+    String normalized = String(raw);
+    normalized.trim();
+    normalized.toLowerCase();
+    if (normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "y") {
+      return true;
+    }
+    if (normalized == "0" || normalized == "false" || normalized == "no" || normalized == "n") {
+      return false;
+    }
+  }
+
+  return fallback;
+}
+
 void handleFingerCommand(JsonObject cmd, bool isRegister) {
   unsigned long delayMs = DEFAULT_FINGER_DELAY_MS;
   if (cmd.containsKey("delaySeconds")) {
@@ -1118,10 +1462,16 @@ void handleFingerCommand(JsonObject cmd, bool isRegister) {
     extractString(cmd, "fingerDataFormat", "")
   );
 
+  pendingVerifyMode = extractString(cmd, "verifyMode", "template_raw_db");
+  pendingVerifyMode.toLowerCase();
+  pendingAllowEnrollFallbackOnMiss = extractBoolValue(cmd, "allowEnrollFallbackOnMiss", false);
+
   if (!isRegister) {
     pendingVerifyPin = extractPin(cmd);
     pendingVerifyDurationMs = parseDurationMs(cmd);
   } else {
+    pendingVerifyMode = "template_raw_db";
+    pendingAllowEnrollFallbackOnMiss = false;
     pendingVerifyPin = -1;
     pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
   }
@@ -1132,10 +1482,16 @@ void handleFingerCommand(JsonObject cmd, bool isRegister) {
 
   if (isRegister) {
     lcdShow("Fingerprint", "registering...");
-    Serial.println("[FINGER] registration scheduled");
+    Serial.print("[FINGER] registration scheduled slot=");
+    Serial.println(pendingFingerId);
   } else {
     lcdShow("Fingerprint", "verifying...");
-    Serial.println("[FINGER] verification scheduled");
+    Serial.print("[FINGER] verification scheduled mode=");
+    Serial.print(pendingVerifyMode);
+    Serial.print(" slot=");
+    Serial.print(pendingFingerId);
+    Serial.print(" fallbackEnroll=");
+    Serial.println(pendingAllowEnrollFallbackOnMiss ? "true" : "false");
   }
 }
 
@@ -1372,6 +1728,31 @@ void initFingerprint() {
 
   if (finger.verifyPassword()) {
     Serial.println("[FINGER] AS608 ready");
+    Serial.print("[FINGER] cmd UPCHAR=0x");
+    Serial.println((unsigned long)AS608_CMD_UPCHAR, HEX);
+    Serial.print("[FINGER] cmd DOWNCHAR=0x");
+    Serial.println((unsigned long)AS608_CMD_DOWNCHAR, HEX);
+
+    int paramStatus = finger.getParameters();
+    if (paramStatus == FINGERPRINT_OK) {
+      if (
+        finger.packet_len == 32 ||
+        finger.packet_len == 64 ||
+        finger.packet_len == 128 ||
+        finger.packet_len == 256
+      ) {
+        gSensorTemplatePacketBytes = (size_t)finger.packet_len;
+      }
+
+      Serial.print("[FINGER] packet_len=");
+      Serial.println((unsigned long)finger.packet_len);
+      Serial.print("[FINGER] downchar chunk bytes=");
+      Serial.println((unsigned long)gSensorTemplatePacketBytes);
+    } else {
+      Serial.print("[FINGER] getParameters failed: ");
+      Serial.println(paramStatus);
+    }
+
     lcdShow("Fingerprint", "sensor ready");
   } else {
     Serial.println("[FINGER] AS608 not found");

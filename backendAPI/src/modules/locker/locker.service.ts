@@ -45,6 +45,7 @@ export class LockerService implements OnModuleInit {
   private readonly logger = new Logger(LockerService.name);
   private static readonly DEFAULT_UNLOCK_BEFORE_CLASS_MINUTES = 5;
   private static readonly DEFAULT_OVERDUE_RETURN_WARNING_MINUTES = 15;
+  private static readonly MAX_AS608_FINGER_SLOT = 200;
   // In-memory dedupe for resync requests to avoid flooding devices
   private lastResyncAt: Map<string, number> = new Map();
   private lastResyncAllAt: number = 0;
@@ -709,6 +710,87 @@ export class LockerService implements OnModuleInit {
     }
 
     return null;
+  }
+
+  private async resolveStableFingerSlotForUser(userId: string): Promise<number> {
+    const userObjectId = this.toObjectId(userId);
+    if (!userObjectId) {
+      throw new BadRequestException('Cannot resolve user for fingerprint slot assignment');
+    }
+
+    const slotRows = await this.fingerprintTemplateModel
+      .find({
+        isActive: true,
+        fingerId: {
+          $gte: 1,
+          $lte: LockerService.MAX_AS608_FINGER_SLOT,
+        },
+      })
+      .select('userId fingerId')
+      .lean();
+
+    const slotOwners = new Map<number, string>();
+    let existingUserSlot: number | null = null;
+
+    for (const row of slotRows as any[]) {
+      const slotRaw = Number(row?.fingerId);
+      if (!Number.isFinite(slotRaw)) {
+        continue;
+      }
+
+      const slot = Math.round(slotRaw);
+      if (slot < 1 || slot > LockerService.MAX_AS608_FINGER_SLOT) {
+        continue;
+      }
+
+      const ownerId = this.normalizeNullableString(row?.userId?.toString?.() || row?.userId);
+      if (!ownerId) {
+        continue;
+      }
+
+      if (!slotOwners.has(slot)) {
+        slotOwners.set(slot, ownerId);
+      }
+
+      if (ownerId === String(userObjectId)) {
+        existingUserSlot = existingUserSlot ? Math.min(existingUserSlot, slot) : slot;
+      }
+    }
+
+    if (existingUserSlot) {
+      return existingUserSlot;
+    }
+
+    let assignedSlot: number | null = null;
+    for (let slot = 1; slot <= LockerService.MAX_AS608_FINGER_SLOT; slot += 1) {
+      if (!slotOwners.has(slot)) {
+        assignedSlot = slot;
+        break;
+      }
+    }
+
+    if (!assignedSlot) {
+      throw new BadRequestException(
+        `No available AS608 finger slot (1-${LockerService.MAX_AS608_FINGER_SLOT}).`,
+      );
+    }
+
+    // Stabilize mapping for existing templates that were created before slot mode.
+    await this.fingerprintTemplateModel
+      .updateMany(
+        {
+          userId: userObjectId,
+          isActive: true,
+        },
+        {
+          $set: {
+            fingerId: assignedSlot,
+          },
+        },
+      )
+      .exec();
+
+    return assignedSlot;
   }
 
   private isTechnicalAccessMethod(method: string) {
@@ -2659,6 +2741,7 @@ export class LockerService implements OnModuleInit {
     const delaySeconds = Number.isFinite(delaySecondsRaw)
       ? Math.max(1, Math.min(30, Math.round(delaySecondsRaw)))
       : undefined;
+    const stableFingerId = await this.resolveStableFingerSlotForUser(currentUserId);
 
     const correlationId = `finger-register-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
@@ -2668,6 +2751,8 @@ export class LockerService implements OnModuleInit {
       gatewayId: targetGatewayId,
       action: 'finger_register',
       userId: currentUserId,
+      fingerId: stableFingerId,
+      registerMode: 'sensor_local_slot',
       roomId: resolvedRoomId ? String(resolvedRoomId) : null,
       lockerId,
       sourceType: 'mobile_fingerid_register',
@@ -2697,6 +2782,8 @@ export class LockerService implements OnModuleInit {
       commandAction: 'finger_register',
       action: 'register',
       usageEffect: 'none',
+      fingerId: stableFingerId,
+      registerMode: 'sensor_local_slot',
       sourceType: requestMetadata.sourceType || 'mobile_fingerid_register',
       correlationId,
       iotGatewayDispatch: gatewayDispatch,
@@ -2738,6 +2825,7 @@ export class LockerService implements OnModuleInit {
         deviceId: targetDeviceId,
         gatewayId: targetGatewayId,
         lockerDeviceId: this.normalizeNullableString(locker.deviceId),
+        fingerId: stableFingerId,
         correlationId,
         gatewayDispatch,
       },
@@ -2775,6 +2863,7 @@ export class LockerService implements OnModuleInit {
     const delaySeconds = Number.isFinite(delaySecondsRaw)
       ? Math.max(1, Math.min(30, Math.round(delaySecondsRaw)))
       : undefined;
+    const stableFingerId = await this.resolveStableFingerSlotForUser(currentUserId);
 
     const correlationId = `finger-register-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
@@ -2784,6 +2873,8 @@ export class LockerService implements OnModuleInit {
       gatewayId: target.gatewayId,
       action: 'finger_register',
       userId: currentUserId,
+      fingerId: stableFingerId,
+      registerMode: 'sensor_local_slot',
       sourceType: 'mobile_fingerid_register_floor',
       metadata: {
         floor: target.floor,
@@ -2813,6 +2904,8 @@ export class LockerService implements OnModuleInit {
         commandAction: 'finger_register',
         action: 'register',
         usageEffect: 'none',
+        fingerId: stableFingerId,
+        registerMode: 'sensor_local_slot',
         sourceType: requestMetadata.sourceType || 'mobile_fingerid_register_floor',
         correlationId,
         iotGatewayDispatch: gatewayDispatch,
@@ -2833,6 +2926,7 @@ export class LockerService implements OnModuleInit {
         floor: target.floor,
         deviceId: target.deviceId,
         gatewayId: target.gatewayId,
+        fingerId: stableFingerId,
         correlationId,
         gatewayDispatch,
       },
@@ -2924,6 +3018,7 @@ export class LockerService implements OnModuleInit {
     const delaySeconds = Number.isFinite(delaySecondsRaw)
       ? Math.max(1, Math.min(30, Math.round(delaySecondsRaw)))
       : undefined;
+    const stableFingerId = await this.resolveStableFingerSlotForUser(currentUserId);
 
     const lockerGatewayId = this.normalizeNullableString((locker as any).gatewayId);
     const verificationTemplate = await this.resolveVerificationTemplateForUser({
@@ -2949,17 +3044,13 @@ export class LockerService implements OnModuleInit {
       lockerId,
       usageAction,
       sourceType: usageAction === 'return' ? 'mobile_fingerid_return' : 'mobile_fingerid_verify',
-      verifyMode: 'template_raw_db',
-      templateData: verificationTemplate.templateData,
-      templateEncoding: verificationTemplate.templateEncoding,
+      fingerId: stableFingerId,
+      verifyMode: 'sensor_local_slot',
+      allowEnrollFallbackOnMiss: true,
       sourceDeviceId: verificationTemplate.sourceDeviceId || undefined,
       sourceFingerId: verificationTemplate.fingerId ?? undefined,
       templateHash: verificationTemplate.templateHash || undefined,
     };
-
-    if (verificationTemplate.fingerId) {
-      command.fingerId = verificationTemplate.fingerId;
-    }
 
     if (Number.isFinite(pin)) {
       command.pin = pin;
@@ -2998,6 +3089,9 @@ export class LockerService implements OnModuleInit {
         templateEncoding: verificationTemplate.templateEncoding,
         templateHash: verificationTemplate.templateHash,
       },
+      verificationMode: 'sensor_local_slot',
+      fingerId: stableFingerId,
+      allowEnrollFallbackOnMiss: true,
     };
 
     if (contextScheduleId) {
