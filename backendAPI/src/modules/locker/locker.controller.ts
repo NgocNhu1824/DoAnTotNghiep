@@ -46,11 +46,17 @@ export class LockerController {
     @Body()
     body: {
       deviceEsp32: string;
+      gatewayId?: string;
       solenoids: any[];
       batteryLevel?: number;
     },
   ) {
-    return this.lockerService.reportHeartbeat(body.deviceEsp32, body.solenoids, body.batteryLevel);
+    return this.lockerService.reportHeartbeat(
+      body.deviceEsp32,
+      body.solenoids,
+      body.batteryLevel,
+      body.gatewayId,
+    );
   }
 
   // ----- Admin test endpoints (not exposed in UI menu) -----
@@ -376,11 +382,17 @@ export class Esp32Controller {
     @Body()
     body: {
       deviceEsp32: string;
+      gatewayId?: string;
       solenoids: any[];
       batteryLevel?: number;
     },
   ) {
-    return this.lockerService.reportHeartbeat(body.deviceEsp32, body.solenoids, body.batteryLevel);
+    return this.lockerService.reportHeartbeat(
+      body.deviceEsp32,
+      body.solenoids,
+      body.batteryLevel,
+      body.gatewayId,
+    );
   }
 
   @Post('access-log')

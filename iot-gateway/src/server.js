@@ -13,7 +13,7 @@ const { createSerialLockers } = require('./lockers/serial.lockers');
 const { createLockerController } = require('./controllers/locker.controller');
 const { createLockersRoutes } = require('./routes/lockers.routes');
 const { createApp } = require('./app');
-const { isValidGatewayId, isValidEsp32DeviceId } = require('./utils/device-naming');
+const { isValidGatewayId, isAs608DeviceId } = require('./utils/device-naming');
 
 const logger = createLogger('BOOT');
 
@@ -31,9 +31,9 @@ async function bootstrap() {
     );
   }
 
-  if (!isValidEsp32DeviceId(config.device.deviceId)) {
+  if (!isAs608DeviceId(config.device.deviceId)) {
     throw new Error(
-      `Invalid DEVICE_ID: ${config.device.deviceId}. Expected esp32-AS608-LCD-tang{floor} or esp32-relay-tang{floor}-{nn}.`,
+      `Invalid DEVICE_ID: ${config.device.deviceId}. Gateway root device must match esp32-AS608-LCD-tang{floor}.`,
     );
   }
 

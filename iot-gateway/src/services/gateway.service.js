@@ -359,6 +359,7 @@ class GatewayService {
     if (initResult.ok) {
       await this.postSafe('/esp32/heartbeat', {
         deviceEsp32: deviceId,
+        gatewayId: this.gatewayId,
         solenoids,
         batteryLevel,
       });
@@ -505,6 +506,7 @@ class GatewayService {
     if (initResult.ok && (Array.isArray(snapshot.solenoids) || snapshot.batteryLevel !== undefined)) {
       await this.postSafe('/esp32/heartbeat', {
         deviceEsp32: deviceId,
+        gatewayId: this.gatewayId,
         solenoids: Array.isArray(snapshot.solenoids) ? snapshot.solenoids : [],
         batteryLevel: snapshot.batteryLevel,
       });
@@ -871,6 +873,7 @@ class GatewayService {
 
     await this.postSafe('/esp32/heartbeat', {
       deviceEsp32: deviceId,
+      gatewayId: this.gatewayId,
       solenoids: Array.isArray(payload.solenoids) ? payload.solenoids : [],
       batteryLevel,
     });
@@ -880,10 +883,14 @@ class GatewayService {
     const devices = this.normalizeDevices(payload.devices);
     if (devices.length === 0) {
       this.logger.warn('Skip init sync because devices list is empty');
-      return;
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'empty_devices',
+      };
     }
 
-    await this.postSafe('/esp32/sync/init', {
+    return await this.postSafe('/esp32/sync/init', {
       deviceId,
       gatewayId: this.gatewayId,
       devices,
@@ -979,11 +986,17 @@ class GatewayService {
 
     if (type === 'init') {
       const deviceCount = Array.isArray(data.devices) ? data.devices.length : 0;
-      this.logger.info(
-        'Cached init payload only (manual sync mode, no auto backend init sync)',
-        deviceId,
-        `devices=${deviceCount}`,
-      );
+
+      const initResult = await this.syncInit(data, deviceId);
+
+      if (initResult?.ok) {
+        this.logger.info('Synced init payload', deviceId, `devices=${deviceCount}`);
+      } else if (initResult?.skipped) {
+        this.logger.warn('Skipped init sync', deviceId, `reason=${initResult.reason}`);
+      } else {
+        this.logger.warn('Failed to sync init payload to backend', deviceId, `devices=${deviceCount}`);
+      }
+
       return data;
     }
 

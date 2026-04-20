@@ -1748,9 +1748,18 @@ export class LockerService implements OnModuleInit {
       ESP32 INTEGRATION
   ========================= */
 
-  async reportHeartbeat(deviceEsp32: string, solenoids: any[], batteryLevel?: number) {
+  async reportHeartbeat(
+    deviceEsp32: string,
+    solenoids: any[],
+    batteryLevel?: number,
+    gatewayId?: string,
+  ) {
     const normalizedDeviceId = this.normalizeNullableString(deviceEsp32);
+    const normalizedGatewayId = this.normalizeNullableString(gatewayId);
     this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceEsp32');
+    if (normalizedGatewayId) {
+      this.assertValidGatewayId(normalizedGatewayId, 'gatewayId');
+    }
 
     const normalizedBattery = Number.isFinite(Number(batteryLevel))
       ? Math.max(0, Math.min(100, Number(batteryLevel)))
@@ -1769,14 +1778,20 @@ export class LockerService implements OnModuleInit {
       );
     }
 
+    const heartbeatUpdatePayload: Record<string, any> = {
+      status: 'ONLINE',
+      lastHeartbeat: new Date(),
+      lastSyncAt: new Date(),
+      solenoids,
+    };
+
+    if (normalizedGatewayId) {
+      heartbeatUpdatePayload.gatewayId = normalizedGatewayId;
+    }
+
     const updated = await this.esp32Model.findOneAndUpdate(
       { deviceId: normalizedDeviceId },
-      {
-        status: 'ONLINE',
-        lastHeartbeat: new Date(),
-        lastSyncAt: new Date(),
-        solenoids, // Update solenoids directly in ESP32 schema
-      },
+      heartbeatUpdatePayload,
       { new: true, upsert: true },
     );
 
@@ -1792,6 +1807,7 @@ export class LockerService implements OnModuleInit {
 
     this.eventsGateway.broadcastHardwareUpdate('heartbeat', {
       deviceId: normalizedDeviceId,
+      gatewayId: normalizedGatewayId || this.normalizeNullableString((updated as any)?.gatewayId),
       status: 'ONLINE',
       lastHeartbeat: updated?.lastHeartbeat,
       batteryLevel: normalizedBattery,
