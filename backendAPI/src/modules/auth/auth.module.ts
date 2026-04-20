@@ -14,6 +14,10 @@ import { Permission, PermissionSchema } from '@/database/schemas/permission.sche
 import { RolePermission, RolePermissionSchema } from '@/database/schemas/role-permission.schema';
 import { FaceTemplate, FaceTemplateSchema } from '@/database/schemas/face-template.schema';
 import {
+  FingerprintTemplate,
+  FingerprintTemplateSchema,
+} from '@/database/schemas/fingerprint-template.schema';
+import {
   ResetPasswordToken,
   ResetPasswordTokenSchema,
 } from '@/database/schemas/reset-password-token.schema';
@@ -38,6 +42,7 @@ import {
       { name: Permission.name, schema: PermissionSchema },
       { name: RolePermission.name, schema: RolePermissionSchema },
       { name: FaceTemplate.name, schema: FaceTemplateSchema },
+      { name: FingerprintTemplate.name, schema: FingerprintTemplateSchema },
       { name: ResetPasswordToken.name, schema: ResetPasswordTokenSchema },
     ]),
   ],

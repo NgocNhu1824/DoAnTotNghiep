@@ -53,6 +53,43 @@ const unsigned long RECONNECT_INTERVAL_MS = 5000;
 const unsigned long DEFAULT_FINGER_DELAY_MS = 3000;
 const int MAX_FINGER_SLOT = 200;
 
+// Template transfer config (AS608 char buffer <-> gateway payload).
+const size_t MAX_TEMPLATE_RAW_BYTES = 768;
+const size_t TEMPLATE_PACKET_CHUNK_BYTES = 32;
+const uint8_t TEMPLATE_CHAR_BUFFER_ID = 1;
+
+#ifndef AS608_PACKET_START_CODE
+#define AS608_PACKET_START_CODE 0xEF01
+#endif
+
+#ifndef AS608_PACKET_COMMAND
+#define AS608_PACKET_COMMAND 0x01
+#endif
+
+#ifndef AS608_PACKET_DATA
+#define AS608_PACKET_DATA 0x02
+#endif
+
+#ifndef AS608_PACKET_ACK
+#define AS608_PACKET_ACK 0x07
+#endif
+
+#ifndef AS608_PACKET_END_DATA
+#define AS608_PACKET_END_DATA 0x08
+#endif
+
+#ifndef AS608_CMD_UPCHAR
+#define AS608_CMD_UPCHAR 0x08
+#endif
+
+#ifndef AS608_CMD_DOWNCHAR
+#define AS608_CMD_DOWNCHAR 0x09
+#endif
+
+#ifndef AS608_CMD_MATCH
+#define AS608_CMD_MATCH 0x03
+#endif
+
 WebsocketsClient wsClient;
 bool wsConnected = false;
 unsigned long lastHeartbeatAt = 0;
@@ -82,6 +119,10 @@ unsigned long pendingFingerDueAt = 0;
 String pendingCorrelationId = "";
 String pendingUserId = "";
 int pendingFingerId = -1;
+String pendingTemplateData = "";
+String pendingTemplateEncoding = "";
+
+uint8_t gTemplateRawBuffer[MAX_TEMPLATE_RAW_BYTES];
 
 bool startsWith(const String& value, const char* prefix) {
   return value.startsWith(prefix);
@@ -301,7 +342,8 @@ void sendFingerprintResult(
   int fingerId,
   const String& fingerData,
   const String& userId,
-  const String& correlationId = ""
+  const String& correlationId = "",
+  const String& fingerDataFormat = ""
 ) {
   DynamicJsonDocument doc(1024);
   doc["type"] = "fingerprint";
@@ -315,6 +357,9 @@ void sendFingerprintResult(
   if (fingerData.length() > 0) {
     doc["fingerData"] = fingerData;
   }
+  if (fingerDataFormat.length() > 0) {
+    doc["fingerDataFormat"] = fingerDataFormat;
+  }
   if (userId.length() > 0) {
     doc["userId"] = userId;
   }
@@ -323,6 +368,439 @@ void sendFingerprintResult(
   }
 
   sendJson(doc);
+}
+
+void sendTemplateSyncResult(
+  bool success,
+  const String& operation,
+  int fingerId,
+  const String& templateData,
+  const String& templateEncoding,
+  const String& userId,
+  const String& correlationId,
+  const String& sourceDeviceId = "",
+  int sourceFingerId = -1,
+  size_t templateBytes = 0,
+  const String& error = ""
+) {
+  DynamicJsonDocument doc(3072);
+  doc["type"] = "finger_template";
+  doc["deviceId"] = DEVICE_ID;
+  doc["source"] = "esp32";
+  doc["success"] = success;
+  doc["operation"] = operation;
+
+  if (fingerId > 0) {
+    doc["fingerId"] = fingerId;
+  }
+  if (templateData.length() > 0) {
+    doc["templateData"] = templateData;
+  }
+  if (templateEncoding.length() > 0) {
+    doc["templateEncoding"] = templateEncoding;
+  }
+  if (userId.length() > 0) {
+    doc["userId"] = userId;
+  }
+  if (correlationId.length() > 0) {
+    doc["correlationId"] = correlationId;
+  }
+  if (sourceDeviceId.length() > 0) {
+    doc["sourceDeviceId"] = sourceDeviceId;
+  }
+  if (sourceFingerId > 0) {
+    doc["sourceFingerId"] = sourceFingerId;
+  }
+  if (templateBytes > 0) {
+    doc["templateBytes"] = (unsigned long)templateBytes;
+  }
+  if (error.length() > 0) {
+    doc["error"] = error;
+  }
+
+  sendJson(doc);
+}
+
+int base64CharToValue(char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if (c >= '0' && c <= '9') return c - '0' + 52;
+  if (c == '+') return 62;
+  if (c == '/') return 63;
+  return -1;
+}
+
+bool encodeTemplateBase64(const uint8_t* input, size_t inputLen, String& output) {
+  static const char* BASE64_TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+  output = "";
+  if (!input || inputLen == 0) {
+    return false;
+  }
+
+  const size_t outputLen = ((inputLen + 2) / 3) * 4;
+  if (!output.reserve(outputLen + 1)) {
+    return false;
+  }
+
+  for (size_t i = 0; i < inputLen; i += 3) {
+    const uint32_t octetA = input[i];
+    const uint32_t octetB = (i + 1 < inputLen) ? input[i + 1] : 0;
+    const uint32_t octetC = (i + 2 < inputLen) ? input[i + 2] : 0;
+    const uint32_t triple = (octetA << 16) | (octetB << 8) | octetC;
+
+    output += BASE64_TABLE[(triple >> 18) & 0x3F];
+    output += BASE64_TABLE[(triple >> 12) & 0x3F];
+    output += (i + 1 < inputLen) ? BASE64_TABLE[(triple >> 6) & 0x3F] : '=';
+    output += (i + 2 < inputLen) ? BASE64_TABLE[triple & 0x3F] : '=';
+  }
+
+  return output.length() > 0;
+}
+
+bool decodeTemplateBase64(
+  const String& input,
+  uint8_t* output,
+  size_t outputCap,
+  size_t& outputLen
+) {
+  outputLen = 0;
+  if (!output || outputCap == 0) {
+    return false;
+  }
+
+  const size_t inputLen = input.length();
+  if (inputLen == 0 || (inputLen % 4) != 0) {
+    return false;
+  }
+
+  for (size_t i = 0; i < inputLen; i += 4) {
+    const char c0 = input[i];
+    const char c1 = input[i + 1];
+    const char c2 = input[i + 2];
+    const char c3 = input[i + 3];
+
+    const int v0 = base64CharToValue(c0);
+    const int v1 = base64CharToValue(c1);
+    const int v2 = (c2 == '=') ? -2 : base64CharToValue(c2);
+    const int v3 = (c3 == '=') ? -2 : base64CharToValue(c3);
+
+    if (v0 < 0 || v1 < 0 || v2 == -1 || v3 == -1) {
+      return false;
+    }
+
+    const uint32_t triple =
+      ((uint32_t)v0 << 18) |
+      ((uint32_t)v1 << 12) |
+      ((uint32_t)((v2 >= 0) ? v2 : 0) << 6) |
+      (uint32_t)((v3 >= 0) ? v3 : 0);
+
+    if (outputLen + 1 > outputCap) {
+      return false;
+    }
+    output[outputLen++] = (uint8_t)((triple >> 16) & 0xFF);
+
+    if (c2 != '=') {
+      if (outputLen + 1 > outputCap) {
+        return false;
+      }
+      output[outputLen++] = (uint8_t)((triple >> 8) & 0xFF);
+    }
+
+    if (c3 != '=') {
+      if (outputLen + 1 > outputCap) {
+        return false;
+      }
+      output[outputLen++] = (uint8_t)(triple & 0xFF);
+    }
+  }
+
+  return outputLen > 0;
+}
+
+bool readFingerprintByte(uint8_t& out, unsigned long timeoutMs) {
+  const unsigned long startedAt = millis();
+  while (millis() - startedAt < timeoutMs) {
+    if (fingerSerial.available() > 0) {
+      int raw = fingerSerial.read();
+      if (raw >= 0) {
+        out = (uint8_t)raw;
+        return true;
+      }
+    }
+    delay(1);
+  }
+
+  return false;
+}
+
+void flushFingerprintSerialInput() {
+  while (fingerSerial.available() > 0) {
+    fingerSerial.read();
+  }
+}
+
+uint16_t calcAs608Checksum(
+  uint8_t packetType,
+  uint16_t packetLen,
+  const uint8_t* payload,
+  size_t payloadLen
+) {
+  uint32_t sum = 0;
+  sum += packetType;
+  sum += (packetLen >> 8) & 0xFF;
+  sum += packetLen & 0xFF;
+
+  for (size_t i = 0; i < payloadLen; ++i) {
+    sum += payload[i];
+  }
+
+  return (uint16_t)(sum & 0xFFFF);
+}
+
+bool writeAs608Packet(uint8_t packetType, const uint8_t* payload, size_t payloadLen) {
+  if (payloadLen > 512) {
+    return false;
+  }
+
+  const uint16_t packetLen = (uint16_t)(payloadLen + 2);
+  const uint16_t checksum = calcAs608Checksum(packetType, packetLen, payload, payloadLen);
+
+  fingerSerial.write((uint8_t)((AS608_PACKET_START_CODE >> 8) & 0xFF));
+  fingerSerial.write((uint8_t)(AS608_PACKET_START_CODE & 0xFF));
+
+  // Default sensor address: 0xFFFFFFFF
+  fingerSerial.write((uint8_t)0xFF);
+  fingerSerial.write((uint8_t)0xFF);
+  fingerSerial.write((uint8_t)0xFF);
+  fingerSerial.write((uint8_t)0xFF);
+
+  fingerSerial.write(packetType);
+  fingerSerial.write((uint8_t)((packetLen >> 8) & 0xFF));
+  fingerSerial.write((uint8_t)(packetLen & 0xFF));
+
+  for (size_t i = 0; i < payloadLen; ++i) {
+    fingerSerial.write(payload[i]);
+  }
+
+  fingerSerial.write((uint8_t)((checksum >> 8) & 0xFF));
+  fingerSerial.write((uint8_t)(checksum & 0xFF));
+  fingerSerial.flush();
+
+  return true;
+}
+
+bool readAs608Packet(
+  uint8_t& outType,
+  uint8_t* outPayload,
+  size_t outPayloadCap,
+  size_t& outPayloadLen,
+  unsigned long timeoutMs
+) {
+  outType = 0;
+  outPayloadLen = 0;
+
+  uint8_t header[9] = {0};
+  for (size_t i = 0; i < sizeof(header); ++i) {
+    if (!readFingerprintByte(header[i], timeoutMs)) {
+      return false;
+    }
+  }
+
+  const uint16_t startCode = ((uint16_t)header[0] << 8) | header[1];
+  if (startCode != AS608_PACKET_START_CODE) {
+    return false;
+  }
+
+  outType = header[6];
+  const uint16_t packetLen = ((uint16_t)header[7] << 8) | header[8];
+  if (packetLen < 2) {
+    return false;
+  }
+
+  const size_t payloadLen = (size_t)packetLen - 2;
+  if (payloadLen > outPayloadCap) {
+    return false;
+  }
+
+  uint32_t checksumCalc = 0;
+  checksumCalc += outType;
+  checksumCalc += header[7];
+  checksumCalc += header[8];
+
+  for (size_t i = 0; i < payloadLen; ++i) {
+    uint8_t b = 0;
+    if (!readFingerprintByte(b, timeoutMs)) {
+      return false;
+    }
+
+    outPayload[i] = b;
+    checksumCalc += b;
+  }
+
+  uint8_t checksumMsb = 0;
+  uint8_t checksumLsb = 0;
+  if (!readFingerprintByte(checksumMsb, timeoutMs) || !readFingerprintByte(checksumLsb, timeoutMs)) {
+    return false;
+  }
+
+  const uint16_t checksumRead = ((uint16_t)checksumMsb << 8) | checksumLsb;
+  if (((uint16_t)checksumCalc) != checksumRead) {
+    return false;
+  }
+
+  outPayloadLen = payloadLen;
+  return true;
+}
+
+bool waitAs608AckOk(unsigned long timeoutMs, uint8_t& confirmationCode) {
+  confirmationCode = 0xFF;
+  uint8_t packetType = 0;
+  uint8_t payload[64] = {0};
+  size_t payloadLen = 0;
+
+  if (!readAs608Packet(packetType, payload, sizeof(payload), payloadLen, timeoutMs)) {
+    return false;
+  }
+
+  if (packetType != AS608_PACKET_ACK || payloadLen < 1) {
+    return false;
+  }
+
+  confirmationCode = payload[0];
+  return confirmationCode == FINGERPRINT_OK;
+}
+
+bool readTemplateFromCharBuffer(uint8_t bufferId, uint8_t* outTemplate, size_t outCap, size_t& outLen) {
+  outLen = 0;
+  if (!outTemplate || outCap == 0) {
+    return false;
+  }
+
+  const uint8_t cmd[2] = { AS608_CMD_UPCHAR, bufferId };
+  flushFingerprintSerialInput();
+  if (!writeAs608Packet(AS608_PACKET_COMMAND, cmd, sizeof(cmd))) {
+    return false;
+  }
+
+  uint8_t confirmationCode = 0xFF;
+  if (!waitAs608AckOk(2000, confirmationCode)) {
+    Serial.print("[FINGER] UPCHAR ack failed: ");
+    Serial.println(confirmationCode);
+    return false;
+  }
+
+  while (true) {
+    uint8_t packetType = 0;
+    uint8_t packetPayload[128] = {0};
+    size_t packetPayloadLen = 0;
+    if (!readAs608Packet(packetType, packetPayload, sizeof(packetPayload), packetPayloadLen, 2500)) {
+      return false;
+    }
+
+    if (packetType != AS608_PACKET_DATA && packetType != AS608_PACKET_END_DATA) {
+      return false;
+    }
+
+    if (outLen + packetPayloadLen > outCap) {
+      return false;
+    }
+
+    memcpy(outTemplate + outLen, packetPayload, packetPayloadLen);
+    outLen += packetPayloadLen;
+
+    if (packetType == AS608_PACKET_END_DATA) {
+      break;
+    }
+  }
+
+  return outLen > 0;
+}
+
+bool writeTemplateToCharBuffer(uint8_t bufferId, const uint8_t* templateData, size_t templateLen) {
+  if (!templateData || templateLen == 0) {
+    return false;
+  }
+
+  const uint8_t cmd[2] = { AS608_CMD_DOWNCHAR, bufferId };
+  flushFingerprintSerialInput();
+  if (!writeAs608Packet(AS608_PACKET_COMMAND, cmd, sizeof(cmd))) {
+    return false;
+  }
+
+  uint8_t confirmationCode = 0xFF;
+  if (!waitAs608AckOk(2000, confirmationCode)) {
+    Serial.print("[FINGER] DOWNCHAR ack failed: ");
+    Serial.println(confirmationCode);
+    return false;
+  }
+
+  size_t offset = 0;
+  while (offset < templateLen) {
+    size_t chunkLen = templateLen - offset;
+    if (chunkLen > TEMPLATE_PACKET_CHUNK_BYTES) {
+      chunkLen = TEMPLATE_PACKET_CHUNK_BYTES;
+    }
+
+    const bool isLast = (offset + chunkLen) >= templateLen;
+    const uint8_t packetType = isLast ? AS608_PACKET_END_DATA : AS608_PACKET_DATA;
+    if (!writeAs608Packet(packetType, templateData + offset, chunkLen)) {
+      return false;
+    }
+
+    offset += chunkLen;
+  }
+
+  return waitAs608AckOk(3000, confirmationCode);
+}
+
+bool exportTemplateFromCharBufferBase64(uint8_t bufferId, String& outBase64, size_t& outBytes) {
+  outBase64 = "";
+  outBytes = 0;
+
+  size_t rawBytes = 0;
+  if (!readTemplateFromCharBuffer(bufferId, gTemplateRawBuffer, sizeof(gTemplateRawBuffer), rawBytes)) {
+    return false;
+  }
+
+  if (!encodeTemplateBase64(gTemplateRawBuffer, rawBytes, outBase64)) {
+    return false;
+  }
+
+  outBytes = rawBytes;
+  return true;
+}
+
+bool compareTemplateBuffers(int& outConfidence) {
+  outConfidence = 0;
+
+  const uint8_t cmd[1] = { AS608_CMD_MATCH };
+  flushFingerprintSerialInput();
+  if (!writeAs608Packet(AS608_PACKET_COMMAND, cmd, sizeof(cmd))) {
+    return false;
+  }
+
+  uint8_t packetType = 0;
+  uint8_t payload[16] = {0};
+  size_t payloadLen = 0;
+  if (!readAs608Packet(packetType, payload, sizeof(payload), payloadLen, 2500)) {
+    return false;
+  }
+
+  if (packetType != AS608_PACKET_ACK || payloadLen < 1) {
+    return false;
+  }
+
+  const uint8_t confirmationCode = payload[0];
+  if (confirmationCode != FINGERPRINT_OK) {
+    return false;
+  }
+
+  if (payloadLen >= 3) {
+    outConfidence = ((int)payload[1] << 8) | payload[2];
+  }
+
+  return true;
 }
 
 int actionToValue01(String actionRaw) {
@@ -366,30 +844,13 @@ bool captureImageToBuffer(uint8_t slot, unsigned long timeoutMs) {
   return false;
 }
 
-int storeModelToSlot(int preferredId) {
-  if (preferredId > 0 && preferredId <= MAX_FINGER_SLOT) {
-    int st = finger.storeModel(preferredId);
-    if (st == FINGERPRINT_OK) {
-      return preferredId;
-    }
-    Serial.print("[FINGER] store preferred slot failed: ");
-    Serial.println(st);
-  }
+bool enrollFingerprintToRawTemplate(String& outTemplateData, size_t& outTemplateBytes) {
+  outTemplateData = "";
+  outTemplateBytes = 0;
 
-  for (int slot = 1; slot <= MAX_FINGER_SLOT; ++slot) {
-    int st = finger.storeModel(slot);
-    if (st == FINGERPRINT_OK) {
-      return slot;
-    }
-  }
-
-  return -1;
-}
-
-int enrollFingerprint(int preferredId) {
   lcdShow("Place finger", "for enroll #1");
   if (!captureImageToBuffer(1, 10000)) {
-    return -1;
+    return false;
   }
 
   lcdShow("Remove finger", "");
@@ -397,35 +858,59 @@ int enrollFingerprint(int preferredId) {
 
   lcdShow("Place finger", "for enroll #2");
   if (!captureImageToBuffer(2, 10000)) {
-    return -1;
+    return false;
   }
 
   int cm = finger.createModel();
   if (cm != FINGERPRINT_OK) {
     Serial.print("[FINGER] createModel failed: ");
     Serial.println(cm);
-    return -1;
+    return false;
   }
 
-  return storeModelToSlot(preferredId);
+  return exportTemplateFromCharBufferBase64(1, outTemplateData, outTemplateBytes);
 }
 
-bool verifyFingerprint(int& outFingerId, int& outConfidence) {
+bool verifyFingerprintWithTemplateData(
+  const String& templateData,
+  const String& templateEncodingRaw,
+  int& outConfidence
+) {
+  outConfidence = 0;
+
+  String templateEncoding = templateEncodingRaw;
+  templateEncoding.toLowerCase();
+  if (templateEncoding.length() == 0) {
+    templateEncoding = "as608_template_base64";
+  }
+
+  if (templateEncoding != "as608_template_base64" && templateEncoding != "base64") {
+    Serial.println("[FINGER] verify rejected unsupported template encoding");
+    return false;
+  }
+
+  if (templateData.length() == 0) {
+    Serial.println("[FINGER] verify rejected empty template data");
+    return false;
+  }
+
   lcdShow("Place finger", "for verify");
   if (!captureImageToBuffer(1, 10000)) {
     return false;
   }
 
-  int search = finger.fingerFastSearch();
-  if (search == FINGERPRINT_OK) {
-    outFingerId = finger.fingerID;
-    outConfidence = finger.confidence;
-    return true;
+  size_t decodedLen = 0;
+  if (!decodeTemplateBase64(templateData, gTemplateRawBuffer, sizeof(gTemplateRawBuffer), decodedLen)) {
+    Serial.println("[FINGER] verify failed to decode template base64");
+    return false;
   }
 
-  Serial.print("[FINGER] fingerFastSearch failed: ");
-  Serial.println(search);
-  return false;
+  if (!writeTemplateToCharBuffer(2, gTemplateRawBuffer, decodedLen)) {
+    Serial.println("[FINGER] verify failed to load template into char buffer");
+    return false;
+  }
+
+  return compareTemplateBuffers(outConfidence);
 }
 
 void resetPendingFingerprintState() {
@@ -435,6 +920,8 @@ void resetPendingFingerprintState() {
   pendingCorrelationId = "";
   pendingUserId = "";
   pendingFingerId = -1;
+  pendingTemplateData = "";
+  pendingTemplateEncoding = "";
 }
 
 void processPendingFingerprint() {
@@ -450,25 +937,40 @@ void processPendingFingerprint() {
 
   if (pendingIsRegister) {
     lcdShow("Enrollment", "processing...");
-    int newFingerId = enrollFingerprint(pendingFingerId);
-    if (newFingerId > 0) {
-      sendFingerprintResult(true, newFingerId, String(newFingerId), pendingUserId, pendingCorrelationId);
-      lcdShow("Enroll success", String("ID:") + String(newFingerId));
+    String enrolledTemplate = "";
+    size_t templateBytes = 0;
+    bool enrolled = enrollFingerprintToRawTemplate(enrolledTemplate, templateBytes);
+    if (enrolled) {
+      sendFingerprintResult(
+        true,
+        -1,
+        enrolledTemplate,
+        pendingUserId,
+        pendingCorrelationId,
+        "as608_template_base64"
+      );
+      Serial.print("[FINGER] enroll exported template bytes=");
+      Serial.println((unsigned long)templateBytes);
+      lcdShow("Enroll success", "Template saved");
     } else {
       sendFingerprintResult(false, -1, "", pendingUserId, pendingCorrelationId);
       lcdShow("Enroll failed", "Try again");
     }
   } else {
     lcdShow("Verification", "processing...");
-    int matchedId = -1;
     int confidence = 0;
-    bool matched = verifyFingerprint(matchedId, confidence);
+    bool matched = verifyFingerprintWithTemplateData(
+      pendingTemplateData,
+      pendingTemplateEncoding,
+      confidence
+    );
+    int reportedFingerId = matched ? pendingFingerId : -1;
     if (matched) {
-      sendFingerprintResult(true, matchedId, String(matchedId), pendingUserId, pendingCorrelationId);
-      lcdShow("Verify success", String("ID:") + String(matchedId));
+      sendFingerprintResult(true, reportedFingerId, "", pendingUserId, pendingCorrelationId);
+      lcdShow("Verify success", "Fingerprint OK");
     } else {
       sendFingerprintResult(false, -1, "", pendingUserId, pendingCorrelationId);
-      lcdShow("Verify failed", "Try again");
+      lcdShow("Verify failed", "No template match");
     }
   }
 
@@ -543,6 +1045,25 @@ int extractPin(JsonObject cmd) {
   return -1;
 }
 
+int extractIntValue(JsonObject obj, const char* key, int fallback = -1) {
+  if (!obj.containsKey(key)) {
+    return fallback;
+  }
+
+  if (obj[key].is<int>() || obj[key].is<long>() || obj[key].is<unsigned long>()) {
+    return (int)obj[key];
+  }
+
+  if (obj[key].is<const char*>()) {
+    const char* raw = obj[key];
+    if (raw) {
+      return atoi(raw);
+    }
+  }
+
+  return fallback;
+}
+
 void handleFingerCommand(JsonObject cmd, bool isRegister) {
   unsigned long delayMs = DEFAULT_FINGER_DELAY_MS;
   if (cmd.containsKey("delaySeconds")) {
@@ -571,6 +1092,13 @@ void handleFingerCommand(JsonObject cmd, bool isRegister) {
     }
   }
 
+  pendingTemplateData = extractString(cmd, "templateData", "");
+  pendingTemplateEncoding = extractString(
+    cmd,
+    "templateEncoding",
+    extractString(cmd, "fingerDataFormat", "")
+  );
+
   pendingIsRegister = isRegister;
   pendingFingerDueAt = millis() + delayMs;
   fingerMode = F_WAIT_CAPTURE;
@@ -582,6 +1110,48 @@ void handleFingerCommand(JsonObject cmd, bool isRegister) {
     lcdShow("Fingerprint", "verifying...");
     Serial.println("[FINGER] verification scheduled");
   }
+}
+
+void handleTemplateImportCommand(JsonObject cmd) {
+  String correlationId = extractString(cmd, "correlationId", "");
+  String userId = extractString(cmd, "userId", "");
+  int preferredFingerId = extractIntValue(cmd, "fingerId", -1);
+  String sourceDeviceId = extractString(cmd, "sourceDeviceId", "");
+  int sourceFingerId = extractIntValue(cmd, "sourceFingerId", -1);
+
+  sendTemplateSyncResult(
+    false,
+    "import",
+    preferredFingerId,
+    "",
+    "as608_template_base64",
+    userId,
+    correlationId,
+    sourceDeviceId,
+    sourceFingerId,
+    0,
+    "sensor_storage_disabled_use_db_raw_template"
+  );
+}
+
+void handleTemplateExportCommand(JsonObject cmd) {
+  String correlationId = extractString(cmd, "correlationId", "");
+  String userId = extractString(cmd, "userId", "");
+  int fingerId = extractIntValue(cmd, "fingerId", -1);
+
+  sendTemplateSyncResult(
+    false,
+    "export",
+    fingerId,
+    "",
+    "as608_template_base64",
+    userId,
+    correlationId,
+    DEVICE_ID,
+    fingerId,
+    0,
+    "sensor_storage_disabled_use_register_raw_template"
+  );
 }
 
 void handleLockCommand(JsonObject cmd) {
@@ -672,6 +1242,16 @@ void handleIncomingJson(DynamicJsonDocument& doc) {
 
   if (actionLower == "finger_verify") {
     handleFingerCommand(cmd, false);
+    return;
+  }
+
+  if (actionLower == "finger_template_import") {
+    handleTemplateImportCommand(cmd);
+    return;
+  }
+
+  if (actionLower == "finger_template_export") {
+    handleTemplateExportCommand(cmd);
     return;
   }
 

@@ -119,7 +119,13 @@ function createEsp32WsGateway(options) {
       }
 
       // Forward realtime telemetry payloads from plain WS devices.
-      if (type === 'init' || type === 'heartbeat' || type === 'state' || type === 'fingerprint') {
+      if (
+        type === 'init' ||
+        type === 'heartbeat' ||
+        type === 'state' ||
+        type === 'fingerprint' ||
+        type === 'finger_template'
+      ) {
         if (typeof callbacks.onTelemetry === 'function') {
           callbacks.onTelemetry({ ...parsed, deviceId });
         }

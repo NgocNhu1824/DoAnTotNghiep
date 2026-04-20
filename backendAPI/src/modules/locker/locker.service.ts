@@ -9,11 +9,13 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
 
 import { Locker } from '@/database/schemas/locker.schema';
 import { Campus } from '@/database/schemas/campus.schema';
 import { ESP32 } from '@/database/schemas/esp32.schema';
 import { User } from '@/database/schemas/user.schema';
+import { FingerprintTemplate } from '@/database/schemas/fingerprint-template.schema';
 import { AccessLog } from '@/database/schemas/access-log.schema';
 import { RoomUsageState } from '@/database/schemas/room-usage-state.schema';
 import { Room } from '@/database/schemas/room.schema';
@@ -61,6 +63,9 @@ export class LockerService implements OnModuleInit {
 
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
+
+    @InjectModel(FingerprintTemplate.name)
+    private readonly fingerprintTemplateModel: Model<FingerprintTemplate>,
 
     @InjectModel(AccessLog.name)
     private readonly accessLogModel: Model<AccessLog>,
@@ -450,6 +455,59 @@ export class LockerService implements OnModuleInit {
     return String(value).trim();
   }
 
+  private normalizeTemplateEncoding(value: unknown): string | null {
+    const normalized = this.normalizeNullableString(value);
+    if (!normalized) {
+      return null;
+    }
+
+    return normalized.toLowerCase();
+  }
+
+  private looksLikeAs608TemplateBase64(value: unknown): boolean {
+    const normalized = this.normalizeNullableString(value);
+    if (!normalized) {
+      return false;
+    }
+
+    if (normalized.length < 128 || normalized.length % 4 !== 0) {
+      return false;
+    }
+
+    return /^[A-Za-z0-9+/=]+$/.test(normalized);
+  }
+
+  private resolveTemplateEncodingFromMetadata(metadata?: Record<string, any>): string | null {
+    if (!metadata || typeof metadata !== 'object') {
+      return null;
+    }
+
+    return this.normalizeTemplateEncoding(
+      metadata.fingerDataFormat ||
+        metadata.templateEncoding ||
+        metadata.fingerDataEncoding ||
+        metadata.templateFormat,
+    );
+  }
+
+  private isSyncableTemplatePayload(templateData: unknown, templateEncoding?: unknown): boolean {
+    const normalizedData = this.normalizeNullableString(templateData);
+    if (!normalizedData) {
+      return false;
+    }
+
+    const normalizedEncoding = this.normalizeTemplateEncoding(templateEncoding);
+    if (normalizedEncoding === 'legacy_finger_id') {
+      return false;
+    }
+
+    if (normalizedEncoding === 'as608_template_base64' || normalizedEncoding === 'base64') {
+      return this.looksLikeAs608TemplateBase64(normalizedData);
+    }
+
+    return this.looksLikeAs608TemplateBase64(normalizedData);
+  }
+
   private assertValidGatewayId(gatewayId: unknown, fieldName = 'gatewayId') {
     const normalized = this.normalizeNullableString(gatewayId);
     if (!normalized) {
@@ -575,6 +633,82 @@ export class LockerService implements OnModuleInit {
     }
 
     return gatewayId;
+  }
+
+  private async resolveVerificationTemplateForUser(params: {
+    userId: string;
+    targetDeviceId?: string | null;
+  }): Promise<{
+    templateData: string;
+    templateEncoding: string;
+    sourceDeviceId: string | null;
+    fingerId: number | null;
+    templateHash: string | null;
+  } | null> {
+    const userObjectId = this.toObjectId(params.userId);
+    if (!userObjectId) {
+      return null;
+    }
+
+    const normalizedTargetDeviceId = this.normalizeNullableString(params.targetDeviceId);
+
+    const templates = await this.fingerprintTemplateModel
+      .find({
+        userId: userObjectId,
+        isActive: true,
+      })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .lean();
+
+    if (!Array.isArray(templates) || templates.length === 0) {
+      return null;
+    }
+
+    const normalizeCandidate = (candidate: any) => {
+      const templateData = this.normalizeNullableString(candidate?.templateData);
+      const templateEncoding =
+        this.normalizeTemplateEncoding(candidate?.templateEncoding) || 'as608_template_base64';
+      const sourceDeviceId = this.normalizeNullableString(candidate?.deviceId);
+      const fingerIdRaw = Number(candidate?.fingerId);
+      const fingerId = Number.isFinite(fingerIdRaw) && fingerIdRaw > 0 ? Math.round(fingerIdRaw) : null;
+      const templateHash = this.normalizeNullableString(candidate?.templateHash);
+
+      if (!this.isSyncableTemplatePayload(templateData, templateEncoding)) {
+        return null;
+      }
+
+      return {
+        templateData: String(templateData),
+        templateEncoding,
+        sourceDeviceId,
+        fingerId,
+        templateHash,
+      };
+    };
+
+    if (normalizedTargetDeviceId) {
+      const preferred = templates.find(
+        (candidate: any) =>
+          this.normalizeNullableString(candidate?.deviceId) === normalizedTargetDeviceId &&
+          this.isSyncableTemplatePayload(candidate?.templateData, candidate?.templateEncoding),
+      );
+
+      if (preferred) {
+        const normalized = normalizeCandidate(preferred);
+        if (normalized) {
+          return normalized;
+        }
+      }
+    }
+
+    for (const candidate of templates) {
+      const normalized = normalizeCandidate(candidate);
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    return null;
   }
 
   private isTechnicalAccessMethod(method: string) {
@@ -1198,6 +1332,34 @@ export class LockerService implements OnModuleInit {
     const action = this.normalizeAccessAction(method, metadata);
     const usageEffect = this.resolveUsageEffect(payload.status, method, action, metadata);
 
+    const shouldPersistFingerprintTemplate = (() => {
+      if (method !== 'fingerprint') {
+        return false;
+      }
+
+      const operation = String(metadata?.operation || '').trim().toLowerCase();
+      const commandAction = String(metadata?.commandAction || '').trim().toLowerCase();
+      const sourceType = String(metadata?.sourceType || '').trim().toLowerCase();
+      const source = String(metadata?.source || '').trim().toLowerCase();
+      const isSimulated = metadata?.simulated === true || metadata?.simulatedBy !== undefined;
+
+      const explicitRegister =
+        operation === 'register' ||
+        commandAction === 'finger_register' ||
+        action === 'register' ||
+        sourceType.includes('register');
+
+      const explicitTemplateSync =
+        operation === 'import_template' ||
+        operation === 'template_sync' ||
+        commandAction === 'finger_template_import' ||
+        sourceType.includes('template_sync') ||
+        sourceType.includes('template_import');
+
+      const simulatedRegister = isSimulated && source.includes('admin-test');
+      return explicitRegister || simulatedRegister || explicitTemplateSync;
+    })();
+
     const rawAccessTime = this.normalizeNullableString(metadata.accessTime);
     const parsedAccessTime = rawAccessTime ? new Date(rawAccessTime) : new Date();
     const accessTime = Number.isNaN(parsedAccessTime.getTime()) ? new Date() : parsedAccessTime;
@@ -1292,14 +1454,61 @@ export class LockerService implements OnModuleInit {
       correlationId: this.normalizeNullableString(metadata.correlationId),
     });
 
-    // If fingerprint data was provided in metadata and a valid user id is available,
-    // save fingerprintData into the users collection for registration flows.
+    // Persist registration fingerprint payload to dedicated collection.
+    // Keep users.fingerprintData in sync for backward compatibility.
     try {
       const fingerDataCandidate = metadata?.fingerData ?? metadata?.fingerprintData ?? metadata?.fingerDataRaw;
-      if (fingerDataCandidate && userObjectId) {
+      const normalizedFingerData = this.normalizeNullableString(fingerDataCandidate);
+
+      if (normalizedFingerData && userObjectId && shouldPersistFingerprintTemplate) {
+        const fingerIdCandidate = Number(payload.fingerId ?? metadata?.fingerId);
+        const normalizedFingerId = Number.isFinite(fingerIdCandidate)
+          ? Math.max(1, Math.round(fingerIdCandidate))
+          : null;
+        const normalizedSource =
+          this.normalizeNullableString(metadata?.sourceType || metadata?.source) || 'iot_gateway';
+        const normalizedDeviceId = this.normalizeNullableString(payload.deviceId);
+        const normalizedTemplateEncoding =
+          this.resolveTemplateEncodingFromMetadata(metadata) || 'as608_template_base64';
+        const canPersistTemplate = this.isSyncableTemplatePayload(
+          normalizedFingerData,
+          normalizedTemplateEncoding,
+        );
+
+        if (canPersistTemplate) {
+          const templateHash = createHash('sha256').update(normalizedFingerData).digest('hex');
+          const templateQuery = {
+            userId: userObjectId,
+            deviceId: normalizedDeviceId || null,
+          };
+
+          await this.fingerprintTemplateModel
+            .findOneAndUpdate(
+              templateQuery,
+              {
+                $set: {
+                  templateData: normalizedFingerData,
+                  fingerId: normalizedFingerId,
+                  deviceId: normalizedDeviceId,
+                  provider: 'as608',
+                  source: normalizedSource,
+                  isActive: true,
+                  templateHash,
+                  templateEncoding: normalizedTemplateEncoding,
+                },
+              },
+              {
+                upsert: true,
+                new: true,
+                setDefaultsOnInsert: true,
+              },
+            )
+            .exec();
+        }
+
         await this.userModel.updateOne(
           { _id: userObjectId },
-          { $set: { fingerprintData: String(fingerDataCandidate) } },
+          { $set: { fingerprintData: normalizedFingerData } },
         ).exec();
       }
     } catch (err: unknown) {
@@ -2716,19 +2925,41 @@ export class LockerService implements OnModuleInit {
       ? Math.max(1, Math.min(30, Math.round(delaySecondsRaw)))
       : undefined;
 
+    const lockerGatewayId = this.normalizeNullableString((locker as any).gatewayId);
+    const verificationTemplate = await this.resolveVerificationTemplateForUser({
+      userId: currentUserId,
+      targetDeviceId: deviceId,
+    });
+
+    if (!verificationTemplate) {
+      throw new BadRequestException(
+        'No usable raw fingerprint template found in DB for current user. Please register fingerprint again.',
+      );
+    }
+
     const correlationId = `finger-verify-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
     const command: Record<string, any> = {
       correlationId,
       deviceId,
-      gatewayId: this.normalizeNullableString((locker as any).gatewayId) || undefined,
+      gatewayId: lockerGatewayId || undefined,
       action: 'finger_verify',
       userId: currentUserId,
       roomId: resolvedRoomId ? String(resolvedRoomId) : null,
       lockerId,
       usageAction,
       sourceType: usageAction === 'return' ? 'mobile_fingerid_return' : 'mobile_fingerid_verify',
+      verifyMode: 'template_raw_db',
+      templateData: verificationTemplate.templateData,
+      templateEncoding: verificationTemplate.templateEncoding,
+      sourceDeviceId: verificationTemplate.sourceDeviceId || undefined,
+      sourceFingerId: verificationTemplate.fingerId ?? undefined,
+      templateHash: verificationTemplate.templateHash || undefined,
     };
+
+    if (verificationTemplate.fingerId) {
+      command.fingerId = verificationTemplate.fingerId;
+    }
 
     if (Number.isFinite(pin)) {
       command.pin = pin;
@@ -2761,6 +2992,12 @@ export class LockerService implements OnModuleInit {
         (usageAction === 'return' ? 'mobile_fingerid_return' : 'mobile_fingerid_verify'),
       correlationId,
       iotGatewayDispatch: gatewayDispatch,
+      verificationTemplate: {
+        sourceDeviceId: verificationTemplate.sourceDeviceId,
+        fingerId: verificationTemplate.fingerId,
+        templateEncoding: verificationTemplate.templateEncoding,
+        templateHash: verificationTemplate.templateHash,
+      },
     };
 
     if (contextScheduleId) {
@@ -2812,6 +3049,12 @@ export class LockerService implements OnModuleInit {
         pin: Number.isFinite(pin) ? pin : null,
         correlationId,
         usageAction,
+        verificationTemplate: {
+          sourceDeviceId: verificationTemplate.sourceDeviceId,
+          fingerId: verificationTemplate.fingerId,
+          templateEncoding: verificationTemplate.templateEncoding,
+          templateHash: verificationTemplate.templateHash,
+        },
         gatewayDispatch,
         warnings:
           returnOverdueWarning && returnOverdueWarning.isOverdue

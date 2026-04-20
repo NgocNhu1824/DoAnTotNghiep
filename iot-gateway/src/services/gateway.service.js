@@ -90,6 +90,7 @@ class GatewayService {
     const normalizedCorrelationId = String(correlationId || '').trim();
     if (normalizedCorrelationId.startsWith('finger-register-')) return 'register';
     if (normalizedCorrelationId.startsWith('finger-verify-')) return 'verify';
+    if (normalizedCorrelationId.startsWith('finger-template-sync-')) return 'template_sync';
     return 'unknown';
   }
 
@@ -925,6 +926,12 @@ class GatewayService {
     const rawCorrelationId = payload.correlationId !== undefined ? String(payload.correlationId) : '';
     const correlationId = rawCorrelationId.trim();
     const operation = this.resolveFingerprintOperation(correlationId);
+    const templateEncoding =
+      payload.fingerDataFormat !== undefined
+        ? String(payload.fingerDataFormat)
+        : payload.templateEncoding !== undefined
+          ? String(payload.templateEncoding)
+          : undefined;
     const sessionAction = fingerprintSession?.action === 'finger_register'
       ? 'register'
       : String(fingerprintSession?.usageAction || '').toLowerCase() === 'return'
@@ -962,6 +969,79 @@ class GatewayService {
         pin: Number.isFinite(sessionPin) ? sessionPin : undefined,
         // forward raw fingerprint data if ESP32 provided it (registration flow)
         fingerData: payload.fingerData !== undefined ? payload.fingerData : undefined,
+        fingerDataFormat: templateEncoding,
+        templateEncoding,
+        templateBytes:
+          payload.templateBytes !== undefined && Number.isFinite(Number(payload.templateBytes))
+            ? Number(payload.templateBytes)
+            : undefined,
+        sourceDeviceId:
+          payload.sourceDeviceId !== undefined && payload.sourceDeviceId !== null
+            ? String(payload.sourceDeviceId)
+            : undefined,
+        sourceFingerId:
+          payload.sourceFingerId !== undefined && Number.isFinite(Number(payload.sourceFingerId))
+            ? Number(payload.sourceFingerId)
+            : undefined,
+      },
+    });
+  }
+
+  async syncTemplateEventLog(payload, deviceId) {
+    const rawCorrelationId = payload.correlationId !== undefined ? String(payload.correlationId) : '';
+    const correlationId = rawCorrelationId.trim();
+    const operationRaw = String(payload.operation || 'import').trim().toLowerCase();
+    const operation = operationRaw === 'export' ? 'export_template' : 'import_template';
+    const commandAction = operationRaw === 'export' ? 'finger_template_export' : 'finger_template_import';
+    const templateEncoding =
+      payload.templateEncoding !== undefined
+        ? String(payload.templateEncoding)
+        : payload.fingerDataFormat !== undefined
+          ? String(payload.fingerDataFormat)
+          : 'as608_template_base64';
+    const status = payload.success === false ? 'failed' : 'success';
+
+    return await this.postSafe('/esp32/access-log', {
+      deviceId,
+      method: 'fingerprint',
+      status,
+      fingerId: payload.fingerId !== undefined ? Number(payload.fingerId) : null,
+      userId:
+        payload.userId !== undefined && payload.userId !== null
+          ? String(payload.userId)
+          : null,
+      userName:
+        payload.userName !== undefined && payload.userName !== null
+          ? String(payload.userName)
+          : null,
+      metadata: {
+        source: payload.source || 'esp32',
+        matched: status === 'success',
+        correlationId: correlationId || undefined,
+        operation,
+        commandAction,
+        action: 'register',
+        usageAction: 'unlock',
+        sourceType: operationRaw === 'export' ? 'template_sync_export' : 'template_sync_import',
+        fingerData: payload.templateData !== undefined ? payload.templateData : undefined,
+        fingerDataFormat: templateEncoding,
+        templateEncoding,
+        templateBytes:
+          payload.templateBytes !== undefined && Number.isFinite(Number(payload.templateBytes))
+            ? Number(payload.templateBytes)
+            : undefined,
+        sourceDeviceId:
+          payload.sourceDeviceId !== undefined && payload.sourceDeviceId !== null
+            ? String(payload.sourceDeviceId)
+            : undefined,
+        sourceFingerId:
+          payload.sourceFingerId !== undefined && Number.isFinite(Number(payload.sourceFingerId))
+            ? Number(payload.sourceFingerId)
+            : undefined,
+        error:
+          payload.error !== undefined && payload.error !== null
+            ? String(payload.error)
+            : undefined,
       },
     });
   }
@@ -1049,6 +1129,19 @@ class GatewayService {
       }, deviceId);
       this.logger.info('Forwarded fingerprint payload via WebSocket', deviceId);
       return data;
+    }
+
+    if (type === 'finger_template') {
+      const syncResult = await this.syncTemplateEventLog(data, deviceId);
+      this.logger.info(
+        'Synced finger_template payload',
+        deviceId,
+        `accepted=${Boolean(syncResult?.ok)}`,
+      );
+      return {
+        ...data,
+        syncAccepted: Boolean(syncResult?.ok),
+      };
     }
 
     this.logger.info('Received unsupported payload type, no sync rule', type || 'unknown');

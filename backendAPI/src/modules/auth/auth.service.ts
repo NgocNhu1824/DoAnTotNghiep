@@ -20,6 +20,7 @@ import { Role } from '@/database/schemas/role.schema';
 import { Permission } from '@/database/schemas/permission.schema';
 import { RolePermission } from '@/database/schemas/role-permission.schema';
 import { FaceTemplate } from '@/database/schemas/face-template.schema';
+import { FingerprintTemplate } from '@/database/schemas/fingerprint-template.schema';
 import { ResetPasswordToken } from '@/database/schemas/reset-password-token.schema';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { JwtPayload } from '@/common/interfaces/auth.interface';
@@ -135,11 +136,37 @@ export class AuthService {
     @InjectModel(Permission.name) private permissionModel: Model<Permission>,
     @InjectModel(RolePermission.name) private rolePermissionModel: Model<RolePermission>,
     @InjectModel(FaceTemplate.name) private faceTemplateModel: Model<FaceTemplate>,
+    @InjectModel(FingerprintTemplate.name)
+    private fingerprintTemplateModel: Model<FingerprintTemplate>,
     @InjectModel(ResetPasswordToken.name)
     private resetPasswordTokenModel: Model<ResetPasswordToken>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
+
+  private async hasFingerprintRegistration(userId: string): Promise<boolean> {
+    const normalizedUserId = String(userId || '').trim();
+    if (!normalizedUserId) {
+      return false;
+    }
+
+    const hasDedicatedTemplate = await this.fingerprintTemplateModel.exists({
+      userId: normalizedUserId,
+      isActive: true,
+    });
+
+    if (hasDedicatedTemplate) {
+      return true;
+    }
+
+    // Backward-compatible fallback for legacy data.
+    const hasLegacyFingerprint = await this.userModel.exists({
+      _id: normalizedUserId,
+      fingerprintData: { $exists: true, $nin: ['', null] },
+    });
+
+    return Boolean(hasLegacyFingerprint);
+  }
 
   /**
    * Validate and login user with Google
@@ -252,10 +279,7 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(payload);
     const hasFaceTemplate = await this.faceTemplateModel.exists({ userId: populatedUser._id });
-    const hasFingerTemplate = await this.userModel.exists({
-      _id: populatedUser._id,
-      fingerprintData: { $exists: true, $nin: ['', null] },
-    });
+    const hasFingerTemplate = await this.hasFingerprintRegistration(String(populatedUser._id));
 
     // 8. Return response with role and permissions
     return {
@@ -358,10 +382,7 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(payload);
     const hasFaceTemplate = await this.faceTemplateModel.exists({ userId: user._id });
-    const hasFingerTemplate = await this.userModel.exists({
-      _id: user._id,
-      fingerprintData: { $exists: true, $nin: ['', null] },
-    });
+    const hasFingerTemplate = await this.hasFingerprintRegistration(String(user._id));
 
     return {
       success: true,
@@ -400,10 +421,7 @@ export class AuthService {
     const hasPassword = Boolean(user.passwordHash);
     const hasFaceTemplate = await this.faceTemplateModel.exists({ userId: user._id });
     const hasFaceId = Boolean(hasFaceTemplate);
-    const hasFingerTemplate = await this.userModel.exists({
-      _id: user._id,
-      fingerprintData: { $exists: true, $nin: ['', null] },
-    });
+    const hasFingerTemplate = await this.hasFingerprintRegistration(String(user._id));
     const hasFingerId = Boolean(hasFingerTemplate);
     const userData = user.toObject();
     delete userData.passwordHash;

@@ -10,6 +10,10 @@ import { Campus, CampusSchema } from '@/database/schemas/campus.schema';
 import { ESP32, ESP32Schema } from '@/database/schemas/esp32.schema';
 import { User, UserSchema } from '@/database/schemas/user.schema';
 import {
+  FingerprintTemplate,
+  FingerprintTemplateSchema,
+} from '@/database/schemas/fingerprint-template.schema';
+import {
   AccessLog,
   AccessLogSchema,
 } from '@/database/schemas/access-log.schema';
@@ -31,6 +35,7 @@ import { SettingsModule } from '@/modules/settings/settings.module';
       { name: Campus.name, schema: CampusSchema },
       { name: ESP32.name, schema: ESP32Schema },
       { name: User.name, schema: UserSchema },
+      { name: FingerprintTemplate.name, schema: FingerprintTemplateSchema },
       { name: AccessLog.name, schema: AccessLogSchema },
       { name: RoomUsageState.name, schema: RoomUsageStateSchema },
       { name: Room.name, schema: RoomSchema },
