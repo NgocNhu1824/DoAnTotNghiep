@@ -10,6 +10,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
+import { isValidGatewayId } from '@/common/utils/device-naming.util';
 
 @WebSocketGateway({
   cors: {
@@ -28,7 +29,16 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   private normalizeGatewayId(value: unknown): string | null {
     const normalized = String(value || '').trim();
-    return normalized.length > 0 ? normalized : null;
+    if (normalized.length === 0) {
+      return null;
+    }
+
+    if (!isValidGatewayId(normalized)) {
+      this.logger.warn(`Ignored invalid gatewayId format: ${normalized}`);
+      return null;
+    }
+
+    return normalized;
   }
 
   private gatewayRoom(gatewayId: string): string {

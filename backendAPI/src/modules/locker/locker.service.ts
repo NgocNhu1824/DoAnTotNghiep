@@ -22,6 +22,16 @@ import { Booking } from '@/database/schemas/booking.schema';
 import { EventsGateway } from '@/common/gateways/events.gateway';
 import { AppConfig } from '@/config/app.config';
 import { SettingsService } from '@/modules/settings/settings.service';
+import {
+  buildAs608DeviceIdByFloor,
+  buildGatewayIdByFloor,
+  extractFloorFromGatewayId,
+  extractFloorFromEsp32DeviceId,
+  isAs608DeviceId,
+  isValidEsp32DeviceId,
+  isValidGatewayId,
+  toFloorNumber,
+} from '@/common/utils/device-naming.util';
 
 import { CreateLockerDto } from './dto/create-locker.dto';
 import { UpdateLockerDto } from './dto/update-locker.dto';
@@ -440,9 +450,112 @@ export class LockerService implements OnModuleInit {
     return String(value).trim();
   }
 
+  private assertValidGatewayId(gatewayId: unknown, fieldName = 'gatewayId') {
+    const normalized = this.normalizeNullableString(gatewayId);
+    if (!normalized) {
+      return;
+    }
+
+    if (!isValidGatewayId(normalized)) {
+      throw new BadRequestException(
+        `${fieldName} must match pattern gateway-tang{floor}, e.g. gateway-tang1`,
+      );
+    }
+  }
+
+  private assertValidEsp32DeviceId(deviceId: unknown, fieldName = 'deviceId') {
+    const normalized = this.normalizeNullableString(deviceId);
+    if (!normalized) {
+      throw new BadRequestException(`${fieldName} is required`);
+    }
+
+    if (!isValidEsp32DeviceId(normalized)) {
+      throw new BadRequestException(
+        `${fieldName} must match either esp32-AS608-LCD-tang{floor} or esp32-relay-tang{floor}-{nn}`,
+      );
+    }
+  }
+
+  private resolveAs608Target(params: {
+    floor?: unknown;
+    deviceId?: unknown;
+    gatewayId?: unknown;
+  }): {
+    floor: number;
+    deviceId: string;
+    gatewayId: string;
+  } {
+    const parsedFloor = toFloorNumber(params.floor);
+    const normalizedDeviceId = this.normalizeNullableString(params.deviceId);
+    const normalizedGatewayId = this.normalizeNullableString(params.gatewayId);
+
+    if (parsedFloor) {
+      const expectedDeviceId = buildAs608DeviceIdByFloor(parsedFloor);
+      const expectedGatewayId = buildGatewayIdByFloor(parsedFloor);
+
+      if (normalizedDeviceId && normalizedDeviceId !== expectedDeviceId) {
+        throw new BadRequestException(
+          `deviceId does not match selected floor. Expected ${expectedDeviceId}`,
+        );
+      }
+
+      if (normalizedGatewayId && normalizedGatewayId !== expectedGatewayId) {
+        throw new BadRequestException(
+          `gatewayId does not match selected floor. Expected ${expectedGatewayId}`,
+        );
+      }
+
+      return {
+        floor: parsedFloor,
+        deviceId: expectedDeviceId,
+        gatewayId: expectedGatewayId,
+      };
+    }
+
+    if (!normalizedDeviceId) {
+      throw new BadRequestException('Either floor or deviceId is required');
+    }
+
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceId');
+
+    if (!isAs608DeviceId(normalizedDeviceId)) {
+      throw new BadRequestException(
+        'deviceId must be AS608-LCD device format: esp32-AS608-LCD-tang{floor}',
+      );
+    }
+
+    const inferredFloor = extractFloorFromEsp32DeviceId(normalizedDeviceId);
+    if (!inferredFloor) {
+      throw new BadRequestException('Unable to infer floor from deviceId');
+    }
+
+    const fallbackGatewayId = buildGatewayIdByFloor(inferredFloor);
+    const resolvedGatewayId = normalizedGatewayId || fallbackGatewayId;
+    this.assertValidGatewayId(resolvedGatewayId, 'gatewayId');
+
+    return {
+      floor: inferredFloor,
+      deviceId: normalizedDeviceId,
+      gatewayId: resolvedGatewayId,
+    };
+  }
+
+  resolveAs608TargetForClient(params: {
+    floor?: unknown;
+    deviceId?: unknown;
+    gatewayId?: unknown;
+  }) {
+    return this.resolveAs608Target(params);
+  }
+
   private async resolveGatewayIdForDevice(deviceId: string): Promise<string | null> {
     const normalizedDeviceId = String(deviceId || '').trim();
     if (!normalizedDeviceId) {
+      return null;
+    }
+
+    if (!isValidEsp32DeviceId(normalizedDeviceId)) {
+      this.logger.warn(`resolveGatewayIdForDevice ignored invalid deviceId format: ${normalizedDeviceId}`);
       return null;
     }
 
@@ -451,7 +564,17 @@ export class LockerService implements OnModuleInit {
       .select('gatewayId')
       .lean();
 
-    return this.normalizeNullableString((esp32 as any)?.gatewayId);
+    const gatewayId = this.normalizeNullableString((esp32 as any)?.gatewayId);
+    if (!gatewayId) {
+      return null;
+    }
+
+    if (!isValidGatewayId(gatewayId)) {
+      this.logger.warn(`resolveGatewayIdForDevice ignored invalid gatewayId format: ${gatewayId}`);
+      return null;
+    }
+
+    return gatewayId;
   }
 
   private isTechnicalAccessMethod(method: string) {
@@ -909,6 +1032,20 @@ export class LockerService implements OnModuleInit {
     durationMs?: number;
     [key: string]: any;
   }) {
+    const normalizedDeviceId = this.normalizeNullableString(command.deviceId);
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'command.deviceId');
+
+    const normalizedGatewayId = this.normalizeNullableString(command.gatewayId);
+    if (normalizedGatewayId) {
+      this.assertValidGatewayId(normalizedGatewayId, 'command.gatewayId');
+    }
+
+    const normalizedCommand = {
+      ...command,
+      deviceId: String(normalizedDeviceId),
+      gatewayId: normalizedGatewayId || undefined,
+    };
+
     const { baseUrl, username, password, timeoutMs, commandTransport } = this.getIotGatewayConfig();
     const websocketFallbackEnabled = commandTransport !== 'http';
 
@@ -956,7 +1093,7 @@ export class LockerService implements OnModuleInit {
           'Content-Type': 'application/json',
           Authorization: `Basic ${authHeader}`,
         },
-        body: JSON.stringify(command),
+        body: JSON.stringify(normalizedCommand),
         signal: controller.signal,
       });
 
@@ -987,6 +1124,9 @@ export class LockerService implements OnModuleInit {
   }
 
   async pushIngestToIotGateway(deviceId: string, payload: any) {
+    const normalizedDeviceId = this.normalizeNullableString(deviceId);
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceId');
+
     const { baseUrl, username, password, timeoutMs } = this.getIotGatewayConfig();
     if (!baseUrl) {
       return {
@@ -1004,7 +1144,7 @@ export class LockerService implements OnModuleInit {
       const authHeader = Buffer.from(`${username}:${password}`).toString('base64');
 
       const body = {
-        deviceId,
+        deviceId: normalizedDeviceId,
         ...payload,
       };
 
@@ -1609,15 +1749,18 @@ export class LockerService implements OnModuleInit {
   ========================= */
 
   async reportHeartbeat(deviceEsp32: string, solenoids: any[], batteryLevel?: number) {
+    const normalizedDeviceId = this.normalizeNullableString(deviceEsp32);
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceEsp32');
+
     const normalizedBattery = Number.isFinite(Number(batteryLevel))
       ? Math.max(0, Math.min(100, Number(batteryLevel)))
       : undefined;
 
-    const fallbackCampusId = await this.resolveCampusForDevice(deviceEsp32);
+    const fallbackCampusId = await this.resolveCampusForDevice(String(normalizedDeviceId));
     if (fallbackCampusId) {
       await this.lockerModel.updateMany(
         {
-          deviceId: deviceEsp32,
+          deviceId: normalizedDeviceId,
           campusId: null,
         },
         {
@@ -1627,7 +1770,7 @@ export class LockerService implements OnModuleInit {
     }
 
     const updated = await this.esp32Model.findOneAndUpdate(
-      { deviceId: deviceEsp32 },
+      { deviceId: normalizedDeviceId },
       {
         status: 'ONLINE',
         lastHeartbeat: new Date(),
@@ -1639,7 +1782,7 @@ export class LockerService implements OnModuleInit {
 
     if (normalizedBattery !== undefined) {
       await this.lockerModel.updateMany(
-        { deviceId: deviceEsp32 },
+        { deviceId: normalizedDeviceId },
         {
           batteryLevel: normalizedBattery,
           lastConnection: new Date(),
@@ -1648,7 +1791,7 @@ export class LockerService implements OnModuleInit {
     }
 
     this.eventsGateway.broadcastHardwareUpdate('heartbeat', {
-      deviceId: deviceEsp32,
+      deviceId: normalizedDeviceId,
       status: 'ONLINE',
       lastHeartbeat: updated?.lastHeartbeat,
       batteryLevel: normalizedBattery,
@@ -1662,18 +1805,25 @@ export class LockerService implements OnModuleInit {
     gatewayId?: string;
     devices: Array<{ pin: number; name: string; type?: string; state?: number }>;
   }) {
+    const normalizedDeviceId = this.normalizeNullableString(payload.deviceId);
+    const normalizedGatewayId = this.normalizeNullableString(payload.gatewayId);
     const normalizedDevices = this.normalizeDevices(payload.devices);
 
-    if (!payload.deviceId || normalizedDevices.length === 0) {
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceId');
+    if (normalizedGatewayId) {
+      this.assertValidGatewayId(normalizedGatewayId, 'gatewayId');
+    }
+
+    if (!normalizedDeviceId || normalizedDevices.length === 0) {
       throw new BadRequestException('deviceId and devices are required for init sync');
     }
 
     const now = new Date();
     const updated = await this.esp32Model.findOneAndUpdate(
-      { deviceId: payload.deviceId },
+      { deviceId: normalizedDeviceId },
       {
-        deviceId: payload.deviceId,
-        gatewayId: payload.gatewayId || null,
+        deviceId: normalizedDeviceId,
+        gatewayId: normalizedGatewayId || null,
         status: 'ONLINE',
         devices: normalizedDevices,
         lastHeartbeat: now,
@@ -1689,20 +1839,20 @@ export class LockerService implements OnModuleInit {
     } catch (error: any) {
       initWarning = 'auto_locker_init_failed';
       this.logger.error(
-        `Auto locker init failed for ${payload.deviceId}: ${error?.message || 'Unknown error'}`,
+        `Auto locker init failed for ${normalizedDeviceId}: ${error?.message || 'Unknown error'}`,
         error?.stack,
       );
     }
 
     try {
       this.eventsGateway.broadcastHardwareUpdate('init', {
-        deviceId: payload.deviceId,
+        deviceId: normalizedDeviceId,
         devices: updated.devices,
-        gatewayId: payload.gatewayId || null,
+        gatewayId: normalizedGatewayId || null,
       });
     } catch (error: any) {
       this.logger.warn(
-        `Hardware init broadcast failed for ${payload.deviceId}: ${error?.message || 'Unknown error'}`,
+        `Hardware init broadcast failed for ${normalizedDeviceId}: ${error?.message || 'Unknown error'}`,
       );
     }
 
@@ -1715,15 +1865,18 @@ export class LockerService implements OnModuleInit {
   }
 
   async syncState(payload: { deviceId: string; pin: number; value: number }) {
+    const normalizedDeviceId = this.normalizeNullableString(payload.deviceId);
     const pin = Number(payload.pin);
-    if (!payload.deviceId || !Number.isFinite(pin)) {
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceId');
+
+    if (!normalizedDeviceId || !Number.isFinite(pin)) {
       throw new BadRequestException('deviceId and pin are required for state sync');
     }
 
     const value = Number(payload.value) === 1 ? 1 : 0;
     const now = new Date();
 
-    const existing = await this.esp32Model.findOne({ deviceId: payload.deviceId });
+    const existing = await this.esp32Model.findOne({ deviceId: normalizedDeviceId });
     if (!existing) {
       throw new NotFoundException('ESP32 device not found. Send init sync first');
     }
@@ -1744,13 +1897,13 @@ export class LockerService implements OnModuleInit {
     await existing.save();
 
     this.eventsGateway.broadcastHardwareUpdate('state', {
-      deviceId: payload.deviceId,
+      deviceId: normalizedDeviceId,
       pin,
       value,
     });
 
     await this.createAccessLogEntry({
-      deviceId: payload.deviceId,
+      deviceId: normalizedDeviceId,
       method: 'iot_gateway',
       status: 'success',
       metadata: {
@@ -1765,7 +1918,7 @@ export class LockerService implements OnModuleInit {
       success: true,
       message: 'State synced',
       data: {
-        deviceId: payload.deviceId,
+        deviceId: normalizedDeviceId,
         pin,
         value,
       },
@@ -1776,13 +1929,16 @@ export class LockerService implements OnModuleInit {
     deviceId: string;
     devices: Array<{ pin: number; name: string; type?: string; state?: number }>;
   }) {
+    const normalizedDeviceId = this.normalizeNullableString(payload.deviceId);
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceId');
+
     const normalizedDevices = this.normalizeDevices(payload.devices);
-    if (!payload.deviceId || normalizedDevices.length === 0) {
+    if (!normalizedDeviceId || normalizedDevices.length === 0) {
       throw new BadRequestException('deviceId and devices are required');
     }
 
     const updated = await this.esp32Model.findOneAndUpdate(
-      { deviceId: payload.deviceId },
+      { deviceId: normalizedDeviceId },
       {
         $set: {
           devices: normalizedDevices,
@@ -1797,12 +1953,12 @@ export class LockerService implements OnModuleInit {
     }
 
     this.eventsGateway.sendHardwareConfigUpdate({
-      deviceId: payload.deviceId,
+      deviceId: normalizedDeviceId,
       devices: normalizedDevices,
     });
 
     this.eventsGateway.broadcastHardwareUpdate('config_update', {
-      deviceId: payload.deviceId,
+      deviceId: normalizedDeviceId,
       devices: normalizedDevices,
     });
 
@@ -1814,7 +1970,10 @@ export class LockerService implements OnModuleInit {
   }
 
   async getDeviceConfig(deviceId: string) {
-    const device = await this.esp32Model.findOne({ deviceId }).lean();
+    const normalizedDeviceId = this.normalizeNullableString(deviceId);
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceId');
+
+    const device = await this.esp32Model.findOne({ deviceId: normalizedDeviceId }).lean();
     if (!device) {
       throw new NotFoundException('ESP32 device not found');
     }
@@ -1834,6 +1993,8 @@ export class LockerService implements OnModuleInit {
     if (!normalizedDeviceId) {
       throw new BadRequestException('deviceId is required');
     }
+
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceId');
 
     const now = Date.now();
     const last = this.lastResyncAt.get(normalizedDeviceId) || 0;
@@ -1865,6 +2026,10 @@ export class LockerService implements OnModuleInit {
 
   async requestResyncAll(gatewayId?: string | null) {
     const normalizedGatewayId = this.normalizeNullableString(gatewayId);
+    if (normalizedGatewayId) {
+      this.assertValidGatewayId(normalizedGatewayId, 'gatewayId');
+    }
+
     const now = Date.now();
 
     if (normalizedGatewayId) {
@@ -1913,27 +2078,35 @@ export class LockerService implements OnModuleInit {
       throw new BadRequestException('gatewayId is required');
     }
 
+    this.assertValidGatewayId(normalizedGatewayId, 'gatewayId');
+
     return this.requestResyncAll(normalizedGatewayId);
   }
 
   async sendPinControl(payload: { deviceId: string; pin: number; action: 'on' | 'off' }) {
+    const normalizedDeviceId = this.normalizeNullableString(payload.deviceId);
     const pin = Number(payload.pin);
     const action = payload.action === 'off' ? 'off' : 'on';
 
-    if (!payload.deviceId || !Number.isFinite(pin)) {
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceId');
+
+    if (!normalizedDeviceId || !Number.isFinite(pin)) {
       throw new BadRequestException('deviceId and pin are required');
     }
 
-    const device = await this.esp32Model.findOne({ deviceId: payload.deviceId });
+    const device = await this.esp32Model.findOne({ deviceId: normalizedDeviceId });
     if (!device) {
       throw new NotFoundException('ESP32 device not found');
     }
     const gatewayId = this.normalizeNullableString((device as any)?.gatewayId);
+    if (gatewayId) {
+      this.assertValidGatewayId(gatewayId, 'gatewayId');
+    }
 
     const correlationId = `cmd-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
     this.eventsGateway.sendHardwareCommand({
-      deviceId: payload.deviceId,
+      deviceId: normalizedDeviceId,
       gatewayId: gatewayId || undefined,
       pin,
       action,
@@ -1941,7 +2114,7 @@ export class LockerService implements OnModuleInit {
     });
 
     await this.createAccessLogEntry({
-      deviceId: payload.deviceId,
+      deviceId: normalizedDeviceId,
       method: 'remote_open',
       status: 'success',
       metadata: {
@@ -1955,7 +2128,7 @@ export class LockerService implements OnModuleInit {
       success: true,
       message: 'Control command emitted to gateway',
       data: {
-        deviceId: payload.deviceId,
+        deviceId: normalizedDeviceId,
         pin,
         action,
         correlationId,
@@ -1986,7 +2159,12 @@ export class LockerService implements OnModuleInit {
       throw new BadRequestException('Locker is not mapped to ESP32 device');
     }
 
+    this.assertValidEsp32DeviceId(deviceId, 'locker.deviceId');
+
     const gatewayId = await this.resolveGatewayIdForDevice(deviceId);
+    if (gatewayId) {
+      this.assertValidGatewayId(gatewayId, 'gatewayId');
+    }
 
     return {
       ...locker,
@@ -2220,8 +2398,6 @@ export class LockerService implements OnModuleInit {
     },
   ) {
     const locker = await this.resolveLockerForCommand(lockerId);
-    const deviceId = String(locker.deviceId || '').trim();
-    const pin = Number(locker.controlPin);
 
     const currentUserId = this.normalizeNullableString(
       currentUser?._id?.toString?.() || currentUser?._id,
@@ -2240,6 +2416,19 @@ export class LockerService implements OnModuleInit {
         ? context.metadata
         : {};
 
+    const lockerGatewayId = this.normalizeNullableString((locker as any).gatewayId);
+    const metadataGatewayId = this.normalizeNullableString((requestMetadata as any).gatewayId);
+    const metadataFloor = toFloorNumber((requestMetadata as any).floor);
+    const inferredFloorFromLocker =
+      extractFloorFromGatewayId(lockerGatewayId) ||
+      extractFloorFromEsp32DeviceId(this.normalizeNullableString(locker.deviceId));
+    const target = this.resolveAs608Target({
+      floor: metadataFloor ?? inferredFloorFromLocker,
+      gatewayId: metadataGatewayId || lockerGatewayId || undefined,
+    });
+    const targetDeviceId = target.deviceId;
+    const targetGatewayId = target.gatewayId;
+
     const resolvedRoomId = this.toObjectId(locker.roomId) || this.toObjectId(context?.roomId);
     const delaySecondsRaw = Number(context?.delaySeconds ?? requestMetadata.delaySeconds);
     const delaySeconds = Number.isFinite(delaySecondsRaw)
@@ -2250,18 +2439,14 @@ export class LockerService implements OnModuleInit {
 
     const command: Record<string, any> = {
       correlationId,
-      deviceId,
-      gatewayId: this.normalizeNullableString((locker as any).gatewayId) || undefined,
+      deviceId: targetDeviceId,
+      gatewayId: targetGatewayId,
       action: 'finger_register',
       userId: currentUserId,
       roomId: resolvedRoomId ? String(resolvedRoomId) : null,
       lockerId,
       sourceType: 'mobile_fingerid_register',
     };
-
-    if (Number.isFinite(pin)) {
-      command.pin = pin;
-    }
 
     if (delaySeconds !== undefined) {
       command.delaySeconds = delaySeconds;
@@ -2276,6 +2461,9 @@ export class LockerService implements OnModuleInit {
       ...requestMetadata,
       lockerId,
       lockerNumber: locker.lockerNumber,
+      targetDeviceId,
+      targetGatewayId,
+      lockerDeviceId: this.normalizeNullableString(locker.deviceId),
       roomId: resolvedRoomId ? String(resolvedRoomId) : null,
       campusId: locker.campusId ? String(locker.campusId) : currentUserCampusId,
       executedByUserId: currentUserId,
@@ -2302,13 +2490,12 @@ export class LockerService implements OnModuleInit {
     }
 
     await this.createAccessLogEntry({
-      deviceId,
+      deviceId: targetDeviceId,
       method: 'fingerprint',
       status: dispatchAccepted ? 'pending' : 'failed',
       userId: currentUserId,
       userName: currentUserName,
       metadata: accessMetadata,
-      pin: Number.isFinite(pin) ? pin : undefined,
     });
 
     if (gatewayDispatch.enabled && !gatewayDispatch.accepted) {
@@ -2323,8 +2510,104 @@ export class LockerService implements OnModuleInit {
       data: {
         lockerId,
         lockerNumber: locker.lockerNumber,
-        deviceId,
-        pin: Number.isFinite(pin) ? pin : null,
+        deviceId: targetDeviceId,
+        gatewayId: targetGatewayId,
+        lockerDeviceId: this.normalizeNullableString(locker.deviceId),
+        correlationId,
+        gatewayDispatch,
+      },
+    };
+  }
+
+  async requestFingerprintRegistrationByFloor(
+    floor: number | string,
+    currentUser?: any,
+    context?: {
+      delaySeconds?: number;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    const target = this.resolveAs608Target({ floor });
+
+    const currentUserId = this.normalizeNullableString(
+      currentUser?._id?.toString?.() || currentUser?._id,
+    );
+    if (!currentUserId) {
+      throw new BadRequestException('Cannot resolve current user for fingerprint registration');
+    }
+
+    const currentUserName = this.normalizeNullableString(currentUser?.fullName || currentUser?.email);
+    const currentUserCampusId = this.normalizeNullableString(
+      currentUser?.campusId?.toString?.() || currentUser?.campusId,
+    );
+
+    const requestMetadata =
+      context?.metadata && typeof context.metadata === 'object'
+        ? context.metadata
+        : {};
+
+    const delaySecondsRaw = Number(context?.delaySeconds ?? requestMetadata.delaySeconds);
+    const delaySeconds = Number.isFinite(delaySecondsRaw)
+      ? Math.max(1, Math.min(30, Math.round(delaySecondsRaw)))
+      : undefined;
+
+    const correlationId = `finger-register-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+    const command: Record<string, any> = {
+      correlationId,
+      deviceId: target.deviceId,
+      gatewayId: target.gatewayId,
+      action: 'finger_register',
+      userId: currentUserId,
+      sourceType: 'mobile_fingerid_register_floor',
+      metadata: {
+        floor: target.floor,
+      },
+    };
+
+    if (delaySeconds !== undefined) {
+      command.delaySeconds = delaySeconds;
+    }
+
+    this.eventsGateway.sendHardwareCommand(command as any);
+
+    const gatewayDispatch = await this.pushCommandToIotGateway(command as any);
+    const dispatchAccepted = !gatewayDispatch.enabled || gatewayDispatch.accepted;
+
+    await this.createAccessLogEntry({
+      deviceId: target.deviceId,
+      method: 'fingerprint',
+      status: dispatchAccepted ? 'pending' : 'failed',
+      userId: currentUserId,
+      userName: currentUserName,
+      metadata: {
+        ...requestMetadata,
+        floor: target.floor,
+        gatewayId: target.gatewayId,
+        campusId: currentUserCampusId,
+        commandAction: 'finger_register',
+        action: 'register',
+        usageEffect: 'none',
+        sourceType: requestMetadata.sourceType || 'mobile_fingerid_register_floor',
+        correlationId,
+        iotGatewayDispatch: gatewayDispatch,
+        delaySeconds,
+      },
+    });
+
+    if (gatewayDispatch.enabled && !gatewayDispatch.accepted) {
+      throw new InternalServerErrorException(
+        'Fingerprint registration command failed to dispatch to iot-gateway',
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Fingerprint registration command accepted',
+      data: {
+        floor: target.floor,
+        deviceId: target.deviceId,
+        gatewayId: target.gatewayId,
         correlationId,
         gatewayDispatch,
       },
@@ -2524,8 +2807,11 @@ export class LockerService implements OnModuleInit {
   }
 
   async sendCommand(deviceEsp32: string, idSolenoid: string, action: string) {
+    const normalizedDeviceId = this.normalizeNullableString(deviceEsp32);
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceEsp32');
+
     const esp32 = await this.esp32Model.findOne({
-      deviceId: deviceEsp32,
+      deviceId: normalizedDeviceId,
       'solenoids.id': idSolenoid,
     });
 
@@ -2535,8 +2821,11 @@ export class LockerService implements OnModuleInit {
     if (Number.isFinite(numericPin)) {
       const correlationId = `cmd-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
       const gatewayId = this.normalizeNullableString((esp32 as any)?.gatewayId);
+      if (gatewayId) {
+        this.assertValidGatewayId(gatewayId, 'gatewayId');
+      }
       this.eventsGateway.sendHardwareCommand({
-        deviceId: deviceEsp32,
+        deviceId: normalizedDeviceId,
         gatewayId: gatewayId || undefined,
         pin: numericPin,
         action: action === 'open' ? 'on' : 'off',
@@ -2544,7 +2833,7 @@ export class LockerService implements OnModuleInit {
       });
 
       await this.createAccessLogEntry({
-        deviceId: deviceEsp32,
+        deviceId: normalizedDeviceId,
         method: 'remote_open',
         status: 'success',
         metadata: {

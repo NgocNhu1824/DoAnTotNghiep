@@ -13,6 +13,7 @@ const { createSerialLockers } = require('./lockers/serial.lockers');
 const { createLockerController } = require('./controllers/locker.controller');
 const { createLockersRoutes } = require('./routes/lockers.routes');
 const { createApp } = require('./app');
+const { isValidGatewayId, isValidEsp32DeviceId } = require('./utils/device-naming');
 
 const logger = createLogger('BOOT');
 
@@ -23,6 +24,18 @@ async function bootstrap() {
     websocket: `${config.websocket.url}${config.websocket.namespace}`,
     serialEnabled: config.serial.enabled,
   });
+
+  if (!isValidGatewayId(config.device.gatewayId)) {
+    throw new Error(
+      `Invalid GATEWAY_ID: ${config.device.gatewayId}. Expected pattern gateway-tang{floor} (e.g. gateway-tang1).`,
+    );
+  }
+
+  if (!isValidEsp32DeviceId(config.device.deviceId)) {
+    throw new Error(
+      `Invalid DEVICE_ID: ${config.device.deviceId}. Expected esp32-AS608-LCD-tang{floor} or esp32-relay-tang{floor}-{nn}.`,
+    );
+  }
 
   const wsLogger = createLogger('WS');
   const wsClient = createWebsocketClient({

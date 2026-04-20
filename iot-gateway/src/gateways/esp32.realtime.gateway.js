@@ -1,4 +1,5 @@
 const { Server } = require('socket.io');
+const { isValidEsp32DeviceId } = require('../utils/device-naming');
 
 function resolveDeviceId(socket) {
   const fromAuth = socket.handshake?.auth?.deviceId;
@@ -47,6 +48,16 @@ function createEsp32RealtimeGateway(options) {
     const deviceId = resolveDeviceId(socket);
     if (!deviceId) {
       logger.warn('ESP32 realtime socket rejected: missing deviceId');
+      socket.disconnect(true);
+      return;
+    }
+
+    if (!isValidEsp32DeviceId(deviceId)) {
+      logger.warn(
+        'ESP32 realtime socket rejected: invalid deviceId format',
+        deviceId,
+        'expected esp32-AS608-LCD-tang{floor} or esp32-relay-tang{floor}-{nn}',
+      );
       socket.disconnect(true);
       return;
     }

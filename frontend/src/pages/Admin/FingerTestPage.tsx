@@ -9,13 +9,14 @@ import { useAuth } from '../../context/AuthContext';
 import { userService } from '../../services/user.service';
 
 const FingerTestPage: React.FC = () => {
-  const [deviceId, setDeviceId] = useState('esp32-1');
+  const [floor, setFloor] = useState<number>(1);
+  const [gatewayId, setGatewayId] = useState('gateway-tang1');
+  const [deviceId, setDeviceId] = useState('esp32-AS608-LCD-tang1');
   const [userId, setUserId] = useState(''); // will store ObjectId
   const [userEmail, setUserEmail] = useState(''); // shown in input (email)
   const [userSearch, setUserSearch] = useState('');
   const [userSearchResults, setUserSearchResults] = useState<any[]>([]);
   const [simulateMode, setSimulateMode] = useState(false);
-  const [confirmActAsOther, setConfirmActAsOther] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [fingerData, setFingerData] = useState('');
   const [delaySeconds, setDelaySeconds] = useState<number | undefined>(3);
@@ -29,6 +30,12 @@ const FingerTestPage: React.FC = () => {
       setUserEmail(user.email || '');
     }
   }, [user]);
+
+  useEffect(() => {
+    const normalizedFloor = Number.isInteger(Number(floor)) && Number(floor) > 0 ? Number(floor) : 1;
+    setGatewayId(`gateway-tang${normalizedFloor}`);
+    setDeviceId(`esp32-AS608-LCD-tang${normalizedFloor}`);
+  }, [floor]);
 
   useEffect(() => {
     let mounted = true;
@@ -72,7 +79,11 @@ const FingerTestPage: React.FC = () => {
         }
       }
 
-      const payload: any = { deviceId };
+      const payload: any = {
+        floor,
+        gatewayId,
+        deviceId,
+      };
       if (userId) payload.userId = userId;
       else payload.userEmail = userEmail;
       // Only include fingerData when explicitly simulating
@@ -106,7 +117,11 @@ const FingerTestPage: React.FC = () => {
         }
       }
 
-      const payload: any = { deviceId };
+      const payload: any = {
+        floor,
+        gatewayId,
+        deviceId,
+      };
       if (userId) payload.userId = userId;
       else payload.userEmail = userEmail;
       const res = await lockerService.adminTestVerify(payload);
@@ -128,8 +143,30 @@ const FingerTestPage: React.FC = () => {
         <CardContent>
           <div className="grid grid-cols-1 gap-4 max-w-xl">
             <div>
-              <Label>Device ID</Label>
-              <Input value={deviceId} onChange={(e) => setDeviceId(e.target.value)} />
+              <Label>Floor (required)</Label>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                value={floor}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  setFloor(Number.isFinite(next) && next > 0 ? Math.round(next) : 1);
+                }}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Device and gateway are auto-derived from floor.
+              </p>
+            </div>
+
+            <div>
+              <Label>Gateway ID (auto)</Label>
+              <Input value={gatewayId} readOnly className="bg-muted" />
+            </div>
+
+            <div>
+              <Label>Device ID AS608-LCD (auto)</Label>
+              <Input value={deviceId} readOnly className="bg-muted" />
             </div>
 
             <div>

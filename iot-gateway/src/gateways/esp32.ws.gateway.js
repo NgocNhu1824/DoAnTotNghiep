@@ -1,5 +1,6 @@
 const WebSocket = require('ws');
 const { URL } = require('url');
+const { isValidEsp32DeviceId } = require('../utils/device-naming');
 
 function createEsp32WsGateway(options) {
   const {
@@ -73,6 +74,21 @@ function createEsp32WsGateway(options) {
 
   wss.on('connection', (ws, req) => {
     const deviceId = parseDeviceId(req) || `ws-${Date.now()}`;
+
+    if (!isValidEsp32DeviceId(deviceId)) {
+      logger && logger.warn && logger.warn(
+        'ESP32 WS rejected: invalid deviceId format',
+        deviceId,
+        'expected esp32-AS608-LCD-tang{floor} or esp32-relay-tang{floor}-{nn}',
+      );
+      try {
+        ws.close(1008, 'invalid deviceId format');
+      } catch (_err) {
+        // ignore close errors
+      }
+      return;
+    }
+
     socketsByDeviceId.set(deviceId, ws);
     logger && logger.info && logger.info('ESP32 WS connected', deviceId);
 

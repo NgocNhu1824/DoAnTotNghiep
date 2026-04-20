@@ -31,8 +31,8 @@ const env = {
   ESP32_WS_TOKEN: process.env.ESP32_WS_TOKEN || '',
   BACKEND_API_URL: process.env.BACKEND_API_URL || 'http://localhost:3000/api',
 
-  DEVICE_ID: process.env.DEVICE_ID || 'esp32-1',
-  GATEWAY_ID: process.env.GATEWAY_ID || 'gateway-local',
+  DEVICE_ID: process.env.DEVICE_ID || 'esp32-AS608-LCD-tang1',
+  GATEWAY_ID: process.env.GATEWAY_ID || 'gateway-tang1',
 
   HTTP_AUTH_USER: process.env.HTTP_AUTH_USER || 'esp32',
   HTTP_AUTH_PASS: process.env.HTTP_AUTH_PASS || 'esp32-secret',

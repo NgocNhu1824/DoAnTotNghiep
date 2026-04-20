@@ -58,9 +58,24 @@ export class LockerController {
   @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard)
   @RequirePermissions('users.update')
   async adminTestRegister(
-    @Body() body: { deviceId: string; userId?: string; fingerId?: number; fingerData?: string; delaySeconds?: number },
+    @Body()
+    body: {
+      floor?: number;
+      gatewayId?: string;
+      deviceId?: string;
+      userId?: string;
+      fingerId?: number;
+      fingerData?: string;
+      delaySeconds?: number;
+    },
     @CurrentUser() user: any,
   ) {
+    const target = this.lockerService.resolveAs608TargetForClient({
+      floor: body.floor,
+      deviceId: body.deviceId,
+      gatewayId: body.gatewayId,
+    });
+
     // If client attempts to provide raw fingerData (simulate), only allow when
     // caller has explicit DEV_TOOLS permission or when not running in production.
     const wantsSimulate = !!body.fingerData;
@@ -91,7 +106,7 @@ export class LockerController {
         payload.delaySeconds = Number(body.delaySeconds);
       }
 
-      const result = await this.lockerService.pushIngestToIotGateway(body.deviceId || 'esp32-1', payload);
+      const result = await this.lockerService.pushIngestToIotGateway(target.deviceId, payload);
       return {
         success: true,
         data: result,
@@ -100,7 +115,8 @@ export class LockerController {
 
     // Prompt physical device to start registration
     const command: any = {
-      deviceId: body.deviceId || 'esp32-1',
+      deviceId: target.deviceId,
+      gatewayId: target.gatewayId,
       action: 'finger_register',
       userId: body.userId || null,
       fingerId: body.fingerId,
@@ -120,7 +136,23 @@ export class LockerController {
   @Post('admin/test/fingerprint/verify')
   @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard)
   @RequirePermissions('users.update')
-  async adminTestVerify(@Body() body: { deviceId: string; fingerId?: number; matched?: boolean; fingerData?: string }) {
+  async adminTestVerify(
+    @Body()
+    body: {
+      floor?: number;
+      gatewayId?: string;
+      deviceId?: string;
+      fingerId?: number;
+      matched?: boolean;
+      fingerData?: string;
+    },
+  ) {
+    const target = this.lockerService.resolveAs608TargetForClient({
+      floor: body.floor,
+      deviceId: body.deviceId,
+      gatewayId: body.gatewayId,
+    });
+
     const wantsSimulate = !!body.fingerData || body.matched !== undefined;
 
     if (wantsSimulate) {
@@ -132,7 +164,7 @@ export class LockerController {
         source: 'admin-test',
       };
 
-      const result = await this.lockerService.pushIngestToIotGateway(body.deviceId || 'esp32-1', payload);
+      const result = await this.lockerService.pushIngestToIotGateway(target.deviceId, payload);
       return {
         success: true,
         data: result,
@@ -140,7 +172,8 @@ export class LockerController {
     }
 
     const command: any = {
-      deviceId: body.deviceId || 'esp32-1',
+      deviceId: target.deviceId,
+      gatewayId: target.gatewayId,
       action: 'finger_verify',
       fingerId: body.fingerId,
     };
@@ -206,6 +239,22 @@ export class LockerController {
     },
   ) {
     return this.lockerService.requestFingerprintRegistration(id, user, body);
+  }
+
+  @Post('fingerprint/register/by-floor')
+  @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard, ScopeGuard)
+  @RequirePermissions('lockers.unlock')
+  @RequireScopes('SELF', 'CAMPUS', 'GLOBAL')
+  registerFingerprintByFloor(
+    @CurrentUser() user: any,
+    @Body()
+    body: {
+      floor: number;
+      delaySeconds?: number;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    return this.lockerService.requestFingerprintRegistrationByFloor(body.floor, user, body);
   }
 
   @Post(':id/fingerprint/verify')

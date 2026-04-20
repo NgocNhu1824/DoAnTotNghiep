@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { isValidEsp32DeviceId } = require('../utils/device-naming');
 
 class GatewayService {
   constructor(options) {
@@ -535,6 +536,17 @@ class GatewayService {
     const requestedDeviceId = String(request.deviceId || '').trim();
     const deviceId = requestedDeviceId || this.defaultDeviceId || '';
 
+    if (!isAll && deviceId && !isValidEsp32DeviceId(deviceId)) {
+      this.emitSyncAck({
+        correlationId,
+        deviceId,
+        status: 'failed',
+        message:
+          'deviceId format is invalid. Expected esp32-AS608-LCD-tang{floor} or esp32-relay-tang{floor}-{nn}.',
+      });
+      return;
+    }
+
     if (isAll) {
       const realtimeIds = this.realtimeBridge?.listConnectedDeviceIds?.() || [];
       if (realtimeIds.length > 0) {
@@ -781,7 +793,21 @@ class GatewayService {
   }
 
   normalizeDeviceId(payload) {
-    return String(payload?.deviceId || payload?.deviceEsp32 || this.defaultDeviceId || 'esp32-1');
+    const normalized = String(payload?.deviceId || payload?.deviceEsp32 || this.defaultDeviceId || '').trim();
+    if (!normalized) {
+      return '';
+    }
+
+    if (!isValidEsp32DeviceId(normalized)) {
+      this.logger.warn(
+        'Dropped payload with invalid deviceId format',
+        normalized,
+        'expected esp32-AS608-LCD-tang{floor} or esp32-relay-tang{floor}-{nn}',
+      );
+      return '';
+    }
+
+    return normalized;
   }
 
   normalizeDevices(devices) {
@@ -936,6 +962,11 @@ class GatewayService {
   async handleIncomingPayload(payload, source) {
     const type = String(payload?.type || '').toLowerCase();
     const deviceId = this.normalizeDeviceId(payload);
+
+    if (!deviceId) {
+      this.logger.warn('Ignored incoming payload because deviceId is missing/invalid', type || 'unknown');
+      return payload;
+    }
 
     const data = {
       ...payload,

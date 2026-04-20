@@ -134,12 +134,35 @@ export const lockerService = {
     };
   },
 
-  adminTestRegister: async (data: { deviceId: string; userId?: string; fingerId?: number; fingerData?: string; delaySeconds?: number }) => {
+  adminTestRegister: async (data: {
+    floor?: number;
+    gatewayId?: string;
+    deviceId?: string;
+    userId?: string;
+    fingerId?: number;
+    fingerData?: string;
+    delaySeconds?: number;
+  }) => {
     return await api.post('/lockers/admin/test/fingerprint/register', data);
   },
 
-  adminTestVerify: async (data: { deviceId: string; fingerId?: number; matched?: boolean }) => {
+  adminTestVerify: async (data: {
+    floor?: number;
+    gatewayId?: string;
+    deviceId?: string;
+    fingerId?: number;
+    matched?: boolean;
+    fingerData?: string;
+  }) => {
     return await api.post('/lockers/admin/test/fingerprint/verify', data);
+  },
+
+  registerFingerprintByFloor: async (data: {
+    floor: number;
+    delaySeconds?: number;
+    metadata?: Record<string, any>;
+  }) => {
+    return await api.post('/lockers/fingerprint/register/by-floor', data);
   },
 
   getAccessLogs: async (lockerId: string, limit = 20): Promise<LockerAccessLogEntity[]> => {
