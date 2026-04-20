@@ -1141,7 +1141,7 @@ export class LockerService implements OnModuleInit {
     const transportRaw = String(
       this.configService.get<string>('IOT_GATEWAY_COMMAND_TRANSPORT') ||
         this.configService.get<string>('IOT_GATEWAY_TRANSPORT') ||
-        'websocket',
+        'hybrid',
     )
       .trim()
       .toLowerCase();

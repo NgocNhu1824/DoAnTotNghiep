@@ -164,6 +164,12 @@ const FingerTestPage: React.FC = () => {
   const handleRegister = async () => {
     try {
       setLoading(true);
+      const normalizedLockerId = String(selectedLockerId || '').trim();
+      if (!normalizedLockerId || !selectedLocker) {
+        toast({ title: 'Error', description: 'Please select locker before register', variant: 'destructive' });
+        return;
+      }
+
       // require user email
       if (!userEmail) {
         toast({ title: 'Error', description: 'User email is required', variant: 'destructive' });
@@ -180,17 +186,29 @@ const FingerTestPage: React.FC = () => {
         return;
       }
 
+      const targetDeviceId = String(selectedLocker.deviceId || deviceId || '').trim();
+      const targetGatewayId = String(selectedLocker.gatewayId || gatewayId || '').trim();
+      const parsedFloorFromDevice = (() => {
+        const matched = targetDeviceId.match(/tang(\d+)/i);
+        if (!matched) return floor;
+        const n = Number(matched[1]);
+        return Number.isFinite(n) && n > 0 ? Math.round(n) : floor;
+      })();
+
       const payload: any = {
-        floor,
-        gatewayId,
-        deviceId,
+        floor: parsedFloorFromDevice,
+        gatewayId: targetGatewayId || undefined,
+        deviceId: targetDeviceId,
         userId: resolvedUserId,
       };
       // Only include fingerData when explicitly simulating
       if (simulateMode && fingerData) payload.fingerData = fingerData;
       if (delaySeconds !== undefined) payload.delaySeconds = delaySeconds;
       const res = await lockerService.adminTestRegister(payload);
-      toast({ title: 'Sent', description: 'Register command sent to gateway' });
+      toast({
+        title: 'Sent',
+        description: `Register command sent to ${targetDeviceId || 'selected device'}${targetGatewayId ? ` via ${targetGatewayId}` : ''}`,
+      });
       console.log('register result', res);
     } catch (err: any) {
       toast({ title: 'Error', description: err?.message || 'Failed to send register' , variant: 'destructive'});
@@ -239,7 +257,7 @@ const FingerTestPage: React.FC = () => {
         <CardContent>
           <div className="grid grid-cols-1 gap-4 max-w-xl">
             <div>
-              <Label>Locker for verify (required)</Label>
+              <Label>Locker for register/verify (required)</Label>
               <select
                 className="w-full border rounded-md h-10 px-3 bg-background"
                 value={selectedLockerId}
