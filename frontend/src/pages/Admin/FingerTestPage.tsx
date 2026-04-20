@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
@@ -7,6 +7,7 @@ import { lockerService } from '../../services/locker.service';
 import { useToast } from '../../hooks/use-toast';
 import { useAuth } from '../../context/AuthContext';
 import { userService } from '../../services/user.service';
+import { LockerEntity } from '../../types/locker.type';
 
 const FingerTestPage: React.FC = () => {
   const [floor, setFloor] = useState<number>(1);
@@ -16,6 +17,8 @@ const FingerTestPage: React.FC = () => {
   const [userEmail, setUserEmail] = useState(''); // shown in input (email)
   const [userSearch, setUserSearch] = useState('');
   const [userSearchResults, setUserSearchResults] = useState<any[]>([]);
+  const [lockers, setLockers] = useState<LockerEntity[]>([]);
+  const [selectedLockerId, setSelectedLockerId] = useState('');
   const [simulateMode, setSimulateMode] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [fingerData, setFingerData] = useState('');
@@ -39,6 +42,73 @@ const FingerTestPage: React.FC = () => {
 
   useEffect(() => {
     let mounted = true;
+
+    const loadLockers = async () => {
+      try {
+        const data = await lockerService.findAllWithIoT({ isActive: true });
+        if (!mounted) return;
+
+        const list = Array.isArray(data) ? data : [];
+        setLockers(list);
+
+        if (!selectedLockerId && list.length > 0) {
+          const firstId = String(list[0]?.id || list[0]?._id || '').trim();
+          if (firstId) {
+            setSelectedLockerId(firstId);
+          }
+        }
+      } catch {
+        if (mounted) {
+          setLockers([]);
+        }
+      }
+    };
+
+    loadLockers();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const selectedLocker = useMemo(() => {
+    const normalizedSelectedLockerId = String(selectedLockerId || '').trim();
+    if (!normalizedSelectedLockerId) {
+      return null;
+    }
+
+    return (
+      lockers.find((locker) => String(locker?.id || locker?._id || '').trim() === normalizedSelectedLockerId) ||
+      null
+    );
+  }, [lockers, selectedLockerId]);
+
+  useEffect(() => {
+    if (!selectedLocker) {
+      return;
+    }
+
+    const lockerDeviceId = String(selectedLocker.deviceId || '').trim();
+    const lockerGatewayId = String(selectedLocker.gatewayId || '').trim();
+
+    if (lockerDeviceId) {
+      setDeviceId(lockerDeviceId);
+
+      const floorMatch = lockerDeviceId.match(/tang(\d+)/i);
+      if (floorMatch) {
+        const parsedFloor = Number(floorMatch[1]);
+        if (Number.isFinite(parsedFloor) && parsedFloor > 0) {
+          setFloor(Math.round(parsedFloor));
+        }
+      }
+    }
+
+    if (lockerGatewayId) {
+      setGatewayId(lockerGatewayId);
+    }
+  }, [selectedLocker]);
+
+  useEffect(() => {
+    let mounted = true;
     const doSearch = async () => {
       if (!userSearch || userSearch.length < 2) {
         setUserSearchResults([]);
@@ -59,6 +129,38 @@ const FingerTestPage: React.FC = () => {
     };
   }, [userSearch]);
 
+  const resolveSelectedUserId = async (): Promise<string | null> => {
+    const normalizedCurrentUserId = String(userId || '').trim();
+    if (normalizedCurrentUserId) {
+      return normalizedCurrentUserId;
+    }
+
+    const normalizedEmail = String(userEmail || '').trim();
+    if (!normalizedEmail) {
+      return null;
+    }
+
+    try {
+      const matches = await userService.getAll({ search: normalizedEmail });
+      const exact = (matches || []).find(
+        (m) => String(m?.email || '').trim().toLowerCase() === normalizedEmail.toLowerCase(),
+      );
+
+      if (!exact?._id) {
+        return null;
+      }
+
+      const resolvedId = String(exact._id);
+      setUserId(resolvedId);
+      if (exact.email) {
+        setUserEmail(String(exact.email));
+      }
+      return resolvedId;
+    } catch {
+      return null;
+    }
+  };
+
   const handleRegister = async () => {
     try {
       setLoading(true);
@@ -68,24 +170,22 @@ const FingerTestPage: React.FC = () => {
         return;
       }
 
-      // try resolve userId by exact email if not selected
-      if (!userId && userEmail) {
-        try {
-          const matches = await userService.getAll({ search: userEmail });
-          const exact = (matches || []).find((m) => m.email === userEmail);
-          if (exact) setUserId(exact._id);
-        } catch (e) {
-          // ignore resolution errors, we'll send email if unresolved
-        }
+      const resolvedUserId = await resolveSelectedUserId();
+      if (!resolvedUserId) {
+        toast({
+          title: 'Error',
+          description: 'Cannot resolve userId from email. Please choose a user from the search list.',
+          variant: 'destructive',
+        });
+        return;
       }
 
       const payload: any = {
         floor,
         gatewayId,
         deviceId,
+        userId: resolvedUserId,
       };
-      if (userId) payload.userId = userId;
-      else payload.userEmail = userEmail;
       // Only include fingerData when explicitly simulating
       if (simulateMode && fingerData) payload.fingerData = fingerData;
       if (delaySeconds !== undefined) payload.delaySeconds = delaySeconds;
@@ -102,30 +202,26 @@ const FingerTestPage: React.FC = () => {
   const handleVerify = async () => {
     try {
       setLoading(true);
-      if (!userEmail) {
-        toast({ title: 'Error', description: 'User email is required', variant: 'destructive' });
+      const normalizedLockerId = String(selectedLockerId || '').trim();
+      if (!normalizedLockerId || !selectedLocker) {
+        toast({ title: 'Error', description: 'Please select locker to verify', variant: 'destructive' });
         return;
       }
 
-      if (!userId && userEmail) {
-        try {
-          const matches = await userService.getAll({ search: userEmail });
-          const exact = (matches || []).find((m) => m.email === userEmail);
-          if (exact) setUserId(exact._id);
-        } catch (e) {
-          // ignore
-        }
-      }
+      const res = await lockerService.verifyFingerprint(normalizedLockerId, {
+        usageAction: 'unlock',
+        delaySeconds,
+        metadata: {
+          sourceType: 'admin_finger_test_page_verify',
+          selectedLockerId: normalizedLockerId,
+          selectedLockerNumber: selectedLocker.lockerNumber,
+          selectedLockerPin: selectedLocker.controlPin,
+        },
+      });
 
-      const payload: any = {
-        floor,
-        gatewayId,
-        deviceId,
-      };
-      if (userId) payload.userId = userId;
-      else payload.userEmail = userEmail;
-      const res = await lockerService.adminTestVerify(payload);
-      toast({ title: 'Sent', description: 'Verify command sent to gateway' });
+      const selectedPin = Number(selectedLocker.controlPin);
+      const pinLabel = Number.isFinite(selectedPin) ? `pin ${selectedPin}` : 'locker pin';
+      toast({ title: 'Sent', description: `Verify command sent for locker #${selectedLocker.lockerNumber} (${pinLabel})` });
       console.log('verify result', res);
     } catch (err: any) {
       toast({ title: 'Error', description: err?.message || 'Failed to send verify', variant: 'destructive' });
@@ -142,6 +238,37 @@ const FingerTestPage: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 max-w-xl">
+            <div>
+              <Label>Locker for verify (required)</Label>
+              <select
+                className="w-full border rounded-md h-10 px-3 bg-background"
+                value={selectedLockerId}
+                onChange={(e) => setSelectedLockerId(e.target.value)}
+              >
+                <option value="">Select locker...</option>
+                {lockers.map((locker) => {
+                  const lockerId = String(locker.id || locker._id || '').trim();
+                  if (!lockerId) return null;
+
+                  const pinLabel = Number.isFinite(Number(locker.controlPin))
+                    ? `pin ${Number(locker.controlPin)}`
+                    : 'no pin';
+                  const deviceLabel = locker.deviceId ? String(locker.deviceId) : 'no device';
+
+                  return (
+                    <option key={lockerId} value={lockerId}>
+                      Locker #{locker.lockerNumber} - {pinLabel} - {deviceLabel}
+                    </option>
+                  );
+                })}
+              </select>
+              {selectedLocker && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Selected locker #{selectedLocker.lockerNumber} - pin {selectedLocker.controlPin ?? 'N/A'} - device {selectedLocker.deviceId || 'N/A'}
+                </p>
+              )}
+            </div>
+
             <div>
               <Label>Floor (required)</Label>
               <Input
@@ -213,7 +340,7 @@ const FingerTestPage: React.FC = () => {
               <Button variant="secondary" onClick={handleVerify} disabled={loading}>Verify Finger</Button>
             </div>
 
-            <p className="text-sm text-muted-foreground">Note: This page is for testing only. Use direct URL to access.</p>
+            <p className="text-sm text-muted-foreground">Note: Verify button uses existing locker flow and checks fingerprint for current logged-in user.</p>
 
             {(roleDetails?.roleCode === 'DEV_TOOLS' || roleDetails?.roleCode === 'ADMIN' || hasPermission('DEV_TOOLS')) && (
               <>

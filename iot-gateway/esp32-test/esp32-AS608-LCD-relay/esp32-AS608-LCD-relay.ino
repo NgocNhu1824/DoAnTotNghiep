@@ -121,6 +121,8 @@ String pendingUserId = "";
 int pendingFingerId = -1;
 String pendingTemplateData = "";
 String pendingTemplateEncoding = "";
+int pendingVerifyPin = -1;
+unsigned long pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
 
 uint8_t gTemplateRawBuffer[MAX_TEMPLATE_RAW_BYTES];
 
@@ -922,6 +924,8 @@ void resetPendingFingerprintState() {
   pendingFingerId = -1;
   pendingTemplateData = "";
   pendingTemplateEncoding = "";
+  pendingVerifyPin = -1;
+  pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
 }
 
 void processPendingFingerprint() {
@@ -966,8 +970,23 @@ void processPendingFingerprint() {
     );
     int reportedFingerId = matched ? pendingFingerId : -1;
     if (matched) {
+      int relayIndex = getRelayIndexByPin(pendingVerifyPin);
+      if (relayIndex >= 0) {
+        startUnlockPulseByIndex(relayIndex, pendingVerifyDurationMs);
+        sendStatePayload(pendingVerifyPin, 1, pendingCorrelationId);
+
+        Serial.print("[FINGER] verify matched, opening pin=");
+        Serial.print(pendingVerifyPin);
+        Serial.print(" durationMs=");
+        Serial.println(pendingVerifyDurationMs);
+
+        lcdShow("Verify success", String("Open pin ") + String(pendingVerifyPin));
+      } else {
+        Serial.println("[FINGER] verify matched but no valid relay pin in command");
+        lcdShow("Verify success", "No relay pin");
+      }
+
       sendFingerprintResult(true, reportedFingerId, "", pendingUserId, pendingCorrelationId);
-      lcdShow("Verify success", "Fingerprint OK");
     } else {
       sendFingerprintResult(false, -1, "", pendingUserId, pendingCorrelationId);
       lcdShow("Verify failed", "No template match");
@@ -1098,6 +1117,14 @@ void handleFingerCommand(JsonObject cmd, bool isRegister) {
     "templateEncoding",
     extractString(cmd, "fingerDataFormat", "")
   );
+
+  if (!isRegister) {
+    pendingVerifyPin = extractPin(cmd);
+    pendingVerifyDurationMs = parseDurationMs(cmd);
+  } else {
+    pendingVerifyPin = -1;
+    pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
+  }
 
   pendingIsRegister = isRegister;
   pendingFingerDueAt = millis() + delayMs;
