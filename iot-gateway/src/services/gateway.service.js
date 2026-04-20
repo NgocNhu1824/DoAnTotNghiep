@@ -19,6 +19,8 @@ class GatewayService {
     this.pendingRealtimeSyncAll = new Map();
     this.pendingRealtimeSyncTimers = new Map();
     this.pendingFingerprintSessions = new Map();
+    this.recentHardwareCommands = new Map();
+    this.hardwareCommandDedupeWindowMs = 15000;
     this.realtimeBridge = null;
     this.realtimeSyncTimeoutMs = 12000;
   }
@@ -50,6 +52,49 @@ class GatewayService {
         this.pendingFingerprintSessions.delete(correlationId);
       }
     }
+  }
+
+  cleanupRecentHardwareCommands(maxAgeMs = this.hardwareCommandDedupeWindowMs) {
+    const now = Date.now();
+    for (const [key, timestamp] of this.recentHardwareCommands.entries()) {
+      const seenAt = Number(timestamp || 0);
+      if (!seenAt || now - seenAt > maxAgeMs) {
+        this.recentHardwareCommands.delete(key);
+      }
+    }
+  }
+
+  buildHardwareCommandDedupeKey(data = {}, correlationId, deviceId) {
+    const normalizedCorrelationId = String(correlationId || data.correlationId || '').trim();
+    const normalizedDeviceId = String(deviceId || data.deviceId || this.defaultDeviceId || '').trim();
+    const normalizedAction = String(data.action || '').trim().toLowerCase();
+
+    if (!normalizedCorrelationId || !normalizedDeviceId || !normalizedAction) {
+      return '';
+    }
+
+    const pin = Number(data.pin);
+    const pinKey = Number.isFinite(pin) ? String(Math.round(pin)) : 'none';
+
+    return `${normalizedDeviceId}::${normalizedCorrelationId}::${normalizedAction}::${pinKey}`;
+  }
+
+  isDuplicateHardwareCommand(data = {}, correlationId, deviceId) {
+    const dedupeKey = this.buildHardwareCommandDedupeKey(data, correlationId, deviceId);
+    if (!dedupeKey) {
+      return false;
+    }
+
+    this.cleanupRecentHardwareCommands();
+
+    const now = Date.now();
+    const seenAt = Number(this.recentHardwareCommands.get(dedupeKey) || 0);
+    if (seenAt && now - seenAt < this.hardwareCommandDedupeWindowMs) {
+      return true;
+    }
+
+    this.recentHardwareCommands.set(dedupeKey, now);
+    return false;
   }
 
   rememberFingerprintSession(data = {}, correlationId, deviceId) {
@@ -708,6 +753,27 @@ class GatewayService {
     const pin = Number(data.pin);
     const action = String(data.action || '').trim();
     const normalizedAction = action.toLowerCase();
+
+    if (this.isDuplicateHardwareCommand(data, correlationId, deviceId)) {
+      this.logger.info(
+        'Ignored duplicate hardware command',
+        deviceId || 'unknown-device',
+        `correlation=${correlationId}`,
+        `action=${normalizedAction || 'unknown'}`,
+      );
+
+      this.wsClient.emit(this.events.HARDWARE_COMMAND_ACK, {
+        correlationId,
+        deviceId,
+        pin: Number.isFinite(pin) ? pin : undefined,
+        action: action || undefined,
+        status: 'ignored_duplicate',
+        message: 'Gateway ignored duplicate command (same correlationId/action/deviceId).',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
     const isDirectPinAction = normalizedAction === 'on' || normalizedAction === 'off';
     const isPinCommand = Number.isFinite(pin) && isDirectPinAction;
     const passthroughPinMetadata = {

@@ -56,6 +56,10 @@ function createLockerController(options) {
     try {
       const parsed = parser.parseJsonPayload(req.body);
       const correlationId = String(parsed.correlationId || `cmd-${Date.now()}`);
+      const normalizedAction =
+        parsed.action !== undefined && parsed.action !== null ? String(parsed.action) : null;
+      const rawPin = Number(parsed.pin);
+      const normalizedPin = Number.isFinite(rawPin) ? rawPin : null;
 
       await gatewayService.handleHardwareCommand({
         ...parsed,
@@ -68,8 +72,8 @@ function createLockerController(options) {
         data: {
           correlationId,
           deviceId: parsed.deviceId,
-          pin: Number(parsed.pin),
-          action: parsed.action === 'off' ? 'off' : 'on',
+          pin: normalizedPin,
+          action: normalizedAction,
         },
       });
     } catch (error) {
