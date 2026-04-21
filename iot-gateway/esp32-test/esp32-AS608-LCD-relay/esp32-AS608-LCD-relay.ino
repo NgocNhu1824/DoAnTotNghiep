@@ -1171,6 +1171,7 @@ bool verifyFingerprintWithLocalSensorSlot(
       Serial.print(expectedFingerId);
       Serial.print(" actual=");
       Serial.println(outMatchedFingerId);
+      return false;
     } else {
       return true;
     }
@@ -1182,6 +1183,51 @@ bool verifyFingerprintWithLocalSensorSlot(
   if (!allowEnrollFallbackOnMiss || !isValidFingerSlot(expectedFingerId)) {
     return false;
   }
+
+  // Safety: only auto-enroll when expected slot is confirmed empty.
+  // If slot already has a template, a verify miss must not overwrite it.
+  int loadProbe = finger.loadModel(expectedFingerId);
+  if (loadProbe == FINGERPRINT_OK) {
+    Serial.print("[FINGER] slot already occupied, skip auto-enroll slot=");
+    Serial.println(expectedFingerId);
+    return false;
+  }
+
+  delay(60);
+  int loadProbeRetry = finger.loadModel(expectedFingerId);
+  if (loadProbeRetry == FINGERPRINT_OK) {
+    Serial.print("[FINGER] slot occupied on retry, skip auto-enroll slot=");
+    Serial.println(expectedFingerId);
+    return false;
+  }
+
+  bool slotLikelyEmpty = false;
+#if defined(FINGERPRINT_NOTFOUND)
+  if (loadProbeRetry == FINGERPRINT_NOTFOUND) {
+    slotLikelyEmpty = true;
+  }
+#endif
+#if defined(FINGERPRINT_DBRANGEFAIL)
+  if (loadProbeRetry == FINGERPRINT_DBRANGEFAIL) {
+    slotLikelyEmpty = true;
+  }
+#endif
+#if defined(FINGERPRINT_BADLOCATION)
+  if (loadProbeRetry == FINGERPRINT_BADLOCATION) {
+    slotLikelyEmpty = true;
+  }
+#endif
+
+  if (!slotLikelyEmpty) {
+    Serial.print("[FINGER] slot probe uncertain, skip auto-enroll slot=");
+    Serial.print(expectedFingerId);
+    Serial.print(" code=");
+    Serial.println(loadProbeRetry);
+    return false;
+  }
+
+  Serial.print("[FINGER] slot confirmed empty, allow auto-enroll slot=");
+  Serial.println(expectedFingerId);
 
   Serial.print("[FINGER] local verify auto-enroll fallback slot=");
   Serial.println(expectedFingerId);
