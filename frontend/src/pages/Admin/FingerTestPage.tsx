@@ -170,45 +170,74 @@ const FingerTestPage: React.FC = () => {
         return;
       }
 
-      // require user email
-      if (!userEmail) {
-        toast({ title: 'Error', description: 'User email is required', variant: 'destructive' });
-        return;
-      }
+      // Simulate mode still uses admin endpoint so developers can inject raw template data.
+      if (simulateMode) {
+        const normalizedFingerData = String(fingerData || '').trim();
+        if (!normalizedFingerData) {
+          toast({
+            title: 'Error',
+            description: 'Simulate mode requires fingerData',
+            variant: 'destructive',
+          });
+          return;
+        }
 
-      const resolvedUserId = await resolveSelectedUserId();
-      if (!resolvedUserId) {
+        if (!userEmail) {
+          toast({ title: 'Error', description: 'User email is required in simulate mode', variant: 'destructive' });
+          return;
+        }
+
+        const resolvedUserId = await resolveSelectedUserId();
+        if (!resolvedUserId) {
+          toast({
+            title: 'Error',
+            description: 'Cannot resolve userId from email. Please choose a user from the search list.',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        const targetDeviceId = String(selectedLocker.deviceId || deviceId || '').trim();
+        const targetGatewayId = String(selectedLocker.gatewayId || gatewayId || '').trim();
+        const parsedFloorFromDevice = (() => {
+          const matched = targetDeviceId.match(/tang(\d+)/i);
+          if (!matched) return floor;
+          const n = Number(matched[1]);
+          return Number.isFinite(n) && n > 0 ? Math.round(n) : floor;
+        })();
+
+        const payload: any = {
+          floor: parsedFloorFromDevice,
+          gatewayId: targetGatewayId || undefined,
+          deviceId: targetDeviceId,
+          userId: resolvedUserId,
+          fingerData: normalizedFingerData,
+        };
+
+        if (delaySeconds !== undefined) payload.delaySeconds = delaySeconds;
+        const res = await lockerService.adminTestRegister(payload);
         toast({
-          title: 'Error',
-          description: 'Cannot resolve userId from email. Please choose a user from the search list.',
-          variant: 'destructive',
+          title: 'Sent',
+          description: `Simulate register command sent to ${targetDeviceId || 'selected device'}${targetGatewayId ? ` via ${targetGatewayId}` : ''}`,
         });
+        console.log('register result', res);
         return;
       }
 
-      const targetDeviceId = String(selectedLocker.deviceId || deviceId || '').trim();
-      const targetGatewayId = String(selectedLocker.gatewayId || gatewayId || '').trim();
-      const parsedFloorFromDevice = (() => {
-        const matched = targetDeviceId.match(/tang(\d+)/i);
-        if (!matched) return floor;
-        const n = Number(matched[1]);
-        return Number.isFinite(n) && n > 0 ? Math.round(n) : floor;
-      })();
-
-      const payload: any = {
-        floor: parsedFloorFromDevice,
-        gatewayId: targetGatewayId || undefined,
-        deviceId: targetDeviceId,
-        userId: resolvedUserId,
-      };
-      // Only include fingerData when explicitly simulating
-      if (simulateMode && fingerData) payload.fingerData = fingerData;
-      if (delaySeconds !== undefined) payload.delaySeconds = delaySeconds;
-      const res = await lockerService.adminTestRegister(payload);
-      toast({
-        title: 'Sent',
-        description: `Register command sent to ${targetDeviceId || 'selected device'}${targetGatewayId ? ` via ${targetGatewayId}` : ''}`,
+      // Default mode uses official locker flow to match production logic.
+      const res = await lockerService.registerFingerprint(normalizedLockerId, {
+        delaySeconds,
+        metadata: {
+          sourceType: 'admin_finger_test_page_register',
+          selectedLockerId: normalizedLockerId,
+          selectedLockerNumber: selectedLocker.lockerNumber,
+          selectedLockerPin: selectedLocker.controlPin,
+        },
       });
+
+      const selectedPin = Number(selectedLocker.controlPin);
+      const pinLabel = Number.isFinite(selectedPin) ? `pin ${selectedPin}` : 'locker pin';
+      toast({ title: 'Sent', description: `Register command sent for locker #${selectedLocker.lockerNumber} (${pinLabel})` });
       console.log('register result', res);
     } catch (err: any) {
       toast({ title: 'Error', description: err?.message || 'Failed to send register' , variant: 'destructive'});
@@ -315,9 +344,10 @@ const FingerTestPage: React.FC = () => {
             </div>
 
             <div>
-              <Label>User email — required</Label>
+              <Label>User email (simulate mode only)</Label>
               <Input
                 value={userEmail || userSearch}
+                disabled={!simulateMode}
                 onChange={(e) => {
                   setUserSearch(e.target.value);
                   setUserEmail(e.target.value);
@@ -326,7 +356,10 @@ const FingerTestPage: React.FC = () => {
                 }}
                 placeholder={user ? `${user.email}` : 'Enter user email'}
               />
-              {userSearchResults.length > 0 && (
+              {!simulateMode && (
+                <p className="mt-1 text-xs text-muted-foreground">Normal mode uses current logged-in user from JWT.</p>
+              )}
+              {simulateMode && userSearchResults.length > 0 && (
                 <div className="border rounded mt-1 max-h-40 overflow-auto bg-white">
                   {userSearchResults.map((u) => (
                     <div
@@ -358,7 +391,7 @@ const FingerTestPage: React.FC = () => {
               <Button variant="secondary" onClick={handleVerify} disabled={loading}>Verify Finger</Button>
             </div>
 
-            <p className="text-sm text-muted-foreground">Note: Verify button uses existing locker flow and checks fingerprint for current logged-in user.</p>
+            <p className="text-sm text-muted-foreground">Note: Register and Verify buttons use the current locker flow (template DB verify for current logged-in user). Use simulate mode only for dev injection.</p>
 
             {(roleDetails?.roleCode === 'DEV_TOOLS' || roleDetails?.roleCode === 'ADMIN' || hasPermission('DEV_TOOLS')) && (
               <>

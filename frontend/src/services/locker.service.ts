@@ -165,6 +165,19 @@ export const lockerService = {
     return await api.post('/lockers/fingerprint/register/by-floor', data);
   },
 
+  registerFingerprint: async (
+    lockerId: string,
+    data?: {
+      roomId?: string;
+      scheduleId?: string;
+      bookingId?: string;
+      delaySeconds?: number;
+      metadata?: Record<string, any>;
+    },
+  ) => {
+    return await api.post(`/lockers/${lockerId}/fingerprint/register`, data || {});
+  },
+
   verifyFingerprint: async (
     lockerId: string,
     data?: {
