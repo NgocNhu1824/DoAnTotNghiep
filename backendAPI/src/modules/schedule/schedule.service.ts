@@ -11,9 +11,11 @@ import { Schedule } from '@/database/schemas/schedule.schema';
 import { Room } from '@/database/schemas/room.schema';
 import { User } from '@/database/schemas/user.schema';
 import { TimeSlot } from '@/database/schemas/time-slot.schema';
+import { Booking } from '@/database/schemas/booking.schema';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { QueryScheduleDto } from './dto/query-schedule.dto';
 import { CsvParserHelper } from './helpers/csv-parser.helper';
+import { BookingAdministrationParserHelper } from './helpers/booking-administration-parser.helper';
 import { ImportValidatorHelper } from './helpers/import-validator.helper';
 import { ConflictDetectorHelper } from './helpers/conflict-detector.helper';
 const XLSX = require('xlsx');
@@ -32,7 +34,10 @@ export class ScheduleService {
 
     @InjectModel(TimeSlot.name)
     private readonly timeSlotModel: Model<TimeSlot>,
-  ) {}
+
+    @InjectModel(Booking.name)
+    private readonly bookingModel: Model<Booking>,
+  ) { }
 
   private normalizeId(value: any): string {
     return value?.toString?.() || String(value || '');
@@ -85,19 +90,149 @@ export class ScheduleService {
       timeSlotId: timeSlotId ? this.normalizeId(timeSlotId) : null,
       timeSlot: slot
         ? {
-            id: this.normalizeId(slot._id),
-            slotType: slot.slotType,
-            slotNumber: slot.slotNumber,
-            slotName: slot.slotName,
-            startTime: slot.startTime,
-            endTime: slot.endTime,
-          }
+          id: this.normalizeId(slot._id),
+          slotType: slot.slotType,
+          slotNumber: slot.slotNumber,
+          slotName: slot.slotName,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+        }
         : null,
       slotType: slot?.slotType || null,
       slotNumber: slot?.slotNumber || null,
       startTime: slot?.startTime || null,
       endTime: slot?.endTime || null,
     };
+  }
+
+  private escapeRegex(value: string): string {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private normalizeTextWithoutDiacritics(value: unknown): string {
+    return String(value ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  private buildRoomLookupKey(value: unknown): string {
+    return this.normalizeTextWithoutDiacritics(value)
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+  }
+
+  private resolveBookingAdministrationBookerEmail(rawBooker: unknown): string {
+    const normalized = String(rawBooker ?? '').trim().toLowerCase();
+    if (!normalized) {
+      return '';
+    }
+
+    if (normalized.includes('@')) {
+      return normalized;
+    }
+
+    return `${normalized}@fe.edu.vn`;
+  }
+
+  private resolveBookingAdministrationRoomCodeAndSlotType(rawRoomNo: unknown): {
+    roomCode: string;
+    slotType: 'OLDSLOT' | 'NEWSLOT';
+    normalizedRoomNo: string;
+  } {
+    let normalizedRoomNo = String(rawRoomNo ?? '').trim();
+    let slotType: 'OLDSLOT' | 'NEWSLOT' = 'OLDSLOT';
+
+    if (/^r\./i.test(normalizedRoomNo)) {
+      slotType = 'NEWSLOT';
+      normalizedRoomNo = normalizedRoomNo.replace(/^r\./i, '').trim();
+    }
+
+    const roomCode = this.normalizeTextWithoutDiacritics(normalizedRoomNo)
+      .replace(/\s+/g, '')
+      .replace(/[^A-Za-z0-9_.-]/g, '');
+
+    return {
+      roomCode,
+      slotType,
+      normalizedRoomNo,
+    };
+  }
+
+  private parseBookingAdministrationDate(rawDate: unknown): Date | null {
+    if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
+      return new Date(
+        Date.UTC(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate(), 0, 0, 0, 0),
+      );
+    }
+
+    const normalized = String(rawDate ?? '').trim();
+    if (!normalized) {
+      return null;
+    }
+
+    const dmy = normalized.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if (dmy) {
+      const day = Number(dmy[1]);
+      const month = Number(dmy[2]);
+      const year = Number(dmy[3]);
+      const candidate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+      if (
+        candidate.getUTCFullYear() === year &&
+        candidate.getUTCMonth() === month - 1 &&
+        candidate.getUTCDate() === day
+      ) {
+        return candidate;
+      }
+      return null;
+    }
+
+    const ymd = normalized.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+    if (ymd) {
+      const year = Number(ymd[1]);
+      const month = Number(ymd[2]);
+      const day = Number(ymd[3]);
+      const candidate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+      if (
+        candidate.getUTCFullYear() === year &&
+        candidate.getUTCMonth() === month - 1 &&
+        candidate.getUTCDate() === day
+      ) {
+        return candidate;
+      }
+      return null;
+    }
+
+    const fallback = new Date(normalized);
+    if (Number.isNaN(fallback.getTime())) {
+      return null;
+    }
+
+    return new Date(
+      Date.UTC(fallback.getUTCFullYear(), fallback.getUTCMonth(), fallback.getUTCDate(), 0, 0, 0, 0),
+    );
+  }
+
+  private toDateKey(value: unknown): string {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      const year = value.getUTCFullYear();
+      const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(value.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    const parsed = new Date(String(value || ''));
+    if (Number.isNaN(parsed.getTime())) {
+      return '';
+    }
+
+    const year = parsed.getUTCFullYear();
+    const month = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private timeOverlaps(startA: string, endA: string, startB: string, endB: string): boolean {
+    return startA < endB && endA > startB;
   }
 
   async generateImportTemplate(): Promise<Buffer> {
@@ -217,6 +352,511 @@ export class ScheduleService {
     });
   }
 
+  async generateBookingAdministrationImportTemplate(): Promise<Buffer> {
+    const templateRows = [
+      ['Booker', 'RoomNo', 'date', 'Note', 'Slot'],
+      ['tienttc7', 'A206', '02/05/2026', 'Classroom usage from administration office', 7],
+      ['khanhnd46', 'R.G418', '03/05/2026', 'Exam schedule from administration office', 3],
+      ['sanhnh', '9_Trien lam AL', '09/05/2026', 'Event room booking', 1],
+    ];
+
+    const instructionRows = [
+      ['Field', 'Required', 'Description', 'Accepted Values / Example'],
+      ['Booker', 'Yes', 'Booker email or account code', 'tienttc7 or tienttc7@fe.fpt.edu'],
+      [
+        'RoomNo',
+        'Yes',
+        'Room code. Prefix R. means NEWSLOT; otherwise OLDSLOT',
+        'A206 / R.A206 / 9_Trien lam AL',
+      ],
+      ['date', 'Yes', 'Booking date', 'dd/MM/yyyy (example: 02/05/2026)'],
+      ['Note', 'No', 'Purpose text for booking', 'Exam schedule from administration office'],
+      ['Slot', 'Yes', 'Slot number resolved by slotType from RoomNo', '1, 2, 3...'],
+    ];
+
+    const templateWorksheet = XLSX.utils.aoa_to_sheet(templateRows);
+    templateWorksheet['!cols'] = [
+      { wch: 26 },
+      { wch: 28 },
+      { wch: 14 },
+      { wch: 56 },
+      { wch: 8 },
+    ];
+
+    const instructionWorksheet = XLSX.utils.aoa_to_sheet(instructionRows);
+    instructionWorksheet['!cols'] = [{ wch: 16 }, { wch: 10 }, { wch: 40 }, { wch: 56 }];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, templateWorksheet, 'BookingAdminTemplate');
+    XLSX.utils.book_append_sheet(workbook, instructionWorksheet, 'Instructions');
+
+    return XLSX.write(workbook, {
+      type: 'buffer',
+      bookType: 'xlsx',
+    });
+  }
+
+  async importBookingAdministrationSchedules(
+    file: any,
+    mode: 'dryRun' | 'strict' | 'lenient',
+    user: any,
+  ): Promise<any> {
+    const rawRows = await BookingAdministrationParserHelper.parse(file);
+    const errors: Array<{
+      rowIndex: number;
+      field?: string;
+      code: string;
+      message: string;
+    }> = [];
+
+    const parsedRows = rawRows.map((row, index) => {
+      const rowIndex = index + 1;
+
+      const rawBooker = String(row.booker || '').trim();
+      const rawRoomNo = String(row.roomno || '').trim();
+      const rawDate = String(row.date || '').trim();
+      const rawNote = String(row.note || '').trim();
+      const rawSlot = String(row.slot ?? '').trim();
+
+      // bỏ qua row có RoomNo bắt đầu bằng "ON" (không phân biệt hoa thường)
+      if (/^ON\d+$/i.test(rawRoomNo)) {
+        return null;
+      }
+
+      if (!rawBooker) {
+        errors.push({
+          rowIndex,
+          field: 'Booker',
+          code: 'REQUIRED_FIELD',
+          message: 'Missing Booker',
+        });
+      }
+
+      if (!rawRoomNo) {
+        errors.push({
+          rowIndex,
+          field: 'RoomNo',
+          code: 'REQUIRED_FIELD',
+          message: 'Missing RoomNo',
+        });
+      }
+
+      if (!rawDate) {
+        errors.push({
+          rowIndex,
+          field: 'date',
+          code: 'REQUIRED_FIELD',
+          message: 'Missing date',
+        });
+      }
+
+      if (!rawSlot) {
+        errors.push({
+          rowIndex,
+          field: 'Slot',
+          code: 'REQUIRED_FIELD',
+          message: 'Missing Slot',
+        });
+      }
+
+      const resolvedBookerEmail = this.resolveBookingAdministrationBookerEmail(rawBooker);
+
+      if (resolvedBookerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resolvedBookerEmail)) {
+        errors.push({
+          rowIndex,
+          field: 'Booker',
+          code: 'INVALID_FORMAT',
+          message: 'Booker must be a valid account/email',
+        });
+      }
+
+      const resolvedRoom = this.resolveBookingAdministrationRoomCodeAndSlotType(rawRoomNo);
+      if (rawRoomNo && !resolvedRoom.roomCode) {
+        errors.push({
+          rowIndex,
+          field: 'RoomNo',
+          code: 'INVALID_FORMAT',
+          message: 'RoomNo could not be normalized to roomCode',
+        });
+      }
+
+      const slotNumberRaw = Number(rawSlot);
+      const slotNumber = Number.isFinite(slotNumberRaw) ? Math.round(slotNumberRaw) : Number.NaN;
+      if (!Number.isFinite(slotNumber) || slotNumber <= 0) {
+        errors.push({
+          rowIndex,
+          field: 'Slot',
+          code: 'INVALID_VALUE',
+          message: 'Slot must be a positive number',
+        });
+      }
+
+      const bookingDate = this.parseBookingAdministrationDate(rawDate);
+      if (!bookingDate) {
+        errors.push({
+          rowIndex,
+          field: 'date',
+          code: 'INVALID_FORMAT',
+          message: 'date must use dd/MM/yyyy or yyyy-MM-dd',
+        });
+      }
+
+      return {
+        rowIndex,
+        rawBooker,
+        rawRoomNo,
+        rawDate,
+        rawNote,
+        rawSlot,
+        bookerEmail: resolvedBookerEmail,
+        roomCode: resolvedRoom.roomCode,
+        normalizedRoomNo: resolvedRoom.normalizedRoomNo,
+        slotType: resolvedRoom.slotType,
+        slotNumber,
+        bookingDate,
+      };
+    }).filter(Boolean);
+
+    const candidateEmails = Array.from(
+      new Set(parsedRows.map((row) => row.bookerEmail).filter(Boolean)),
+    );
+
+    const requestedSlots = Array.from(
+      new Set(
+        parsedRows
+          .filter((row) => Number.isFinite(row.slotNumber) && row.slotNumber > 0)
+          .map((row) => this.buildSlotKey(row.slotType, row.slotNumber)),
+      ),
+    ).map((key) => {
+      const [slotType, slotNumberRaw] = key.split('::');
+      return {
+        slotType,
+        slotNumber: Number(slotNumberRaw),
+      };
+    });
+
+    const [rooms, users, timeSlots] = await Promise.all([
+      this.roomModel
+        .find({ campusId: user.campusId })
+        .select('_id roomCode')
+        .lean()
+        .exec(),
+      candidateEmails.length
+        ? this.userModel
+          .find({
+            campusId: user.campusId,
+            email: {
+              $in: candidateEmails.map((email) => new RegExp(`^${this.escapeRegex(email)}$`, 'i')),
+            },
+          })
+          .select('_id email')
+          .lean()
+          .exec()
+        : Promise.resolve([]),
+      requestedSlots.length
+        ? this.timeSlotModel
+          .find({
+            $or: requestedSlots,
+            isActive: true,
+          })
+          .select('_id slotType slotNumber startTime endTime')
+          .lean()
+          .exec()
+        : Promise.resolve([]),
+    ]);
+
+    const roomByExactLower = new Map<string, any>();
+    const roomByLookupKey = new Map<string, any>();
+
+    rooms.forEach((room: any) => {
+      const roomCode = String(room?.roomCode || '').trim();
+      if (!roomCode) {
+        return;
+      }
+
+      roomByExactLower.set(roomCode.toLowerCase(), room);
+
+      const lookupKey = this.buildRoomLookupKey(roomCode);
+      if (lookupKey && !roomByLookupKey.has(lookupKey)) {
+        roomByLookupKey.set(lookupKey, room);
+      }
+    });
+
+    const userByEmailLower = new Map<string, any>();
+    users.forEach((row: any) => {
+      const email = String(row?.email || '').trim().toLowerCase();
+      if (email) {
+        userByEmailLower.set(email, row);
+      }
+    });
+
+    const slotMap = new Map<string, any>();
+    timeSlots.forEach((slot: any) => {
+      slotMap.set(this.buildSlotKey(slot.slotType, slot.slotNumber), slot);
+    });
+
+    const mappedRows = parsedRows.map((row) => {
+      const exactRoom = roomByExactLower.get(String(row.roomCode || '').toLowerCase()) || null;
+      const fuzzyRoom = exactRoom || roomByLookupKey.get(this.buildRoomLookupKey(row.roomCode)) || null;
+
+      if (!fuzzyRoom && row.roomCode) {
+        errors.push({
+          rowIndex: row.rowIndex,
+          field: 'RoomNo',
+          code: 'NOT_FOUND_IN_CAMPUS',
+          message: `Room "${row.rawRoomNo}" was not found in your campus`,
+        });
+      }
+
+      const lecturer = userByEmailLower.get(String(row.bookerEmail || '').toLowerCase()) || null;
+      if (!lecturer && row.bookerEmail) {
+        errors.push({
+          rowIndex: row.rowIndex,
+          field: 'Booker',
+          code: 'NOT_FOUND_IN_CAMPUS',
+          message: `Booker "${row.bookerEmail}" was not found in your campus`,
+        });
+      }
+
+      const resolvedSlot = slotMap.get(this.buildSlotKey(row.slotType, row.slotNumber));
+      if (!resolvedSlot && Number.isFinite(row.slotNumber) && row.slotNumber > 0) {
+        errors.push({
+          rowIndex: row.rowIndex,
+          field: 'Slot',
+          code: 'NOT_FOUND',
+          message: `Slot ${row.slotNumber} was not found for ${row.slotType}`,
+        });
+      }
+
+      return {
+        ...row,
+        roomId: fuzzyRoom?._id || null,
+        lecturerId: lecturer?._id || null,
+        startTime: resolvedSlot?.startTime || null,
+        endTime: resolvedSlot?.endTime || null,
+        purpose: row.rawNote || 'Imported from BookingAdministrationDepartment',
+      };
+    });
+
+    const seenInFile = new Map<string, number>();
+    mappedRows.forEach((row) => {
+      if (!row.roomId || !row.bookingDate || !row.startTime || !row.endTime) {
+        return;
+      }
+
+      const dateKey = this.toDateKey(row.bookingDate);
+      const dedupeKey = `${this.normalizeId(row.roomId)}::${dateKey}::${row.startTime}::${row.endTime}`;
+
+      if (seenInFile.has(dedupeKey)) {
+        errors.push({
+          rowIndex: row.rowIndex,
+          field: 'RoomNo',
+          code: 'DUPLICATE_IN_FILE',
+          message: `Duplicate booking with row ${seenInFile.get(dedupeKey)} (same room/date/slot)`,
+        });
+      } else {
+        seenInFile.set(dedupeKey, row.rowIndex);
+      }
+    });
+
+    const validDateRows = mappedRows.filter((row) => row.bookingDate instanceof Date);
+    const existingBookings = validDateRows.length
+      ? await this.bookingModel
+        .find({
+          campusId: user.campusId,
+          status: { $in: ['pending', 'approved'] },
+          $or: [
+            {
+              bookingDate: {
+                $gte: new Date(
+                  Math.min(...validDateRows.map((row) => (row.bookingDate as Date).getTime())),
+                ),
+                $lte: new Date(
+                  Math.max(...validDateRows.map((row) => (row.bookingDate as Date).getTime())),
+                ),
+              },
+            },
+            {
+              dateStart: {
+                $gte: new Date(
+                  Math.min(...validDateRows.map((row) => (row.bookingDate as Date).getTime())),
+                ),
+                $lte: new Date(
+                  Math.max(...validDateRows.map((row) => (row.bookingDate as Date).getTime())),
+                ),
+              },
+            },
+          ],
+        })
+        .select('roomId lecturerId requesterId bookingDate dateStart startTime endTime status')
+        .lean()
+        .exec()
+      : [];
+
+    mappedRows.forEach((row) => {
+      if (!row.roomId || !row.lecturerId || !row.bookingDate || !row.startTime || !row.endTime) {
+        return;
+      }
+
+      const rowDateKey = this.toDateKey(row.bookingDate);
+      let roomConflictFound = false;
+      let lecturerConflictFound = false;
+
+      for (const existing of existingBookings as any[]) {
+        const existingDateKey = this.toDateKey(existing.bookingDate || existing.dateStart);
+        if (!existingDateKey || existingDateKey !== rowDateKey) {
+          continue;
+        }
+
+        const sameRoom = this.normalizeId(existing.roomId) === this.normalizeId(row.roomId);
+        const sameLecturer =
+          this.normalizeId(existing.lecturerId || existing.requesterId) === this.normalizeId(row.lecturerId);
+
+        if (
+          sameRoom &&
+          this.timeOverlaps(row.startTime, row.endTime, existing.startTime, existing.endTime) &&
+          !roomConflictFound
+        ) {
+          errors.push({
+            rowIndex: row.rowIndex,
+            field: 'RoomNo',
+            code: 'ROOM_CONFLICT',
+            message: `Room already has a pending/approved booking in this slot (${rowDateKey}, ${row.startTime}-${row.endTime})`,
+          });
+          roomConflictFound = true;
+        }
+
+        if (
+          sameLecturer &&
+          this.timeOverlaps(row.startTime, row.endTime, existing.startTime, existing.endTime) &&
+          !lecturerConflictFound
+        ) {
+          errors.push({
+            rowIndex: row.rowIndex,
+            field: 'Booker',
+            code: 'LECTURER_CONFLICT',
+            message: `Booker already has a pending/approved booking in this slot (${rowDateKey}, ${row.startTime}-${row.endTime})`,
+          });
+          lecturerConflictFound = true;
+        }
+
+        if (roomConflictFound && lecturerConflictFound) {
+          break;
+        }
+      }
+    });
+
+    const failedRows = new Set(errors.map((error) => error.rowIndex)).size;
+
+    if (mode === 'dryRun') {
+      return {
+        success: true,
+        mode: 'dryRun',
+        preview: mappedRows.map((row) => ({
+          row: row.rowIndex,
+          booker: row.bookerEmail,
+          roomCode: row.roomCode,
+          slotType: row.slotType,
+          slotNumber: row.slotNumber,
+          date: this.toDateKey(row.bookingDate),
+          valid: !errors.find((error) => error.rowIndex === row.rowIndex),
+        })),
+        errors,
+        summary: {
+          total: rawRows.length,
+          valid: rawRows.length - failedRows,
+          invalid: failedRows,
+        },
+      };
+    }
+
+    if (mode === 'strict' && errors.length > 0) {
+      throw new BadRequestException({
+        message: 'Import data contains errors',
+        errors,
+        total: rawRows.length,
+        inserted: 0,
+        failed: failedRows,
+        summary: {
+          total: rawRows.length,
+          inserted: 0,
+          failed: failedRows,
+        },
+      });
+    }
+
+    const validRows = mappedRows
+      .filter((row) => !errors.find((error) => error.rowIndex === row.rowIndex))
+      .filter((row) => row.roomId && row.lecturerId && row.bookingDate && row.startTime && row.endTime)
+      .map((row) => {
+        const bookingDate = row.bookingDate as Date;
+        const note = row.rawNote || null;
+
+        return {
+          campusId: new Types.ObjectId(String(user.campusId)),
+          roomId: new Types.ObjectId(String(row.roomId)),
+          lecturerId: new Types.ObjectId(String(row.lecturerId)),
+          requesterId: new Types.ObjectId(String(row.lecturerId)),
+          bookingDate,
+          dateStart: bookingDate,
+          dateEnd: bookingDate,
+          startTime: row.startTime,
+          endTime: row.endTime,
+          purpose: row.purpose,
+          status: 'approved',
+          note,
+          notes: note,
+          createdBy: new Types.ObjectId(String(user._id)),
+          updatedBy: new Types.ObjectId(String(user._id)),
+        };
+      });
+
+    if (validRows.length === 0) {
+      throw new BadRequestException({
+        message: 'No valid rows to import',
+        errors,
+        total: rawRows.length,
+        inserted: 0,
+        failed: failedRows,
+        summary: {
+          total: rawRows.length,
+          inserted: 0,
+          failed: failedRows,
+        },
+      });
+    }
+
+    try {
+      const inserted = await this.bookingModel.insertMany(validRows, { ordered: false });
+
+      return {
+        success: true,
+        mode,
+        inserted: inserted.length,
+        total: rawRows.length,
+        failed: failedRows,
+        errors: errors.length > 0 ? errors : undefined,
+        summary: {
+          total: rawRows.length,
+          inserted: inserted.length,
+          failed: failedRows,
+        },
+      };
+    } catch (error: any) {
+      if (error.code === 11000) {
+        throw new ConflictException({
+          message: 'Some bookings are duplicated',
+          detail: 'Duplicate key error. Check for existing bookings.',
+        });
+      }
+
+      throw new InternalServerErrorException({
+        message: 'Import failed',
+        error: error.message,
+      });
+    }
+  }
+
   async importSchedules(file: any, mode: 'dryRun' | 'strict' | 'lenient', user: any): Promise<any> {
     const rawRows = await CsvParserHelper.parse(file);
     const formatErrors = ImportValidatorHelper.validateFormat(rawRows);
@@ -268,13 +908,13 @@ export class ScheduleService {
 
       requestedSlots.length
         ? this.timeSlotModel
-            .find({
-              $or: requestedSlots,
-              isActive: true,
-            })
-            .select('_id slotType slotNumber startTime endTime')
-            .lean()
-            .exec()
+          .find({
+            $or: requestedSlots,
+            isActive: true,
+          })
+          .select('_id slotType slotNumber startTime endTime')
+          .lean()
+          .exec()
         : Promise.resolve([]),
     ]);
 
@@ -422,16 +1062,16 @@ export class ScheduleService {
     const existingSchedules =
       validDates.length > 0
         ? await this.scheduleModel
-            .find({
-              campusId: user.campusId,
-              dateStart: {
-                $gte: new Date(Math.min(...validDates.map((d) => d.getTime()))),
-                $lte: new Date(Math.max(...validDates.map((d) => d.getTime()))),
-              },
-            })
-            .populate('timeSlotId', 'slotType slotNumber startTime endTime')
-            .lean()
-            .exec()
+          .find({
+            campusId: user.campusId,
+            dateStart: {
+              $gte: new Date(Math.min(...validDates.map((d) => d.getTime()))),
+              $lte: new Date(Math.max(...validDates.map((d) => d.getTime()))),
+            },
+          })
+          .populate('timeSlotId', 'slotType slotNumber startTime endTime')
+          .lean()
+          .exec()
         : [];
 
     const comparableExistingSchedules = existingSchedules.map((row) => this.toComparableSchedule(row));

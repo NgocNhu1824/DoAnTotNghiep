@@ -49,6 +49,24 @@ export class ScheduleController {
     res.send(buffer);
   }
 
+  @Get('import/booking-administration/template')
+  @Roles('TRAINING_OFFICER', 'CAMPUS_ADMIN', 'SUPER_ADMIN')
+  @RequireScopes('CAMPUS', 'GLOBAL')
+  @RequirePermissions('schedules.create')
+  async downloadBookingAdministrationTemplate(@Res() res: Response) {
+    const buffer = await this.scheduleService.generateBookingAdministrationImportTemplate();
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="booking-administration-import-template.xlsx"',
+    );
+    res.send(buffer);
+  }
+
   // POST /schedules/import - CSV/Excel import (formats: .csv, .xlsx, .xls)
   @Post('import')
   @Roles('TRAINING_OFFICER', 'CAMPUS_ADMIN', 'SUPER_ADMIN')
@@ -81,6 +99,44 @@ export class ScheduleController {
         dto.mode === 'dryRun'
           ? 'File validation completed'
           : `Imported ${result.inserted}/${result.total} schedules`,
+      data: result,
+    };
+  }
+
+  @Post('import/booking-administration')
+  @Roles('TRAINING_OFFICER', 'CAMPUS_ADMIN', 'SUPER_ADMIN')
+  @RequireScopes('CAMPUS', 'GLOBAL')
+  @RequirePermissions('schedules.create')
+  @UseInterceptors(FileInterceptor('file'))
+  async importBookingAdministration(
+    @UploadedFile() file: any,
+    @Body() dto: ImportScheduleDto,
+    @CurrentUser() user: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file selected');
+    }
+
+    const fileName = file.originalname?.toLowerCase() || '';
+    const validExtensions = ['.csv', '.xlsx', '.xls'];
+    const isValid = validExtensions.some((ext) => fileName.endsWith(ext));
+
+    if (!isValid) {
+      throw new BadRequestException('Only CSV or Excel files are accepted (.csv, .xlsx, .xls)');
+    }
+
+    const result = await this.scheduleService.importBookingAdministrationSchedules(
+      file,
+      dto.mode || 'strict',
+      user,
+    );
+
+    return {
+      success: true,
+      message:
+        dto.mode === 'dryRun'
+          ? 'File validation completed'
+          : `Imported ${result.inserted}/${result.total} bookings`,
       data: result,
     };
   }

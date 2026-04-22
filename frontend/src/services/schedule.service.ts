@@ -185,8 +185,31 @@ export const scheduleService = {
     return res;
   },
 
+  importBookingAdministration: async (
+    file: File,
+    mode: 'dryRun' | 'strict' | 'lenient' = 'strict',
+  ): Promise<ImportScheduleResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('mode', mode);
+
+    const res = await api.post<ImportScheduleResponse>('/schedules/import/booking-administration', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    return res;
+  },
+
   downloadImportTemplate: async (): Promise<Blob> => {
     return await api.get<Blob>('/schedules/import/template', {
+      responseType: 'blob' as any,
+    });
+  },
+
+  downloadBookingAdministrationTemplate: async (): Promise<Blob> => {
+    return await api.get<Blob>('/schedules/import/booking-administration/template', {
       responseType: 'blob' as any,
     });
   },

@@ -44,8 +44,10 @@ interface ImportScheduleModalProps {
 }
 
 const MAX_FILE_SIZE_MB = 5;
+type ImportSourceMode = 'fap' | 'bookingAdministration';
 
 const ImportScheduleModal: React.FC<ImportScheduleModalProps> = ({ isOpen, onClose, onImported }) => {
+  const [importSourceMode, setImportSourceMode] = useState<ImportSourceMode>('fap');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
@@ -81,11 +83,17 @@ const ImportScheduleModal: React.FC<ImportScheduleModalProps> = ({ isOpen, onClo
   const handleDownloadTemplate = async () => {
     try {
       setIsDownloadingTemplate(true);
-      const blob = await scheduleService.downloadImportTemplate();
+      const blob =
+        importSourceMode === 'fap'
+          ? await scheduleService.downloadImportTemplate()
+          : await scheduleService.downloadBookingAdministrationTemplate();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'schedule-import-template.xlsx';
+      link.download =
+        importSourceMode === 'fap'
+          ? 'schedule-import-template.xlsx'
+          : 'booking-administration-import-template.xlsx';
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -203,7 +211,10 @@ const ImportScheduleModal: React.FC<ImportScheduleModalProps> = ({ isOpen, onClo
       setIsSubmitting(true);
       setErrorMessage(null);
 
-      const result = await scheduleService.import(selectedFile, 'dryRun');
+      const result =
+        importSourceMode === 'fap'
+          ? await scheduleService.import(selectedFile, 'dryRun')
+          : await scheduleService.importBookingAdministration(selectedFile, 'dryRun');
       const normalizedResult = normalizeResultFromSuccess(result, 'dryRun');
 
       setImportResult(normalizedResult);
@@ -233,7 +244,10 @@ const ImportScheduleModal: React.FC<ImportScheduleModalProps> = ({ isOpen, onClo
       setIsSubmitting(true);
       setErrorMessage(null);
 
-      const result = await scheduleService.import(selectedFile, 'strict');
+      const result =
+        importSourceMode === 'fap'
+          ? await scheduleService.import(selectedFile, 'strict')
+          : await scheduleService.importBookingAdministration(selectedFile, 'strict');
       const normalizedResult = normalizeResultFromSuccess(result, 'strict');
 
       setImportResult(normalizedResult);
@@ -253,20 +267,57 @@ const ImportScheduleModal: React.FC<ImportScheduleModalProps> = ({ isOpen, onClo
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Import Schedule from FAP(Excel/CSV)</DialogTitle>
+          <DialogTitle>
+            {importSourceMode === 'fap'
+              ? 'Import Schedule from FAP(Excel/CSV)'
+              : 'Import Schedule from BookingAdminstationDepartment'}
+          </DialogTitle>
           <DialogDescription>
-            Download template, fill in schedule data, then upload CSV/Excel file to create schedules in bulk.
+            {importSourceMode === 'fap'
+              ? 'Download template, fill in schedule data, then upload CSV/Excel file to create schedules in bulk.'
+              : 'Upload fixed template from BookingAdminstationDepartment to create approved bookings in bulk.'}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant={importSourceMode === 'fap' ? 'default' : 'outline'}
+              onClick={() => {
+                setImportSourceMode('fap');
+                setSelectedFile(null);
+                setImportResult(null);
+                setErrorMessage(null);
+                setIsReviewed(false);
+              }}
+              disabled={isSubmitting || isDownloadingTemplate}
+            >
+              Import schedule from FAP
+            </Button>
+            <Button
+              type="button"
+              variant={importSourceMode === 'bookingAdministration' ? 'default' : 'outline'}
+              onClick={() => {
+                setImportSourceMode('bookingAdministration');
+                setSelectedFile(null);
+                setImportResult(null);
+                setErrorMessage(null);
+                setIsReviewed(false);
+              }}
+              disabled={isSubmitting || isDownloadingTemplate}
+            >
+              Import schedule from BookingAdminstationDepartment
+            </Button>
+          </div>
+
           <Alert>
             <FileSpreadsheet className="h-4 w-4" />
             <AlertTitle>Template format</AlertTitle>
             <AlertDescription>
-              Required columns: roomCode, lecturerEmail, dateStart, slotType, slotNumber. Optional columns:
-              dayOfWeek, startTime, endTime, classCode, subjectCode, subjectName, semester, isOnline.
-              dateStart format: YYYY-MM-DD. slotType supports OLDSLOT/NEWSLOT.
+              {importSourceMode === 'fap'
+                ? 'Required columns: roomCode, lecturerEmail, dateStart, slotType, slotNumber. Optional columns: dayOfWeek, startTime, endTime, classCode, subjectCode, subjectName, semester, isOnline. dateStart format: YYYY-MM-DD. slotType supports OLDSLOT/NEWSLOT.'
+                : 'Required columns: Booker, RoomNo, date, Slot. Optional column: Note. Booker can be account code or email; account code will map to @fe.fpt.edu. RoomNo with prefix R. means NEWSLOT, without prefix uses OLDSLOT. date format supports dd/MM/yyyy.'}
             </AlertDescription>
           </Alert>
 
