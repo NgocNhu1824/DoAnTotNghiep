@@ -517,7 +517,7 @@ export class LockerService implements OnModuleInit {
 
     if (!isValidGatewayId(normalized)) {
       throw new BadRequestException(
-        `${fieldName} must match pattern gateway-tang{floor}, e.g. gateway-tang1`,
+        `${fieldName} must match pattern gateway-tang<building><floor>, e.g. gateway-tangG1 or gateway-tangA2`,
       );
     }
   }
@@ -550,7 +550,7 @@ export class LockerService implements OnModuleInit {
 
     if (parsedFloor) {
       const expectedDeviceId = buildAs608DeviceIdByFloor(parsedFloor);
-      const expectedGatewayId = buildGatewayIdByFloor(parsedFloor);
+      const fallbackGatewayId = buildGatewayIdByFloor(parsedFloor);
 
       if (normalizedDeviceId && normalizedDeviceId !== expectedDeviceId) {
         throw new BadRequestException(
@@ -558,16 +558,21 @@ export class LockerService implements OnModuleInit {
         );
       }
 
-      if (normalizedGatewayId && normalizedGatewayId !== expectedGatewayId) {
-        throw new BadRequestException(
-          `gatewayId does not match selected floor. Expected ${expectedGatewayId}`,
-        );
+      if (normalizedGatewayId) {
+        this.assertValidGatewayId(normalizedGatewayId, 'gatewayId');
+
+        const gatewayFloor = extractFloorFromGatewayId(normalizedGatewayId);
+        if (!gatewayFloor || gatewayFloor !== parsedFloor) {
+          throw new BadRequestException(
+            `gatewayId floor does not match selected floor. Expected floor ${parsedFloor}`,
+          );
+        }
       }
 
       return {
         floor: parsedFloor,
         deviceId: expectedDeviceId,
-        gatewayId: expectedGatewayId,
+        gatewayId: normalizedGatewayId || fallbackGatewayId,
       };
     }
 
@@ -3248,8 +3253,10 @@ export class LockerService implements OnModuleInit {
       usageAction,
       sourceType: usageAction === 'return' ? 'mobile_fingerid_return' : 'mobile_fingerid_verify',
       fingerId: stableFingerId,
-      verifyMode: 'sensor_local_slot',
-      allowEnrollFallbackOnMiss: true,
+      verifyMode: 'template_raw_db',
+      allowEnrollFallbackOnMiss: false,
+      templateData: verificationTemplate.templateData,
+      templateEncoding: verificationTemplate.templateEncoding,
       sourceDeviceId: verificationTemplate.sourceDeviceId || undefined,
       sourceFingerId: verificationTemplate.fingerId ?? undefined,
       templateHash: verificationTemplate.templateHash || undefined,
@@ -3292,9 +3299,9 @@ export class LockerService implements OnModuleInit {
         templateEncoding: verificationTemplate.templateEncoding,
         templateHash: verificationTemplate.templateHash,
       },
-      verificationMode: 'sensor_local_slot',
+      verificationMode: 'template_raw_db',
       fingerId: stableFingerId,
-      allowEnrollFallbackOnMiss: true,
+      allowEnrollFallbackOnMiss: false,
     };
 
     if (contextScheduleId) {

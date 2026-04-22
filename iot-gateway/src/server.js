@@ -27,7 +27,7 @@ async function bootstrap() {
 
   if (!isValidGatewayId(config.device.gatewayId)) {
     throw new Error(
-      `Invalid GATEWAY_ID: ${config.device.gatewayId}. Expected pattern gateway-tang{floor} (e.g. gateway-tang1).`,
+      `Invalid GATEWAY_ID: ${config.device.gatewayId}. Expected pattern gateway-tang<building><floor> (e.g. gateway-tangG1 or gateway-tangA2).`,
     );
   }
 

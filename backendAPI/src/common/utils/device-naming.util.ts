@@ -1,6 +1,7 @@
-export const GATEWAY_FLOOR_REGEX = /^gateway-tang([1-9]\d*)$/;
+export const GATEWAY_FLOOR_REGEX = /^gateway-tang(?:([A-Za-z]+))?([1-9]\d*)$/;
 export const ESP32_AS608_LCD_REGEX = /^esp32-AS608-LCD-tang([1-9]\d*)$/;
 export const ESP32_RELAY_REGEX = /^esp32-relay-tang([1-9]\d*)-(\d{2})$/;
+export const DEFAULT_GATEWAY_BUILDING_CODE = 'G';
 
 export function normalizeNameToken(value: unknown): string {
   return String(value || '').trim();
@@ -14,8 +15,16 @@ export function toFloorNumber(value: unknown): number | null {
   return parsed;
 }
 
-export function buildGatewayIdByFloor(floor: number): string {
-  return `gateway-tang${floor}`;
+export function buildGatewayIdByFloor(
+  floor: number,
+  buildingCode: string = DEFAULT_GATEWAY_BUILDING_CODE,
+): string {
+  const normalizedFloor = Number(floor);
+  const normalizedBuildingCode = normalizeNameToken(buildingCode)
+    .replace(/[^A-Za-z]/g, '')
+    .toUpperCase();
+
+  return `gateway-tang${normalizedBuildingCode}${normalizedFloor}`;
 }
 
 export function buildAs608DeviceIdByFloor(floor: number): string {
@@ -52,7 +61,7 @@ export function extractFloorFromGatewayId(value: unknown): number | null {
     return null;
   }
 
-  const floor = Number(match[1]);
+  const floor = Number(match[2]);
   return Number.isInteger(floor) && floor > 0 ? floor : null;
 }
 

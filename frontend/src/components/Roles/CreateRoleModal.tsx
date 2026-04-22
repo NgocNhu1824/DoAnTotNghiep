@@ -321,7 +321,7 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent className="flex max-h-[90vh] max-w-5xl flex-col overflow-hidden p-0">
+     <DialogContent className="flex w-[95vw] max-h-[90vh] max-w-7xl flex-col overflow-hidden p-0">
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>{editRole ? 'Update Role' : 'Create Role'}</DialogTitle>
           <DialogDescription>

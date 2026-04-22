@@ -11,7 +11,7 @@ import { LockerEntity } from '../../types/locker.type';
 
 const FingerTestPage: React.FC = () => {
   const [floor, setFloor] = useState<number>(1);
-  const [gatewayId, setGatewayId] = useState('gateway-tang1');
+  const [gatewayId, setGatewayId] = useState('gateway-tangG1');
   const [deviceId, setDeviceId] = useState('esp32-AS608-LCD-tang1');
   const [userId, setUserId] = useState(''); // will store ObjectId
   const [userEmail, setUserEmail] = useState(''); // shown in input (email)
@@ -36,7 +36,7 @@ const FingerTestPage: React.FC = () => {
 
   useEffect(() => {
     const normalizedFloor = Number.isInteger(Number(floor)) && Number(floor) > 0 ? Number(floor) : 1;
-    setGatewayId(`gateway-tang${normalizedFloor}`);
+    setGatewayId(`gateway-tangG${normalizedFloor}`);
     setDeviceId(`esp32-AS608-LCD-tang${normalizedFloor}`);
   }, [floor]);
 
