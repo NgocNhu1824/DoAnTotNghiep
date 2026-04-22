@@ -419,7 +419,7 @@ export class ScheduleService {
       const rawSlot = String(row.slot ?? '').trim();
 
       // bỏ qua row có RoomNo bắt đầu bằng "ON" (không phân biệt hoa thường)
-      if (/^ON\d+$/i.test(rawRoomNo)) {
+      if (/^ON\d+$/i.test(rawRoomNo) || /^R.ON\d+$/i.test(rawRoomNo)) {
         return null;
       }
 
