@@ -48,14 +48,15 @@ const PublicIncidentReportPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { isAuthenticated, roleDetails } = useAuth();
   const { toast } = useToast();
+  const userScope = (roleDetails?.scope || '').toUpperCase();
 
   const isLecturerFlow = useMemo(() => {
     return (
       searchParams.get('source') === 'lecturer-schedule' &&
       isAuthenticated &&
-      roleDetails?.roleCode === 'LECTURER'
+      userScope === 'SELF'
     );
-  }, [isAuthenticated, roleDetails?.roleCode, searchParams]);
+  }, [isAuthenticated, searchParams, userScope]);
 
   const sourceScheduleId = searchParams.get('scheduleId');
   const sourceFocusDate = searchParams.get('focusDate');

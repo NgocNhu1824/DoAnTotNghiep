@@ -85,14 +85,16 @@ export const getRoleDisplayName = (roleCode: string): string => {
 };
 
 /**
- * Get default dashboard route based on role (or use permissions)
+ * Get default dashboard route based on scope.
  */
 export const getDefaultDashboard = (
   roleName: string,
   roleScope?: string,
   roleCode?: string,
 ): string => {
-  if (roleCode === ROLE_CODES.LECTURER && roleScope === 'SELF') {
+  const normalizedScope = String(roleScope || '').toUpperCase();
+
+  if (normalizedScope === 'SELF') {
     return '/lecturer/booking';
   }
 

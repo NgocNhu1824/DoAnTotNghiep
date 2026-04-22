@@ -1034,6 +1034,209 @@ export class LockerService implements OnModuleInit {
     return this.buildUtcDateTime(dateValue, endTime);
   }
 
+  private buildQrPrecheckError(code: string, message: string): BadRequestException {
+    return new BadRequestException({
+      code,
+      message,
+    });
+  }
+
+  async precheckQrAccess(
+    currentUser: any,
+    payload?: {
+      roomId?: string;
+      usageAction?: 'unlock' | 'return';
+    },
+  ) {
+    const roomObjectId = this.toObjectId(payload?.roomId);
+    if (!roomObjectId) {
+      throw this.buildQrPrecheckError('INVALID_ROOM_ID', 'roomId is required');
+    }
+
+    const currentUserId = this.normalizeNullableString(
+      currentUser?._id?.toString?.() || currentUser?._id,
+    );
+    const currentUserObjectId = this.toObjectId(currentUserId);
+    if (!currentUserObjectId) {
+      throw new BadRequestException('Cannot resolve current user');
+    }
+
+    const currentUserCampusObjectId = this.toObjectId(
+      currentUser?.campusId?.toString?.() || currentUser?.campusId,
+    );
+
+    const roomFilter: Record<string, any> = {
+      _id: roomObjectId,
+      isActive: { $ne: false },
+    };
+
+    if (currentUserCampusObjectId) {
+      roomFilter.campusId = currentUserCampusObjectId;
+    }
+
+    const room = await this.roomModel
+      .findOne(roomFilter)
+      .select('_id campusId roomCode roomName')
+      .lean()
+      .exec();
+
+    if (!room) {
+      throw new NotFoundException('Room not found in your campus');
+    }
+
+    const locker = await this.lockerModel
+      .findOne({
+        roomId: {
+          $in: [roomObjectId, String(roomObjectId)],
+        },
+        isActive: { $ne: false },
+      })
+      .select('_id lockerNumber')
+      .sort({ lockerNumber: 1 })
+      .lean()
+      .exec();
+
+    if (!locker) {
+      throw this.buildQrPrecheckError(
+        'LOCKER_NOT_FOUND',
+        'No active locker mapped to this room',
+      );
+    }
+
+    const now = new Date();
+    const dayStartUtc = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0),
+    );
+    const dayEndUtc = new Date(dayStartUtc.getTime() + 24 * 60 * 60 * 1000);
+
+    const roomCampusObjectId = this.toObjectId((room as any).campusId);
+    const effectiveCampusObjectId = roomCampusObjectId || currentUserCampusObjectId;
+
+    const scheduleFilter: Record<string, any> = {
+      lecturerId: currentUserObjectId,
+      roomId: roomObjectId,
+      dateStart: {
+        $gte: dayStartUtc,
+        $lt: dayEndUtc,
+      },
+      status: {
+        $nin: ['cancelled'],
+      },
+    };
+
+    if (effectiveCampusObjectId) {
+      scheduleFilter.campusId = effectiveCampusObjectId;
+    }
+
+    const scheduleRows = await this.scheduleModel
+      .find(scheduleFilter)
+      .populate('timeSlotId', 'slotType slotNumber startTime endTime isActive')
+      .select('dateStart subjectName slotType slotNumber startTime endTime timeSlotId')
+      .lean()
+      .exec();
+
+    const normalizedSchedules = (scheduleRows as any[])
+      .map((row) => {
+        const slot =
+          row.timeSlotId && typeof row.timeSlotId === 'object' ? (row.timeSlotId as any) : null;
+
+        const slotType = this.normalizeNullableString(slot?.slotType || row.slotType);
+        const slotNumberRaw = Number(slot?.slotNumber ?? row.slotNumber);
+        const slotNumber = Number.isFinite(slotNumberRaw) ? Math.round(slotNumberRaw) : null;
+
+        const startTime = this.normalizeNullableString(slot?.startTime || row.startTime);
+        const endTime = this.normalizeNullableString(slot?.endTime || row.endTime);
+
+        if (!startTime || !endTime) {
+          return null;
+        }
+
+        const startAt = this.buildUtcDateTime(row.dateStart, startTime);
+        const endAt = this.buildUtcDateTime(row.dateStart, endTime);
+
+        if (!startAt || !endAt || startAt.getTime() > endAt.getTime()) {
+          return null;
+        }
+
+        return {
+          scheduleId: String(row._id),
+          subjectName: this.normalizeNullableString(row.subjectName),
+          slotType,
+          slotNumber,
+          startTime,
+          endTime,
+          startAt,
+          endAt,
+        };
+      })
+      .filter((item): item is {
+        scheduleId: string;
+        subjectName: string | null;
+        slotType: string | null;
+        slotNumber: number | null;
+        startTime: string;
+        endTime: string;
+        startAt: Date;
+        endAt: Date;
+      } => Boolean(item))
+      .sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+
+    if (!normalizedSchedules.length) {
+      throw this.buildQrPrecheckError(
+        'NO_ACTIVE_SCHEDULE',
+        'You do not have a valid teaching slot for this room today.',
+      );
+    }
+
+    const nowMs = now.getTime();
+    const activeSchedule = normalizedSchedules.find(
+      (item) => item.startAt.getTime() <= nowMs && nowMs <= item.endAt.getTime(),
+    );
+
+    if (!activeSchedule) {
+      const upcomingSchedule = normalizedSchedules.find((item) => item.startAt.getTime() > nowMs);
+      if (upcomingSchedule) {
+        throw this.buildQrPrecheckError(
+          'SLOT_NOT_STARTED',
+          'Your teaching slot has not started yet.',
+        );
+      }
+
+      throw this.buildQrPrecheckError('SLOT_ENDED', 'Your teaching slot has already ended.');
+    }
+
+    const requestedUsageAction = String(payload?.usageAction || '')
+      .trim()
+      .toLowerCase();
+    const usageAction: 'unlock' | 'return' = requestedUsageAction === 'return' ? 'return' : 'unlock';
+
+    return {
+      success: true,
+      message: 'QR precheck passed',
+      data: {
+        roomId: String((room as any)._id),
+        roomCode: this.normalizeNullableString((room as any).roomCode),
+        roomName: this.normalizeNullableString((room as any).roomName),
+        lockerId: String((locker as any)._id),
+        lockerNumber:
+          Number.isFinite(Number((locker as any).lockerNumber))
+            ? Number((locker as any).lockerNumber)
+            : null,
+        scheduleId: activeSchedule.scheduleId,
+        subjectName: activeSchedule.subjectName,
+        slotType: activeSchedule.slotType,
+        slotNumber: activeSchedule.slotNumber,
+        startTime: activeSchedule.startTime,
+        endTime: activeSchedule.endTime,
+        slotStartAt: activeSchedule.startAt.toISOString(),
+        slotEndAt: activeSchedule.endAt.toISOString(),
+        usageAction,
+        allowedMethods: ['FaceID', 'FingerID'],
+        checkedAt: now.toISOString(),
+      },
+    };
+  }
+
   private async enforceUnlockBeforeClassWindow(params: {
     usageAction: 'unlock' | 'return';
     scheduleId?: string | null;

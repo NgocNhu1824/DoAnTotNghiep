@@ -39,7 +39,6 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const userScope = (roleDetails?.scope || '').toUpperCase();
-  const userRole = (roleDetails?.roleCode || '').toUpperCase();
   const canReadNotifications = hasAnyPermission([PERMISSIONS.NOTIFICATIONS_READ]);
 
   type MenuItem = {
@@ -83,7 +82,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     },
     {
       id: 'lockers',
-      label: 'Lockers',
+      label: 'IoT Devices',
       icon: Lock,
       path: '/lockers',
       requiredPermissions: [PERMISSIONS.LOCKERS_READ],
@@ -195,28 +194,20 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     });
   };
 
-  let menuItems = baseMenuItems;
+  const selfScopeMenuItems: MenuItem[] = [
+    lecturerBookingMenuItem,
+    lecturerHistoryMenuItem,
+    lecturerScheduleMenuItem,
+    ...(canViewAccessLogs ? [accessLogMenuItem] : []),
+  ];
 
-  if (userScope === 'SELF' && userRole === 'LECTURER') {
-    menuItems = [
-      baseMenuItems.find(item => item.id === 'schedule')!,
-      lecturerScheduleMenuItem,
-      lecturerBookingMenuItem,
-      lecturerHistoryMenuItem,
-    ];
-  } else if (userScope === 'SELF') {
-    menuItems = [
-      lecturerBookingMenuItem,
-      lecturerHistoryMenuItem,
-      lecturerScheduleMenuItem,
-      ...(canViewAccessLogs ? [accessLogMenuItem] : []),
-    ];
-  }
-   else if (userScope === 'CAMPUS') {
-    menuItems = baseMenuItems;
-  } else {
-    menuItems = baseMenuItems;
-  }
+  const menuItemsByScope: Record<string, MenuItem[]> = {
+    SELF: selfScopeMenuItems,
+    CAMPUS: baseMenuItems,
+    GLOBAL: baseMenuItems,
+  };
+
+  let menuItems = menuItemsByScope[userScope] || baseMenuItems;
 
   menuItems = filterMenuItemsByRead(menuItems);
 

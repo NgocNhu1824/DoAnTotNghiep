@@ -283,6 +283,21 @@ export class LockerController {
     return this.lockerService.requestFingerprintVerification(id, user, body);
   }
 
+  @Post('qr/precheck')
+  @UseGuards(JwtAuthGuard, CampusScopeGuard, PermissionsGuard, ScopeGuard)
+  @RequirePermissions('lockers.unlock')
+  @RequireScopes('SELF', 'CAMPUS', 'GLOBAL')
+  precheckQrAccess(
+    @CurrentUser() user: any,
+    @Body()
+    body?: {
+      roomId?: string;
+      usageAction?: 'unlock' | 'return';
+    },
+  ) {
+    return this.lockerService.precheckQrAccess(user, body);
+  }
+
   // ===== ID ROUTES (ALWAYS LAST) =====
   @Get(':id')
   findOne(@Param('id') id: string) {

@@ -199,7 +199,7 @@ const AppRoutes: React.FC = () => {
             path="/lecturer/booking"
             element={
               <ProtectedRoute
-                allowedRoleCodes={['LECTURER']}
+                
                 requiredScopes={['SELF']}
                 requiredPermissions={[PERMISSIONS.BOOKINGS_CREATE, PERMISSIONS.BOOKINGS_READ]}
               >
@@ -214,7 +214,7 @@ const AppRoutes: React.FC = () => {
             path="/lecturer/booking/request"
             element={
               <ProtectedRoute
-                allowedRoleCodes={['LECTURER']}
+                
                 requiredScopes={['SELF']}
                 requiredPermissions={[PERMISSIONS.BOOKINGS_CREATE, PERMISSIONS.BOOKINGS_READ]}
               >
@@ -229,7 +229,7 @@ const AppRoutes: React.FC = () => {
             path="/lecturer/history"
             element={
               <ProtectedRoute
-                allowedRoleCodes={['LECTURER']}
+                
                 requiredScopes={['SELF']}
                 requiredPermissions={[
                   PERMISSIONS.BOOKINGS_READ,
@@ -254,7 +254,7 @@ const AppRoutes: React.FC = () => {
             path="/lecturer/schedule"
             element={
               <ProtectedRoute
-                allowedRoleCodes={['LECTURER']}
+                
                 requiredScopes={['SELF']}
                 requiredPermissions={[PERMISSIONS.SCHEDULES_READ]}
               >
@@ -269,7 +269,7 @@ const AppRoutes: React.FC = () => {
             path="/lecturer/transfers/request"
             element={
               <ProtectedRoute
-                allowedRoleCodes={['LECTURER']}
+                
                 requiredScopes={['SELF']}
                 requiredPermissions={[PERMISSIONS.TRANSFERS_CREATE]}
               >
