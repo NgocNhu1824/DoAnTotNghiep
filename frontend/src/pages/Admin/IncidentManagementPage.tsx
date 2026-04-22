@@ -9,6 +9,9 @@ import {
   IncidentType,
 } from '../../types/incident.types';
 import { useToast } from '../../hooks/use-toast';
+import { useAuth } from '../../context/AuthContext';
+import Loading from '../../components/common/Loading';
+import PermissionGuard from '../../components/PermissionGuard';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -26,6 +29,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { wsService } from '../../services/websocket.service';
 import roomService from '../../services/room.service';
 import { campusService } from '../../services/campus.service';
+import { PERMISSIONS } from '../../utils/permissions';
 
 type LoadedIncidentImage = IncidentImageItem & { previewUrl: string };
 
@@ -77,6 +81,11 @@ const isFptCampus = (campus: CampusFilterOption) => {
 
 const IncidentManagementPage: React.FC = () => {
   const { toast } = useToast();
+  const { hasAnyPermission } = useAuth();
+  const canUpdateIncidentStatus = hasAnyPermission([
+    PERMISSIONS.INCIDENTS_UPDATE,
+    PERMISSIONS.INCIDENTS_MANAGE,
+  ]);
 
   const [incidents, setIncidents] = useState<IncidentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -331,6 +340,9 @@ const IncidentManagementPage: React.FC = () => {
   };
 
   const handleOpenStatusDialog = (incident: IncidentItem) => {
+    if (!canUpdateIncidentStatus) {
+      return;
+    }
     setStatusTarget(incident);
     setNextStatus(incident.status);
     setStatusDialogOpen(true);
@@ -375,11 +387,7 @@ const IncidentManagementPage: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex h-80 items-center justify-center">
-        <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <Loading text="Loading incidents..." className="h-80" />;
   }
 
   return (
@@ -549,14 +557,16 @@ const IncidentManagementPage: React.FC = () => {
                     </TableCell>
                     <TableCell className="align-middle text-center">
                       <div className="inline-flex items-center justify-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleOpenStatusDialog(incident)}
-                          title="Update status"
-                        >
-                          <CheckCircle2 className="h-4 w-4" />
-                        </Button>
+                        <PermissionGuard permissions={[PERMISSIONS.INCIDENTS_UPDATE, PERMISSIONS.INCIDENTS_MANAGE]}>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleOpenStatusDialog(incident)}
+                            title="Update status"
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                          </Button>
+                        </PermissionGuard>
                         <Button
                           variant="outline"
                           size="icon"
@@ -687,9 +697,11 @@ const IncidentManagementPage: React.FC = () => {
               >
                 Cancel
               </Button>
-              <Button onClick={handleUpdateStatus} disabled={updatingStatus || !statusTarget}>
-                {updatingStatus ? 'Updating...' : 'Save'}
-              </Button>
+              <PermissionGuard permissions={[PERMISSIONS.INCIDENTS_UPDATE, PERMISSIONS.INCIDENTS_MANAGE]}>
+                <Button onClick={handleUpdateStatus} disabled={updatingStatus || !statusTarget}>
+                  {updatingStatus ? 'Updating...' : 'Save'}
+                </Button>
+              </PermissionGuard>
             </div>
           </div>
         </DialogContent>
@@ -721,6 +733,7 @@ const statusBadgeVariant = (status: string): 'default' | 'secondary' | 'destruct
   if (status === 'resolved') return 'default';
   if (status === 'in_progress') return 'secondary';
   if (status === 'closed') return 'outline';
+  if (status === 'reported') return 'outline';
   return 'destructive';
 };
 

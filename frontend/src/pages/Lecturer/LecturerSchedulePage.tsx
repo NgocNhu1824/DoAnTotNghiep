@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TransferRecord, TransferTargetOption } from '@/types/transfer.types';
+import { PERMISSIONS } from '@/utils/permissions';
 
 type WeekRange = { label: string; start: Date; end: Date };
 const FIXED_SLOT_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -260,7 +261,7 @@ const LecturerSchedulePage: React.FC = () => {
     });
     return '...';
   };
-  const { user } = useAuth();
+  const { user, hasAnyPermission } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
@@ -312,6 +313,9 @@ const LecturerSchedulePage: React.FC = () => {
   const transferRealtimeTimerRef = useRef<number | null>(null);
   const upcomingTriggerTimerRef = useRef<number | null>(null);
   const weekCacheRef = useRef<Record<string, WeekScheduleCacheEntry>>({});
+  const canCancelTransfer = hasAnyPermission([PERMISSIONS.TRANSFERS_CANCEL, PERMISSIONS.TRANSFERS_MANAGE]);
+  const canApproveTransfer = hasAnyPermission([PERMISSIONS.TRANSFERS_APPROVE, PERMISSIONS.TRANSFERS_MANAGE]);
+  const canRejectTransfer = hasAnyPermission([PERMISSIONS.TRANSFERS_REJECT, PERMISSIONS.TRANSFERS_MANAGE]);
 
   useEffect(() => {
     const weeks = getWeeksOfYear(selectedYear);
@@ -1667,7 +1671,7 @@ const LecturerSchedulePage: React.FC = () => {
               {selectedTransfer.status === 'pending' && user && (
                 <div className="mt-4 flex justify-end gap-2">
                   {/* From lecturer: can cancel */}
-                  {user._id === selectedTransfer.fromUserId && (
+                  {user._id === selectedTransfer.fromUserId && canCancelTransfer && (
                     <button
                       className="px-4 py-2 rounded bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-60"
                       disabled={cancelLoading}
@@ -1680,35 +1684,39 @@ const LecturerSchedulePage: React.FC = () => {
                     </button>
                   )}
                   {/* To lecturer: can approve/reject */}
-                  {user._id === selectedTransfer.toUserId && (
+                  {user._id === selectedTransfer.toUserId && (canApproveTransfer || canRejectTransfer) && (
                     <>
-                      <button
-                        className="px-4 py-2 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-60"
-                        onClick={async () => {
-                          try {
-                            await transferService.acceptSelfTransfer(selectedTransfer._id);
-                            toast({ title: 'Transfer approved', description: 'You have approved the transfer.' });
-                            setShowTransferModal(false);
-                            await fetchWeekSchedules();
-                            if (timeSlots.length > 0) await fetchUpcomingSchedules();
-                            await refreshTransferMappings();
-                            await refreshEligibleTransferSources();
-                          } catch (err: any) {
-                            toast({ title: 'Approve failed', description: err?.message || '', variant: 'destructive' });
-                          }
-                        }}
-                      >
-                        Approve
-                      </button>
-                      <button
-                        className="px-4 py-2 rounded bg-rose-600 text-white font-semibold hover:bg-rose-700 disabled:opacity-60"
-                        onClick={() => {
-                          setRejectReason('');
-                          setRejectDialogOpen(true);
-                        }}
-                      >
-                        Reject
-                      </button>
+                      {canApproveTransfer && (
+                        <button
+                          className="px-4 py-2 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-60"
+                          onClick={async () => {
+                            try {
+                              await transferService.acceptSelfTransfer(selectedTransfer._id);
+                              toast({ title: 'Transfer approved', description: 'You have approved the transfer.' });
+                              setShowTransferModal(false);
+                              await fetchWeekSchedules();
+                              if (timeSlots.length > 0) await fetchUpcomingSchedules();
+                              await refreshTransferMappings();
+                              await refreshEligibleTransferSources();
+                            } catch (err: any) {
+                              toast({ title: 'Approve failed', description: err?.message || '', variant: 'destructive' });
+                            }
+                          }}
+                        >
+                          Approve
+                        </button>
+                      )}
+                      {canRejectTransfer && (
+                        <button
+                          className="px-4 py-2 rounded bg-rose-600 text-white font-semibold hover:bg-rose-700 disabled:opacity-60"
+                          onClick={() => {
+                            setRejectReason('');
+                            setRejectDialogOpen(true);
+                          }}
+                        >
+                          Reject
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
@@ -1739,6 +1747,14 @@ const LecturerSchedulePage: React.FC = () => {
             }}
             onConfirm={async () => {
               if (!selectedTransfer) return;
+              if (!canCancelTransfer || user?._id !== selectedTransfer.fromUserId) {
+                toast({
+                  title: 'Access denied',
+                  description: 'You do not have permission to cancel this transfer.',
+                  variant: 'destructive',
+                });
+                return;
+              }
               if (!cancelReason.trim()) {
                 toast({
                   title: 'Validation',
@@ -1798,6 +1814,14 @@ const LecturerSchedulePage: React.FC = () => {
             }}
             onConfirm={async () => {
               if (!selectedTransfer) return;
+              if (!canRejectTransfer || user?._id !== selectedTransfer.toUserId) {
+                toast({
+                  title: 'Access denied',
+                  description: 'You do not have permission to reject this transfer.',
+                  variant: 'destructive',
+                });
+                return;
+              }
               const reason = (rejectReason || '').trim();
               if (!reason) {
                 toast({ title: 'Validation', description: 'Please enter rejection reason.', variant: 'destructive' });

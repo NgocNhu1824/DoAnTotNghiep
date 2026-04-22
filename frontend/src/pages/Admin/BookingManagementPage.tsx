@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactPaginate from 'react-paginate';
-import { Eye, Search } from 'lucide-react';
+import { Check, CircleCheck, Search, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import bookingService from '@/services/booking.service';
@@ -9,6 +9,7 @@ import wsService from '@/services/websocket.service';
 import { Booking, BookingStatus } from '@/types/booking.types';
 import { Campus } from '@/types/models.types';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/context/AuthContext';
 import PermissionGuard from '@/components/PermissionGuard';
 import { PERMISSIONS } from '@/utils/permissions';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,6 +23,7 @@ import CrudActionButtons from '@/components/common/CrudActionButtons';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -91,7 +93,6 @@ const getTimeSlotMeta = (startTime: string, endTime: string): { type: string; sl
 };
 
 const LEGACY_AUTO_CANCEL_REASON = 'lecturer cancelled booking';
-const DETAIL_TEXT_LIMIT = 500;
 const DEFAULT_CAMPUS_NAME = 'fpt university can tho';
 const ITEMS_PER_PAGE = 10;
 
@@ -134,12 +135,7 @@ const getLimitedDetailText = (value: string, fallback = 'No details provided'): 
   if (!text) {
     return fallback;
   }
-
-  if (text.length <= DETAIL_TEXT_LIMIT) {
-    return text;
-  }
-
-  return `${text.slice(0, DETAIL_TEXT_LIMIT)}...`;
+  return text;
 };
 
 const formatBookingDate = (value: unknown): string => {
@@ -214,6 +210,10 @@ const BookingManagementPage: React.FC = () => {
   const [rejectReasonError, setRejectReasonError] = useState('');
   const hasInitializedCampusFilter = useRef(false);
   const { toast } = useToast();
+  const { hasAnyPermission } = useAuth();
+  const canApproveBooking = hasAnyPermission([PERMISSIONS.BOOKINGS_APPROVE, PERMISSIONS.BOOKINGS_MANAGE]);
+  const canRejectBooking = hasAnyPermission([PERMISSIONS.BOOKINGS_REJECT, PERMISSIONS.BOOKINGS_MANAGE]);
+  const canCompleteBooking = hasAnyPermission([PERMISSIONS.BOOKINGS_UPDATE, PERMISSIONS.BOOKINGS_MANAGE]);
 
   const fetchBookings = useCallback(async () => {
     try {
@@ -351,11 +351,17 @@ const BookingManagementPage: React.FC = () => {
   };
 
   const openApproveDialog = (booking: Booking) => {
+    if (!canApproveBooking) {
+      return;
+    }
     setActionBooking(booking);
     setApproveDialogOpen(true);
   };
 
   const openRejectDialog = (booking: Booking) => {
+    if (!canRejectBooking) {
+      return;
+    }
     setActionBooking(booking);
     setRejectReason('');
     setRejectReasonError('');
@@ -403,10 +409,14 @@ const BookingManagementPage: React.FC = () => {
 
   const renderStatusActions = (booking: Booking) => {
     if (booking.status === 'approved') {
+      if (!canCompleteBooking) {
+        return <span className="text-xs text-muted-foreground">Processed</span>;
+      }
       return (
         <Button
-          size="sm"
-          variant="outline"
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
           onClick={async () => {
             try {
               setSavingId(booking._id);
@@ -424,8 +434,9 @@ const BookingManagementPage: React.FC = () => {
             }
           }}
           disabled={savingId === booking._id}
+          title="Complete booking"
         >
-          Complete
+          <CircleCheck className="h-4 w-4" />
         </Button>
       );
     }
@@ -434,24 +445,36 @@ const BookingManagementPage: React.FC = () => {
       return <span className="text-xs text-muted-foreground">Processed</span>;
     }
 
+    if (!canApproveBooking && !canRejectBooking) {
+      return <span className="text-xs text-muted-foreground">No permission</span>;
+    }
+
     return (
       <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          className="bg-green-600 hover:bg-green-700"
-          onClick={() => openApproveDialog(booking)}
-          disabled={savingId === booking._id}
-        >
-          Approve
-        </Button>
-        <Button
-          size="sm"
-          variant="destructive"
-          onClick={() => openRejectDialog(booking)}
-          disabled={savingId === booking._id}
-        >
-          Reject
-        </Button>
+        <PermissionGuard permissions={[PERMISSIONS.BOOKINGS_APPROVE, PERMISSIONS.BOOKINGS_MANAGE]}>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
+            onClick={() => openApproveDialog(booking)}
+            disabled={savingId === booking._id}
+            title="Approve booking"
+          >
+            <Check className="h-4 w-4" />
+          </Button>
+        </PermissionGuard>
+        <PermissionGuard permissions={[PERMISSIONS.BOOKINGS_REJECT, PERMISSIONS.BOOKINGS_MANAGE]}>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
+            onClick={() => openRejectDialog(booking)}
+            disabled={savingId === booking._id}
+            title="Reject booking"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </PermissionGuard>
       </div>
     );
   };
@@ -609,23 +632,20 @@ const BookingManagementPage: React.FC = () => {
                   <TableHead className="min-w-[170px]">Time Slot</TableHead>
                   <TableHead className="min-w-[150px]">Room</TableHead>
                   <TableHead className="min-w-[200px]">Lecturer</TableHead>
-                  <TableHead className="min-w-[84px] text-center">Purpose</TableHead>
                   <TableHead className="min-w-[110px]">Status</TableHead>
-                  <TableHead className="min-w-[140px] text-center">Reason Rejected</TableHead>
-                  <TableHead className="min-w-[190px] text-center">Processing</TableHead>
-                  <TableHead className="w-[84px] text-center">Delete</TableHead>
+                  <TableHead className="min-w-[260px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
                       Loading bookings...
                     </TableCell>
                   </TableRow>
                 ) : filteredBookings.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
                       No bookings match the current filters.
                     </TableCell>
                   </TableRow>
@@ -656,55 +676,34 @@ const BookingManagementPage: React.FC = () => {
                           <div className="font-medium truncate" title={lecturer?.fullName || 'N/A'}>{lecturer?.fullName || 'N/A'}</div>
                           <div className="text-xs text-muted-foreground truncate" title={lecturer?.email || ''}>{lecturer?.email || ''}</div>
                         </TableCell>
-                        <TableCell className="text-center">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="View purpose details"
-                            onClick={() => {
-                              setPurposeDetailBooking(booking);
-                              setPurposeDetailDialogOpen(true);
-                            }}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
                         <TableCell>
                           <Badge variant="outline" className={STATUS_COLOR[booking.status]}>
                             {STATUS_LABEL[booking.status]}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-center">
-                          {booking.status === 'rejected' || booking.status === 'cancelled' ? (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="View rejection reason"
-                              onClick={() => openReasonDetailDialog(booking)}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">--</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            {renderStatusActions(booking)}
-                          </div>
-                        </TableCell>
-
-                        <TableCell className="text-center">
-                          <PermissionGuard
-                            permissions={[PERMISSIONS.BOOKINGS_DELETE]}
-                            hideIfNoPermission={false}
-                            fallback={<span className="text-xs text-muted-foreground">--</span>}
-                          >
-                            <CrudActionButtons
-                              onDelete={() => handleDelete(booking._id)}
-                              disableDelete={savingId === booking._id}
-                            />
-                          </PermissionGuard>
+                        <TableCell className="text-right">
+                          <CrudActionButtons
+                            onView={() => {
+                              setPurposeDetailBooking(booking);
+                              setPurposeDetailDialogOpen(true);
+                            }}
+                            viewTitle="View purpose details"
+                            onDelete={() => handleDelete(booking._id)}
+                            deletePermission={PERMISSIONS.BOOKINGS_DELETE}
+                            disableDelete={savingId === booking._id}
+                            className="justify-end"
+                            extraActionsAfter
+                            extraActions={
+                              <div className="flex items-center gap-2">
+                                {booking.status === 'rejected' || booking.status === 'cancelled' ? (
+                                  <Button size="sm" variant="outline" onClick={() => openReasonDetailDialog(booking)}>
+                                    Reason
+                                  </Button>
+                                ) : null}
+                                {renderStatusActions(booking)}
+                              </div>
+                            }
+                          />
                         </TableCell>
                       </TableRow>
                     );
@@ -741,10 +740,13 @@ const BookingManagementPage: React.FC = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Approve Booking Request</DialogTitle>
+            <DialogDescription>
+              Confirm this booking information before approval.
+            </DialogDescription>
           </DialogHeader>
 
           {actionBooking && (
-            <div className="space-y-3 text-sm">
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-4 text-sm">
               <div className="grid grid-cols-3 gap-2">
                 <span className="text-muted-foreground">Date</span>
                 <span className="col-span-2 font-medium">{formatBookingDate(actionBooking.bookingDate)}</span>
@@ -786,13 +788,15 @@ const BookingManagementPage: React.FC = () => {
             >
               Cancel
             </Button>
-            <Button
-              className="bg-green-600 hover:bg-green-700"
-              onClick={handleApproveConfirm}
-              disabled={!actionBooking || savingId === actionBooking._id}
-            >
-              Confirm approval
-            </Button>
+            <PermissionGuard permissions={[PERMISSIONS.BOOKINGS_APPROVE, PERMISSIONS.BOOKINGS_MANAGE]}>
+              <Button
+                className="bg-green-600 hover:bg-green-700"
+                onClick={handleApproveConfirm}
+                disabled={!actionBooking || savingId === actionBooking._id}
+              >
+                Confirm approval
+              </Button>
+            </PermissionGuard>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -801,6 +805,9 @@ const BookingManagementPage: React.FC = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reject Booking Request</DialogTitle>
+            <DialogDescription>
+              Provide a clear reason so lecturer can update and resubmit.
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
@@ -834,51 +841,62 @@ const BookingManagementPage: React.FC = () => {
             >
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleRejectConfirm}
-              disabled={!actionBooking || savingId === actionBooking._id}
-            >
-              Confirm rejection
-            </Button>
+            <PermissionGuard permissions={[PERMISSIONS.BOOKINGS_REJECT, PERMISSIONS.BOOKINGS_MANAGE]}>
+              <Button
+                variant="destructive"
+                onClick={handleRejectConfirm}
+                disabled={!actionBooking || savingId === actionBooking._id}
+              >
+                Confirm rejection
+              </Button>
+            </PermissionGuard>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={reasonDetailDialogOpen} onOpenChange={setReasonDetailDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden p-0">
           <DialogHeader>
-            <DialogTitle>Reason Details</DialogTitle>
+            <DialogTitle className="px-6 pt-6">Reason Details</DialogTitle>
+            <DialogDescription className="px-6">
+              Review rejection/cancellation reason with booking context.
+            </DialogDescription>
           </DialogHeader>
 
           {reasonDetailBooking && (
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Lecturer</span>
-                <span className="col-span-2 min-w-0 break-all font-medium">
-                  {typeof reasonDetailBooking.lecturerId === 'object'
-                    ? `${reasonDetailBooking.lecturerId.fullName} (${reasonDetailBooking.lecturerId.email})`
-                    : 'N/A'}
-                </span>
+            <div className="max-h-[calc(90vh-170px)] space-y-4 overflow-y-auto px-6 py-4 text-sm">
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <h3 className="mb-3 font-semibold">Booking Context</h3>
+                <div className="space-y-2">
+                  <div className="grid gap-1 sm:grid-cols-[130px_1fr] sm:gap-4">
+                    <span className="text-muted-foreground">Lecturer</span>
+                    <span className="min-w-0 break-all font-medium">
+                      {typeof reasonDetailBooking.lecturerId === 'object'
+                        ? `${reasonDetailBooking.lecturerId.fullName} (${reasonDetailBooking.lecturerId.email})`
+                        : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="grid gap-1 sm:grid-cols-[130px_1fr] sm:gap-4">
+                    <span className="text-muted-foreground">Booking date</span>
+                    <span className="font-medium">{formatBookingDate(reasonDetailBooking.bookingDate)}</span>
+                  </div>
+                  <div className="grid gap-1 sm:grid-cols-[130px_1fr] sm:gap-4">
+                    <span className="text-muted-foreground">Status</span>
+                    <span className="font-medium capitalize">{reasonDetailBooking.status}</span>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Booking date</span>
-                <span className="col-span-2 font-medium">{formatBookingDate(reasonDetailBooking.bookingDate)}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Status</span>
-                <span className="col-span-2 font-medium capitalize">{reasonDetailBooking.status}</span>
-              </div>
-              <div className="space-y-2">
-                <p className="text-muted-foreground">Reason</p>
-                <div className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap [overflow-wrap:anywhere]">
+
+              <div className="rounded-lg border p-4">
+                <p className="mb-2 text-sm font-semibold">Reason</p>
+                <div className="max-h-64 overflow-auto rounded-md bg-muted/20 p-3 whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed">
                   {getLimitedDetailText(getBookingReason(reasonDetailBooking))}
                 </div>
               </div>
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="border-t px-6 py-4">
             <Button
               variant="outline"
               onClick={() => {
@@ -893,35 +911,44 @@ const BookingManagementPage: React.FC = () => {
       </Dialog>
 
       <Dialog open={purposeDetailDialogOpen} onOpenChange={setPurposeDetailDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden p-0">
           <DialogHeader>
-            <DialogTitle>Purpose Details</DialogTitle>
+            <DialogTitle className="px-6 pt-6">Purpose Details</DialogTitle>
+            <DialogDescription className="px-6">
+              Review booking purpose with lecturer and date context.
+            </DialogDescription>
           </DialogHeader>
 
           {purposeDetailBooking && (
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Lecturer</span>
-                <span className="col-span-2 min-w-0 break-all font-medium">
-                  {typeof purposeDetailBooking.lecturerId === 'object'
-                    ? `${purposeDetailBooking.lecturerId.fullName} (${purposeDetailBooking.lecturerId.email})`
-                    : 'N/A'}
-                </span>
+            <div className="max-h-[calc(90vh-170px)] space-y-4 overflow-y-auto px-6 py-4 text-sm">
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <h3 className="mb-3 font-semibold">Booking Context</h3>
+                <div className="space-y-2">
+                  <div className="grid gap-1 sm:grid-cols-[130px_1fr] sm:gap-4">
+                    <span className="text-muted-foreground">Lecturer</span>
+                    <span className="min-w-0 break-all font-medium">
+                      {typeof purposeDetailBooking.lecturerId === 'object'
+                        ? `${purposeDetailBooking.lecturerId.fullName} (${purposeDetailBooking.lecturerId.email})`
+                        : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="grid gap-1 sm:grid-cols-[130px_1fr] sm:gap-4">
+                    <span className="text-muted-foreground">Booking date</span>
+                    <span className="font-medium">{formatBookingDate(purposeDetailBooking.bookingDate)}</span>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Booking date</span>
-                <span className="col-span-2 font-medium">{formatBookingDate(purposeDetailBooking.bookingDate)}</span>
-              </div>
-              <div className="space-y-2">
-                <p className="text-muted-foreground">Purpose</p>
-                <div className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 whitespace-pre-wrap [overflow-wrap:anywhere]">
+
+              <div className="rounded-lg border p-4">
+                <p className="mb-2 text-sm font-semibold">Purpose</p>
+                <div className="max-h-64 overflow-auto rounded-md bg-muted/20 p-3 whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed">
                   {getLimitedDetailText(purposeDetailBooking.purpose)}
                 </div>
               </div>
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="border-t px-6 py-4">
             <Button
               variant="outline"
               onClick={() => {

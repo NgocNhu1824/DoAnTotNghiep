@@ -12,17 +12,30 @@ import { LockerEntity } from '@/types/locker.type';
 import { Room } from '@/types/room.types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import CrudActionButtons from '@/components/common/CrudActionButtons';
+import PermissionGuard from '@/components/PermissionGuard';
+import { PERMISSIONS } from '@/utils/permissions';
+import { useToast } from '@/hooks/use-toast';
+import Loading from '@/components/common/Loading';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { RefreshCw, Search, Eye } from 'lucide-react';
+import { Check, RefreshCw, Search, X } from 'lucide-react';
 
 const getStatusBadgeClass = (status: string): string => {
   const normalized = String(status || '').toLowerCase();
 
   if (normalized === 'pending') return 'bg-amber-100 text-amber-800 border-amber-200';
-  if (normalized === 'approved') return 'bg-blue-100 text-blue-800 border-blue-200';
+  if (normalized === 'approved') return 'bg-emerald-100 text-emerald-800 border-emerald-200';
   if (normalized === 'rejected') return 'bg-rose-100 text-rose-800 border-rose-200';
   if (normalized === 'cancelled') return 'bg-slate-100 text-slate-800 border-slate-200';
 
@@ -87,6 +100,7 @@ const getTransferRoomMeta = (transfer: TransferRecord | null): TransferRoomMeta 
 };
 
 const AdminTransferListPage: React.FC = () => {
+  const { toast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const [transfers, setTransfers] = useState<TransferRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,6 +119,7 @@ const AdminTransferListPage: React.FC = () => {
   // Cache for dynamically fetched lockers not in the initial list
   const [extraLockers, setExtraLockers] = useState<Record<string, LockerEntity>>({});
   const fetchingLockerIds = useRef<Set<string>>(new Set());
+  const [actingTransferId, setActingTransferId] = useState<string | null>(null);
 
   // Helper: Map userId to fullName (fallback to userId when missing)
   const getUserDisplay = (userId: string) => {
@@ -341,6 +356,51 @@ const AdminTransferListPage: React.FC = () => {
     setSelected(transfer);
   };
 
+  const handleApproveTransfer = async (transfer: TransferRecord) => {
+    try {
+      setActingTransferId(transfer._id);
+      await transferService.approveTransfer(transfer._id);
+      toast({
+        title: 'Transfer approved',
+        description: 'Transfer request has been approved.',
+      });
+      await fetchTransfers(true);
+    } catch (error: any) {
+      toast({
+        title: 'Approve failed',
+        description: error?.message || 'Cannot approve this transfer request',
+        variant: 'destructive',
+      });
+    } finally {
+      setActingTransferId(null);
+    }
+  };
+
+  const handleRejectTransfer = async (transfer: TransferRecord) => {
+    const reason = window.prompt('Enter rejection reason:')?.trim();
+    if (!reason) {
+      return;
+    }
+
+    try {
+      setActingTransferId(transfer._id);
+      await transferService.rejectTransfer(transfer._id, reason);
+      toast({
+        title: 'Transfer rejected',
+        description: 'Transfer request has been rejected.',
+      });
+      await fetchTransfers(true);
+    } catch (error: any) {
+      toast({
+        title: 'Reject failed',
+        description: error?.message || 'Cannot reject this transfer request',
+        variant: 'destructive',
+      });
+    } finally {
+      setActingTransferId(null);
+    }
+  };
+
   // Fetch users & lockers on mount
   useEffect(() => {
     userService
@@ -467,11 +527,7 @@ const AdminTransferListPage: React.FC = () => {
   });
 
   if (loading) {
-    return (
-      <div className="flex h-80 items-center justify-center">
-        <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <Loading text="Loading transfers..." className="h-80" />;
   }
 
   return (
@@ -547,7 +603,7 @@ const AdminTransferListPage: React.FC = () => {
                 <TableHead>To</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -622,14 +678,42 @@ const AdminTransferListPage: React.FC = () => {
                     </TableCell>
                     <TableCell className="whitespace-nowrap">{tr.createdAt ? new Date(tr.createdAt).toLocaleDateString() : '-'}</TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => void openTransferDetail(tr)}
-                        title="View detail"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
+                      <CrudActionButtons
+                        onView={() => void openTransferDetail(tr)}
+                        viewTitle="View transfer details"
+                        className="justify-end"
+                        extraActionsAfter
+                        extraActions={
+                          tr.status === 'pending' ? (
+                            <div className="flex items-center gap-2">
+                              <PermissionGuard permissions={[PERMISSIONS.TRANSFERS_APPROVE, PERMISSIONS.TRANSFERS_MANAGE]}>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
+                                  disabled={actingTransferId === tr._id}
+                                  onClick={() => void handleApproveTransfer(tr)}
+                                  title="Approve transfer"
+                                >
+                                  <Check className="h-4 w-4" />
+                                </Button>
+                              </PermissionGuard>
+                              <PermissionGuard permissions={[PERMISSIONS.TRANSFERS_REJECT, PERMISSIONS.TRANSFERS_MANAGE]}>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
+                                  disabled={actingTransferId === tr._id}
+                                  onClick={() => void handleRejectTransfer(tr)}
+                                  title="Decline transfer"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </PermissionGuard>
+                            </div>
+                          ) : null
+                        }
+                      />
                     </TableCell>
                         </>
                       );
@@ -642,53 +726,131 @@ const AdminTransferListPage: React.FC = () => {
           </div>
         </CardContent>
       </Card>
-      {showDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 p-4">
-          <div className="relative max-h-[90vh] w-full max-w-[500px] overflow-y-auto rounded-2xl border border-blue-200 bg-white p-4 shadow-2xl sm:p-6">
-            <button className="absolute top-3 right-3 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold shadow" onClick={() => setShowDetail(false)} aria-label="Close">×</button>
-            <h2 className="text-xl font-bold mb-2">Transfer Detail</h2>
-            {!selected && (
-              <p className="text-sm text-rose-600 mb-3">Cannot load transfer detail.</p>
-            )}
-            {selected && (
-             <div className="space-y-3 text-sm">
-               {(() => {
-                 const targetDetail = selected.targetSchedule || selected.targetBooking;
-                 const targetSlotLabel = targetDetail?.slotType === 'BOOKING'
-                   ? `Booking (${targetDetail.startTime} - ${targetDetail.endTime})`
-                   : targetDetail
-                     ? `${targetDetail.slotType === 'NEWSLOT' ? 'New slot' : 'Old slot'} #${targetDetail.slotNumber} (${targetDetail.startTime} - ${targetDetail.endTime})`
-                     : '-';
+      <Dialog open={showDetail} onOpenChange={setShowDetail}>
+        <DialogContent className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden p-0">
+          <DialogHeader className="border-b px-6 py-4">
+            <DialogTitle>Transfer Detail</DialogTitle>
+            <DialogDescription>
+              Review source class, target handover, and transfer timeline.
+            </DialogDescription>
+          </DialogHeader>
 
-                 return (
-                   <>
-               {/* Source class info */}
-               <div className="font-semibold text-blue-900 mb-1">Source Class</div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Subject Name:</span> <span className="break-words text-left sm:text-right">{selected.sourceSchedule?.subjectName || '-'}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Date:</span> <span className="break-words text-left sm:text-right">{selected.sourceSchedule?.dateStart ? new Date(selected.sourceSchedule.dateStart).toLocaleDateString() : '-'}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Time:</span> <span className="break-words text-left sm:text-right">{selected.sourceSchedule ? `${selected.sourceSchedule.startTime} - ${selected.sourceSchedule.endTime}` : '-'}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Room:</span> <span className="break-words text-left sm:text-right">{getTransferRoomInfo(selected).primary}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Locker:</span> <span className="break-words text-left sm:text-right">{getTransferLockerDisplay(selected) || '-'}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">From Lecturer:</span> <span className="break-words text-left sm:text-right">{selected.fromUser?.fullName || selected.sourceSchedule?.lecturer?.fullName || getUserDisplay(selected.fromUserId)}</span></div>
-               <div className="font-semibold text-blue-900 mt-4 mb-1">Target Handover</div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">To Lecturer:</span> <span className="break-words text-left sm:text-right">{selected.toUser?.fullName || targetDetail?.lecturer?.fullName || getUserDisplay(selected.toUserId)}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Email:</span> <span className="break-words text-left sm:text-right">{selected.toUser?.email || targetDetail?.lecturer?.email || '-'}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Target:</span> <span className="break-words text-left sm:text-right">{targetSlotLabel}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Transfer Date:</span> <span className="break-words text-left sm:text-right">{selected.transferDate ? new Date(selected.transferDate).toLocaleDateString() : '-'}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Reason:</span> <span className="break-words text-left sm:text-right">{selected.reason || '-'}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Notes:</span> <span className="break-words text-left sm:text-right">{selected.notes || '-'}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Status:</span> <Badge variant="outline" className={getStatusBadgeClass(selected.status)}>{selected.status}</Badge></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Activated At:</span> <span className="break-words text-left sm:text-right">{selected.activatedAt ? new Date(selected.activatedAt).toLocaleString() : '-'}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Created At:</span> <span className="break-words text-left sm:text-right">{selected.createdAt ? new Date(selected.createdAt).toLocaleString() : '-'}</span></div>
-               <div className="flex flex-col gap-1 sm:flex-row sm:justify-between"><span className="font-medium text-gray-600">Updated At:</span> <span className="break-words text-left sm:text-right">{selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span></div>
-                   </>
-                 );
-               })()}
-             </div>
-            )}
-          </div>
-        </div>
-      )}
+          {!selected ? (
+            <div className="px-6 py-5 text-sm text-rose-600">Cannot load transfer detail.</div>
+          ) : (
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5 text-sm">
+              {(() => {
+                const targetDetail = selected.targetSchedule || selected.targetBooking;
+                const targetSlotLabel = targetDetail?.slotType === 'BOOKING'
+                  ? `Booking (${targetDetail.startTime} - ${targetDetail.endTime})`
+                  : targetDetail
+                    ? `${targetDetail.slotType === 'NEWSLOT' ? 'New slot' : 'Old slot'} #${targetDetail.slotNumber} (${targetDetail.startTime} - ${targetDetail.endTime})`
+                    : '-';
+
+                const fromLecturer =
+                  selected.fromUser?.fullName
+                  || selected.sourceSchedule?.lecturer?.fullName
+                  || getUserDisplay(selected.fromUserId)
+                  || '-';
+                const toLecturer =
+                  selected.toUser?.fullName
+                  || targetDetail?.lecturer?.fullName
+                  || getUserDisplay(selected.toUserId)
+                  || '-';
+
+                const detailRow = (label: string, value: React.ReactNode) => (
+                  <div className="grid gap-1 sm:grid-cols-[160px_1fr] sm:gap-4">
+                    <span className="font-medium text-muted-foreground">{label}</span>
+                    <div className="break-words text-foreground">{value}</div>
+                  </div>
+                );
+
+                return (
+                  <>
+                    <section className="rounded-lg border bg-muted/20 p-4">
+                      <h3 className="mb-3 font-semibold text-foreground">Source Class</h3>
+                      <div className="space-y-2">
+                        {detailRow('Subject Name', selected.sourceSchedule?.subjectName || '-')}
+                        {detailRow(
+                          'Date',
+                          selected.sourceSchedule?.dateStart
+                            ? new Date(selected.sourceSchedule.dateStart).toLocaleDateString()
+                            : '-',
+                        )}
+                        {detailRow(
+                          'Time',
+                          selected.sourceSchedule
+                            ? `${selected.sourceSchedule.startTime} - ${selected.sourceSchedule.endTime}`
+                            : '-',
+                        )}
+                        {detailRow('Room', getTransferRoomInfo(selected).primary)}
+                        {detailRow('Locker', getTransferLockerDisplay(selected) || '-')}
+                        {detailRow('From Lecturer', fromLecturer)}
+                      </div>
+                    </section>
+
+                    <section className="rounded-lg border bg-muted/20 p-4">
+                      <h3 className="mb-3 font-semibold text-foreground">Target Handover</h3>
+                      <div className="space-y-2">
+                        {detailRow('To Lecturer', toLecturer)}
+                        {detailRow('Email', selected.toUser?.email || targetDetail?.lecturer?.email || '-')}
+                        {detailRow('Target Slot', targetSlotLabel)}
+                        {detailRow(
+                          'Transfer Date',
+                          selected.transferDate ? new Date(selected.transferDate).toLocaleDateString() : '-',
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="rounded-lg border p-4">
+                      <h3 className="mb-2 font-semibold text-foreground">Reason</h3>
+                      <div className="rounded-md bg-muted/20 p-3 whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere]">
+                        {selected.reason || '-'}
+                      </div>
+                    </section>
+
+                    <section className="rounded-lg border p-4">
+                      <h3 className="mb-2 font-semibold text-foreground">Notes</h3>
+                      <div className="rounded-md bg-muted/20 p-3 whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere]">
+                        {selected.notes || '-'}
+                      </div>
+                    </section>
+
+                    <section className="rounded-lg border p-4">
+                      <h3 className="mb-3 font-semibold text-foreground">Status & Timeline</h3>
+                      <div className="space-y-2">
+                        {detailRow(
+                          'Status',
+                          <Badge variant="outline" className={getStatusBadgeClass(selected.status)}>
+                            {selected.status}
+                          </Badge>,
+                        )}
+                        {detailRow(
+                          'Activated At',
+                          selected.activatedAt ? new Date(selected.activatedAt).toLocaleString() : '-',
+                        )}
+                        {detailRow(
+                          'Created At',
+                          selected.createdAt ? new Date(selected.createdAt).toLocaleString() : '-',
+                        )}
+                        {detailRow(
+                          'Updated At',
+                          selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-',
+                        )}
+                      </div>
+                    </section>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+          <DialogFooter className="border-t px-6 py-4">
+            <Button variant="outline" onClick={() => setShowDetail(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

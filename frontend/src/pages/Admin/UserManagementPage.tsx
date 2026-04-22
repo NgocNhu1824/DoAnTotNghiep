@@ -21,6 +21,7 @@ import { useToast } from '../../hooks/use-toast';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import CrudActionButtons from '../../components/common/CrudActionButtons';
 import CreateActionButton from '../../components/common/CreateActionButton';
+import Loading from '../../components/common/Loading';
 import ImportUserModal from '../../components/modals/ImportUserModal';
 import { Loader2, Search, ShieldBan, Upload, UserPlus, UserRoundCheck } from 'lucide-react';
 
@@ -55,6 +56,8 @@ const UserManagementPage: React.FC = () => {
   const [roles, setRoles] = useState<Role[]>([]);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [viewingUser, setViewingUser] = useState<UserListItem | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmTitle, setConfirmTitle] = useState('');
   const [confirmDescription, setConfirmDescription] = useState('');
@@ -218,6 +221,11 @@ const UserManagementPage: React.FC = () => {
     setShowEditModal(true);
   };
 
+  const handleViewUser = (user: UserListItem) => {
+    setViewingUser(user);
+    setShowViewModal(true);
+  };
+
   const getRoleBadge = (role: string) => {
     const badges: Record<string, { label: string; variant: "default" | "destructive" | "outline" | "secondary" }> = {
       SUPER_ADMIN: { label: 'Super Admin', variant: 'destructive' },
@@ -235,11 +243,7 @@ const UserManagementPage: React.FC = () => {
   const bootstrapping = campusFilter === null || (!hasLoadedOnce && listLoading);
 
   if (bootstrapping) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <Loading text="Loading users..." className="h-96" />;
   }
 
   return (
@@ -398,12 +402,21 @@ const UserManagementPage: React.FC = () => {
                           <span className="font-medium">{user.fullName}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="max-w-[200px] truncate text-muted-foreground">{user.email}</TableCell>
+                      <TableCell className="max-w-[200px] truncate text-muted-foreground" title={user.email}>
+                        {user.email}
+                      </TableCell>
                       <TableCell>{getRoleBadge(user.roleId?.roleCode || 'unknown')}</TableCell>
                       <TableCell className="text-muted-foreground">
                         {user.employeeId || user.studentId || '—'}
                       </TableCell>
-                      <TableCell className="max-w-[220px] truncate text-muted-foreground">
+                      <TableCell
+                        className="max-w-[220px] truncate text-muted-foreground"
+                        title={
+                          user.campusId
+                            ? [user.campusId.campusCode, user.campusId.campusName].filter(Boolean).join(' — ') || '—'
+                            : '—'
+                        }
+                      >
                         {user.campusId
                           ? [user.campusId.campusCode, user.campusId.campusName].filter(Boolean).join(' — ') ||
                             '—'
@@ -422,7 +435,9 @@ const UserManagementPage: React.FC = () => {
                       </TableCell>
                       <TableCell className="text-right">
                         <CrudActionButtons
+                          onView={() => handleViewUser(user)}
                           onEdit={() => handleEditUser(user)}
+                          viewPermission={PERMISSIONS.USERS_READ}
                           editPermission={PERMISSIONS.USERS_UPDATE}
                           extraActionsAfter
                           extraActions={
@@ -430,25 +445,25 @@ const UserManagementPage: React.FC = () => {
                               {user.isActive ? (
                                 <PermissionGuard permissions={[PERMISSIONS.USERS_UPDATE]}>
                                   <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 gap-1 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 border border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
                                     onClick={() => handleSuspendUser(user._id, user.fullName)}
+                                    title="Suspend user"
                                   >
-                                    <ShieldBan className="h-3.5 w-3.5" />
-                                    Suspend
+                                    <ShieldBan className="h-3 w-3" />
                                   </Button>
                                 </PermissionGuard>
                               ) : (
                                 <PermissionGuard permissions={[PERMISSIONS.USERS_UPDATE]}>
                                   <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 gap-1"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 border"
                                     onClick={() => handleActivateUser(user._id, user.fullName)}
+                                    title="Activate user"
                                   >
-                                    <UserRoundCheck className="h-3.5 w-3.5" />
-                                    Activate
+                                    <UserRoundCheck className="h-3 w-3" />
                                   </Button>
                                 </PermissionGuard>
                               )}
@@ -510,6 +525,16 @@ const UserManagementPage: React.FC = () => {
             setShowEditModal(false);
             setEditingUser(null);
             fetchUsers();
+          }}
+        />
+      )}
+
+      {showViewModal && viewingUser && (
+        <ViewUserModal
+          user={viewingUser}
+          onClose={() => {
+            setShowViewModal(false);
+            setViewingUser(null);
           }}
         />
       )}
@@ -785,6 +810,11 @@ interface EditUserModalProps {
   onSuccess: () => void;
 }
 
+interface ViewUserModalProps {
+  user: UserListItem;
+  onClose: () => void;
+}
+
 const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -988,6 +1018,73 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ roles, user, onClose, onS
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+const ViewUserModal: React.FC<ViewUserModalProps> = ({ user, onClose }) => {
+  const accountId = user.employeeId || user.studentId || '—';
+  const campusLabel = user.campusId
+    ? [user.campusId.campusCode, user.campusId.campusName].filter(Boolean).join(' — ') || '—'
+    : '—';
+  const roleLabel = user.roleId?.roleName || user.roleId?.roleCode || '—';
+
+  const detailRow = (label: string, value: React.ReactNode) => (
+    <div className="grid gap-1 sm:grid-cols-[170px_1fr] sm:gap-4">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="break-words font-medium">{value}</div>
+    </div>
+  );
+
+  return (
+    <Dialog open={true} onOpenChange={onClose}>
+      <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden p-0">
+        <DialogHeader className="border-b px-6 py-4">
+          <DialogTitle>User Details</DialogTitle>
+          <DialogDescription>
+            Read-only profile and account information.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5 text-sm">
+          <section className="rounded-lg border bg-muted/20 p-4">
+            <h3 className="mb-3 font-semibold">Basic Information</h3>
+            <div className="space-y-2">
+              {detailRow('Full name', user.fullName || '—')}
+              {detailRow('Email', user.email || '—')}
+              {detailRow('Phone', user.phone || '—')}
+              {detailRow('Department', user.department || '—')}
+            </div>
+          </section>
+
+          <section className="rounded-lg border bg-muted/20 p-4">
+            <h3 className="mb-3 font-semibold">Account & Access</h3>
+            <div className="space-y-2">
+              {detailRow('Role', roleLabel)}
+              {detailRow('Campus', campusLabel)}
+              {detailRow('Employee / Student ID', accountId)}
+              {detailRow(
+                'Status',
+                user.isActive ? (
+                  <Badge variant="secondary" className="bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
+                    Active
+                  </Badge>
+                ) : (
+                  <Badge variant="destructive" className="font-normal">
+                    Suspended
+                  </Badge>
+                ),
+              )}
+            </div>
+          </section>
+        </div>
+
+        <DialogFooter className="border-t px-6 py-4">
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

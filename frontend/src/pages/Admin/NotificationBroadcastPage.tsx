@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, Megaphone, Send, Shield, Users } from 'lucide-react';
 import { useToast } from '../../hooks/use-toast';
+import { useAuth } from '../../context/AuthContext';
 import { campusService } from '../../services/campus.service';
 import notificationsService from '../../services/notifications.service';
 import { Campus } from '../../types/models.types';
@@ -21,6 +22,8 @@ import { Label } from '../../components/ui/label';
 import { ScrollArea } from '../../components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Textarea } from '../../components/ui/textarea';
+import PermissionGuard from '../../components/PermissionGuard';
+import { PERMISSIONS } from '../../utils/permissions';
 
 const NOTIFICATION_TYPE_OPTIONS = [
   { value: 'manual_announcement', label: 'Manual announcement' },
@@ -50,6 +53,11 @@ const parseErrorMessage = (error: any, fallback: string): string => {
 
 const NotificationBroadcastPage: React.FC = () => {
   const { toast } = useToast();
+  const { hasAnyPermission } = useAuth();
+  const canCreateNotification = hasAnyPermission([
+    PERMISSIONS.NOTIFICATIONS_CREATE,
+    PERMISSIONS.NOTIFICATIONS_MANAGE,
+  ]);
 
   const [targetType, setTargetType] = useState<NotificationTargetType>('users');
   const [title, setTitle] = useState('');
@@ -294,6 +302,15 @@ const NotificationBroadcastPage: React.FC = () => {
   };
 
   const handleSend = async () => {
+    if (!canCreateNotification) {
+      toast({
+        title: 'Access denied',
+        description: 'You do not have permission to send notifications',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const normalizedTitle = title.trim();
     const normalizedMessage = message.trim();
 
@@ -390,6 +407,17 @@ const NotificationBroadcastPage: React.FC = () => {
         </Button>
       </div>
 
+      {!canCreateNotification ? (
+        <Card>
+          <CardContent className="py-6">
+            <p className="text-sm text-muted-foreground">
+              You can view this page, but you do not have permission to broadcast notifications.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <PermissionGuard permissions={[PERMISSIONS.NOTIFICATIONS_CREATE, PERMISSIONS.NOTIFICATIONS_MANAGE]}>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -514,8 +542,10 @@ const NotificationBroadcastPage: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+      </PermissionGuard>
 
       {targetType === 'users' && (
+        <PermissionGuard permissions={[PERMISSIONS.NOTIFICATIONS_CREATE, PERMISSIONS.NOTIFICATIONS_MANAGE]}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -609,9 +639,11 @@ const NotificationBroadcastPage: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+        </PermissionGuard>
       )}
 
       {targetType === 'role' && (
+        <PermissionGuard permissions={[PERMISSIONS.NOTIFICATIONS_CREATE, PERMISSIONS.NOTIFICATIONS_MANAGE]}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -704,23 +736,26 @@ const NotificationBroadcastPage: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+        </PermissionGuard>
       )}
 
-      <div className="flex justify-end">
-        <Button type="button" onClick={handleSend} disabled={sending} className="w-full sm:w-auto sm:min-w-44">
-          {sending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Sending...
-            </>
-          ) : (
-            <>
-              <Send className="mr-2 h-4 w-4" />
-              Send notification
-            </>
-          )}
-        </Button>
-      </div>
+      <PermissionGuard permissions={[PERMISSIONS.NOTIFICATIONS_CREATE, PERMISSIONS.NOTIFICATIONS_MANAGE]}>
+        <div className="flex justify-end">
+          <Button type="button" onClick={handleSend} disabled={sending} className="w-full sm:w-auto sm:min-w-44">
+            {sending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Send className="mr-2 h-4 w-4" />
+                Send notification
+              </>
+            )}
+          </Button>
+        </div>
+      </PermissionGuard>
 
       {result && (
         <Card>

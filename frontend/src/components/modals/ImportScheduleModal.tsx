@@ -253,7 +253,7 @@ const ImportScheduleModal: React.FC<ImportScheduleModalProps> = ({ isOpen, onClo
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Import Schedules by Excel</DialogTitle>
+          <DialogTitle>Import Schedule from FAP(Excel/CSV)</DialogTitle>
           <DialogDescription>
             Download template, fill in schedule data, then upload CSV/Excel file to create schedules in bulk.
           </DialogDescription>

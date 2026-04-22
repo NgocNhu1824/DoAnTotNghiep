@@ -1,6 +1,16 @@
 import React from 'react';
 import { Room } from '../../types/room.types';
 import { Device } from '../../types/device.types';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
 
 interface ViewRoomModalProps {
   isOpen: boolean;
@@ -53,85 +63,67 @@ const ViewRoomModal: React.FC<ViewRoomModalProps> = ({
 
   const devices = (room.devices || []) as Device[];
 
+  const detailRow = (label: string, value: React.ReactNode) => (
+    <div className="grid gap-1 sm:grid-cols-[160px_1fr] sm:gap-4">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="break-words font-medium text-foreground">{value}</div>
+    </div>
+  );
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-2xl m-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold">Room Details</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 text-2xl"
-          >
-            ×
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden p-0">
+        <DialogHeader className="border-b px-6 py-4">
+          <DialogTitle>Room Details</DialogTitle>
+          <DialogDescription>
+            Review room profile, operational status, and assigned devices.
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500">Room Code</label>
-              <p className="text-lg font-semibold">{room.roomCode}</p>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5 text-sm">
+          <section className="rounded-lg border bg-muted/20 p-4">
+            <h3 className="mb-3 font-semibold">Room Information</h3>
+            <div className="space-y-2">
+              {detailRow('Room Code', room.roomCode)}
+              {detailRow('Room Name', room.roomName)}
+              {detailRow('Building', `Building ${room.building}`)}
+              {detailRow('Floor', `Floor ${room.floor}`)}
+              {detailRow('Room Type', room.roomType)}
+              {detailRow('Capacity', `${room.capacity} seats`)}
+              {detailRow('Campus', getCampusName())}
+              {detailRow('Locker Number', room.lockerNumber || '—')}
+              {detailRow('Status', getStatusBadge(room.status))}
+              {detailRow(
+                'Activation',
+                room.isActive ? (
+                  <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Active</Badge>
+                ) : (
+                  <Badge className="bg-rose-100 text-rose-800 hover:bg-rose-100">Inactive</Badge>
+                ),
+              )}
+              {room.description ? detailRow('Description', room.description) : null}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500">Room Name</label>
-              <p className="text-lg font-semibold">{room.roomName}</p>
-            </div>
-          </div>
+          </section>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500">Building</label>
-              <p className="text-lg">Building {room.building}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500">Floor</label>
-              <p className="text-lg">Floor {room.floor}</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500">Room Type</label>
-              <p className="text-lg">{room.roomType}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500">Capacity</label>
-              <p className="text-lg">{room.capacity} seats</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500">Locker Number</label>
-              <p className="text-lg">{room.lockerNumber}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500">Campus</label>
-              <p className="text-lg">{getCampusName()}</p>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-500 mb-2">
-              Devices in Room
-            </label>
+          <section className="rounded-lg border bg-muted/20 p-4">
+            <h3 className="mb-3 font-semibold">Devices in Room</h3>
             {devices.length > 0 ? (
-              <div className="overflow-hidden rounded-lg border border-gray-200">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-gray-50">
+              <div className="overflow-hidden rounded-lg border bg-background">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-muted/50">
                     <tr>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">Device Code</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">Device Name</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">Quantity</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">Status</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Device Code</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Device Name</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Quantity</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y">
                     {devices.map((device) => (
                       <tr key={device._id}>
-                        <td className="px-3 py-2 font-medium text-gray-700">{device.deviceCode}</td>
-                        <td className="px-3 py-2 text-gray-700">{device.deviceName}</td>
-                        <td className="px-3 py-2 text-gray-700">{device.quantity}</td>
+                        <td className="px-3 py-2 font-medium">{device.deviceCode}</td>
+                        <td className="px-3 py-2">{device.deviceName}</td>
+                        <td className="px-3 py-2">{device.quantity}</td>
                         <td className="px-3 py-2">{getDeviceStatusBadge(device.deviceStatus)}</td>
                       </tr>
                     ))}
@@ -139,62 +131,26 @@ const ViewRoomModal: React.FC<ViewRoomModalProps> = ({
                 </table>
               </div>
             ) : (
-              <p className="text-gray-400 italic">No devices</p>
+              <p className="text-muted-foreground italic">No devices assigned.</p>
             )}
-          </div>
+          </section>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-500 mb-2">
-              Status
-            </label>
-            <div className="flex items-center space-x-4">
-              {getStatusBadge(room.status)}
-              
+          <section className="rounded-lg border p-4">
+            <h3 className="mb-3 font-semibold">Timeline</h3>
+            <div className="space-y-2">
+              {detailRow('Created At', new Date(room.createdAt).toLocaleString('en-US'))}
+              {detailRow('Last Updated', new Date(room.updatedAt).toLocaleString('en-US'))}
             </div>
-          </div>
-
-          {room.description && (
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Description</label>
-              <p className="text-gray-700">{room.description}</p>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500">Activation Status</label>
-              <p className="text-lg">
-                {room.isActive ? (
-                  <span className="px-3 py-1 text-sm rounded-full bg-green-100 text-green-800">Active</span>
-                ) : (
-                  <span className="px-3 py-1 text-sm rounded-full bg-red-100 text-red-800">Inactive</span>
-                )}
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 text-sm text-gray-500">
-            <div>
-              <label className="block font-medium">Created At</label>
-              <p>{new Date(room.createdAt).toLocaleString('en-US')}</p>
-            </div>
-            <div>
-              <label className="block font-medium">Last Updated</label>
-              <p>{new Date(room.updatedAt).toLocaleString('en-US')}</p>
-            </div>
-          </div>
+          </section>
         </div>
 
-        <div className="flex justify-end mt-6">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
-          >
+        <DialogFooter className="border-t px-6 py-4">
+          <Button variant="outline" onClick={onClose}>
             Close
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

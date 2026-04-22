@@ -488,7 +488,7 @@ const ScheduleManagementPage: React.FC = () => {
       {/* Page Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-3xl font-bold tracking-tight">View all activities</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Schedule Management</h1>
           <p className="text-muted-foreground mt-2">
             Search, filter, and monitor schedules by room and time slot for the selected day
           </p>
@@ -497,7 +497,7 @@ const ScheduleManagementPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Button onClick={() => setIsImportModalOpen(true)}>
               <Upload className="h-4 w-4 mr-2" />
-              Import Excel/CSV
+              Import Schedule from FAP(Excel/CSV)
             </Button>
           </div>
         </PermissionGuard>
@@ -506,8 +506,8 @@ const ScheduleManagementPage: React.FC = () => {
       {/* Filters */}
       <Card>
         <CardContent className="space-y-4 p-4 md:p-6">
-          <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_minmax(280px,340px)_220px_220px]">
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="min-w-0 space-y-2">
               <Label htmlFor="room-search">Search</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -522,7 +522,7 @@ const ScheduleManagementPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label>Campus</Label>
               <Select value={campusFilter} onValueChange={setCampusFilter}>
                 <SelectTrigger className="w-full [&>span]:truncate">
@@ -544,7 +544,7 @@ const ScheduleManagementPage: React.FC = () => {
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label htmlFor="schedule-date">Date</Label>
               <Input
                 id="schedule-date"
@@ -554,10 +554,10 @@ const ScheduleManagementPage: React.FC = () => {
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label>Slot Type</Label>
               <Select value={slotTypeFilter} onValueChange={(value: 'OLDSLOT' | 'NEWSLOT') => setSlotTypeFilter(value)}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full [&>span]:truncate">
                   <SelectValue placeholder="Select slot type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -613,7 +613,7 @@ const ScheduleManagementPage: React.FC = () => {
       {/* Schedule Grid Table - Desktop */}
       <Card className="hidden sm:block">
         <CardHeader>
-          <CardTitle>View all activities</CardTitle>
+          <CardTitle>Schedule Management</CardTitle>
           <CardDescription>Display schedules by room and slot for the selected date</CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">

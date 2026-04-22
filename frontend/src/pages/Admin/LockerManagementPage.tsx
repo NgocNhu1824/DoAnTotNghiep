@@ -11,6 +11,7 @@ import ViewLockerModal from '@/components/modals/ViewLockerModal';
 import PermissionGuard from '../../components/PermissionGuard';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import CrudActionButtons from '../../components/common/CrudActionButtons';
+import Loading from '../../components/common/Loading';
 import { useToast } from '../../hooks/use-toast';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -886,11 +887,7 @@ const LockerManagementPage: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex h-96 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <Loading text="Loading lockers..." className="h-96" />;
   }
 
   const emptyStateClassName =

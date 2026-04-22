@@ -17,7 +17,6 @@ import {
 } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { ScrollArea } from '../ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Textarea } from '../ui/textarea';
 
@@ -322,8 +321,8 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent className="flex max-h-[90vh] max-w-5xl flex-col overflow-hidden">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] max-w-5xl flex-col overflow-hidden p-0">
+        <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>{editRole ? 'Update Role' : 'Create Role'}</DialogTitle>
           <DialogDescription>
             Configure role information, hierarchy level, and permission assignments.
@@ -332,182 +331,210 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           {(error || !canManageEditingRole) && (
-            <div className="mb-5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            <div className="mx-6 mt-4 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               {error || 'You are not allowed to edit this role because it is above your level'}
             </div>
           )}
 
           {loadingData ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center">
+            <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-4">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="roleName">Role Name</Label>
-                  <Input
-                    id="roleName"
-                    name="roleName"
-                    value={formData.roleName}
-                    onChange={handleInputChange}
-                    placeholder="Example: Training Officer"
-                    required
-                  />
-                </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+              <div className="space-y-4 pr-1">
+                <section className="space-y-2 rounded-md border bg-background p-4">
+                  <h3 className="text-sm font-semibold text-muted-foreground">Role Information</h3>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="roleName">Role Name</Label>
+                      <Input
+                        id="roleName"
+                        name="roleName"
+                        value={formData.roleName}
+                        onChange={handleInputChange}
+                        placeholder="Example: Training Officer"
+                        required
+                      />
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="roleCode">Role Code</Label>
-                  <Input
-                    id="roleCode"
-                    name="roleCode"
-                    value={formData.roleCode}
-                    onChange={handleInputChange}
-                    placeholder="TRAINING_OFFICER"
-                    required
-                  />
-                </div>
-              </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="roleCode">Role Code</Label>
+                      <Input
+                        id="roleCode"
+                        name="roleCode"
+                        value={formData.roleCode}
+                        onChange={handleInputChange}
+                        placeholder="TRAINING_OFFICER"
+                        required
+                      />
+                    </div>
+                  </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="roleLevel">Role Level</Label>
-                  <Input
-                    id="roleLevel"
-                    name="roleLevel"
-                    type="number"
-                    min={Number.isFinite(Number(currentUserRoleLevel)) ? Number(currentUserRoleLevel) : 0}
-                    max={4}
-                    value={formData.roleLevel}
-                    onChange={handleInputChange}
-                    required
-                  />
-                  <p className="text-xs text-muted-foreground">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="roleLevel">Role Level</Label>
+                      <Input
+                        id="roleLevel"
+                        name="roleLevel"
+                        type="number"
+                        min={Number.isFinite(Number(currentUserRoleLevel)) ? Number(currentUserRoleLevel) : 0}
+                        max={4}
+                        value={formData.roleLevel}
+                        onChange={handleInputChange}
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Scope</Label>
+                      <Select
+                        value={formData.scope}
+                        onValueChange={(value) =>
+                          setFormData((prev) => ({ ...prev, scope: value as 'GLOBAL' | 'CAMPUS' | 'SELF' }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select scope" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="GLOBAL">GLOBAL</SelectItem>
+                          <SelectItem value="CAMPUS">CAMPUS</SelectItem>
+                          <SelectItem value="SELF">SELF</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {formData.scope === 'CAMPUS' && (
+                      <div className="space-y-2">
+                        <Label>Campus</Label>
+                        <Select
+                          value={formData.campusId}
+                          onValueChange={(value) => setFormData((prev) => ({ ...prev, campusId: value }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select campus" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {campuses.map((campus) => (
+                              <SelectItem key={campus._id} value={campus._id}>
+                                {campus.campusCode} - {campus.campusName}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">
                     Lower number means higher authority. You can assign level greater than or equal to yours.
                   </p>
-                </div>
 
-                <div className="space-y-2">
-                  <Label>Scope</Label>
-                  <Select
-                    value={formData.scope}
-                    onValueChange={(value) =>
-                      setFormData((prev) => ({ ...prev, scope: value as 'GLOBAL' | 'CAMPUS' | 'SELF' }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select scope" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="GLOBAL">GLOBAL</SelectItem>
-                      <SelectItem value="CAMPUS">CAMPUS</SelectItem>
-                      <SelectItem value="SELF">SELF</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {formData.scope === 'CAMPUS' && (
-                  <div className="space-y-2">
-                    <Label>Campus</Label>
-                    <Select
-                      value={formData.campusId}
-                      onValueChange={(value) => setFormData((prev) => ({ ...prev, campusId: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select campus" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {campuses.map((campus) => (
-                          <SelectItem key={campus._id} value={campus._id}>
-                            {campus.campusCode} - {campus.campusName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  placeholder="Describe this role and responsibilities"
-                  className="min-h-[90px]"
-                />
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-3">
-                <label className="flex items-center gap-2 rounded-md border p-3">
-                  <Checkbox
-                    checked={formData.isActive}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({ ...prev, isActive: checked === true }))
-                    }
-                  />
-                  <span className="text-sm">Role is active</span>
-                </label>
-
-                <label className="flex items-center gap-2 rounded-md border p-3">
-                  <Checkbox
-                    checked={formData.canManageRoles}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({ ...prev, canManageRoles: checked === true }))
-                    }
-                  />
-                  <span className="text-sm">Allow role management</span>
-                </label>
-
-                <label className="flex items-center gap-2 rounded-md border p-3">
-                  <Checkbox
-                    checked={formData.canAccessWeb}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({ ...prev, canAccessWeb: checked === true }))
-                    }
-                  />
-                  <span className="text-sm">Can access web app</span>
-                </label>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-medium">Permissions</h3>
-                    <Badge variant="secondary">
-                      {selectedPermissions.length}/{allPermissions.length}
-                    </Badge>
+                  <div className="space-y-1">
+                    <Label htmlFor="description">Description</Label>
+                    <Textarea
+                      id="description"
+                      name="description"
+                      value={formData.description}
+                      onChange={handleInputChange}
+                      placeholder="Describe this role and responsibilities"
+                      rows={2}
+                      className="min-h-[72px] border-border bg-background"
+                    />
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={handleSelectAllFiltered}>
-                      Select visible
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" onClick={handleDeselectAll}>
-                      Clear all
-                    </Button>
+                  <div className="grid gap-2 pt-1 sm:grid-cols-2 lg:grid-cols-3">
+                    <label className="flex min-h-11 items-start gap-2 rounded-md border bg-background px-3 py-2">
+                      <Checkbox
+                        className="border-slate-400 data-[state=unchecked]:bg-background"
+                        checked={formData.isActive}
+                        onCheckedChange={(checked) =>
+                          setFormData((prev) => ({ ...prev, isActive: checked === true }))
+                        }
+                      />
+                      <span className="text-sm font-medium leading-5">Role is active</span>
+                    </label>
+
+                    <label className="flex min-h-11 items-start gap-2 rounded-md border bg-background px-3 py-2">
+                      <Checkbox
+                        className="border-slate-400 data-[state=unchecked]:bg-background"
+                        checked={formData.canManageRoles}
+                        onCheckedChange={(checked) =>
+                          setFormData((prev) => ({ ...prev, canManageRoles: checked === true }))
+                        }
+                      />
+                      <span className="text-sm font-medium leading-5">Allow role management</span>
+                    </label>
+
+                    <label className="flex min-h-11 items-start gap-2 rounded-md border bg-background px-3 py-2">
+                      <Checkbox
+                        className="border-slate-400 data-[state=unchecked]:bg-background"
+                        checked={formData.canAccessWeb}
+                        onCheckedChange={(checked) =>
+                          setFormData((prev) => ({ ...prev, canAccessWeb: checked === true }))
+                        }
+                      />
+                      <span className="text-sm font-medium leading-5">Can access web app</span>
+                    </label>
                   </div>
-                </div>
+                </section>
 
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Search permissions"
-                    value={searchTerm}
-                    onChange={(event) => setSearchTerm(event.target.value)}
-                    className="pl-9"
-                  />
-                </div>
+                <section className="space-y-3 rounded-md border border-primary/20 bg-primary/5 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-semibold text-foreground">Permissions</h3>
+                      <Badge variant="default">
+                        {selectedPermissions.length}/{allPermissions.length}
+                      </Badge>
+                    </div>
+                  </div>
 
-                <ScrollArea className="h-64 rounded-md border p-3 md:h-72">
+                  <div className="space-y-1">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          placeholder="Search permissions..."
+                          value={searchTerm}
+                          onChange={(event) => setSearchTerm(event.target.value)}
+                          className="pl-9"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 sm:shrink-0">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="min-w-28"
+                          onClick={handleSelectAllFiltered}
+                        >
+                        Select visible
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="min-w-24"
+                          onClick={handleDeselectAll}
+                        >
+                          Clear all
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Search by permission name, resource, action, or description.
+                    </p>
+                  </div>
+
                   <div className="space-y-4">
                     {Object.keys(groupedPermissions)
                       .sort()
                       .map((resource) => (
                         <div key={resource} className="space-y-2">
-                          <h4 className="text-sm font-semibold uppercase text-muted-foreground">{resource}</h4>
+                          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {resource}
+                          </h4>
                           <div className="space-y-2">
                             {groupedPermissions[resource].map((permission) => {
                               const checked = selectedPermissions.includes(permission.id);
@@ -515,9 +542,10 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                               return (
                                 <label
                                   key={permission.id}
-                                  className="flex cursor-pointer items-start gap-3 rounded-md border p-2 hover:bg-muted/40"
+                                  className="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-2 hover:bg-muted/40"
                                 >
                                   <Checkbox
+                                    className="border-slate-400 data-[state=unchecked]:bg-background"
                                     checked={checked}
                                     onCheckedChange={(value) =>
                                       handlePermissionToggle(permission.id, value === true)
@@ -538,12 +566,12 @@ const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                       <p className="text-sm text-muted-foreground">No permissions found</p>
                     )}
                   </div>
-                </ScrollArea>
+                </section>
               </div>
             </div>
           )}
 
-          <DialogFooter className="mt-5 shrink-0 border-t pt-4">
+          <DialogFooter className="shrink-0 border-t px-6 py-4">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>

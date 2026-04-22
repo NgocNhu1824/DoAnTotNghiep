@@ -138,7 +138,7 @@ const AuditLogPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Audit Log</h1>
+          <h1 className="text-3xl font-bold tracking-tight">System Access Log</h1>
           <p className="text-muted-foreground mt-2">
             Track create, update, and delete actions in the system
           </p>

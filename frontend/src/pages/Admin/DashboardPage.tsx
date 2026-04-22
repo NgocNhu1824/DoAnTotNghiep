@@ -22,6 +22,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../hooks/use-toast';
 import Button from '../../components/common/Button';
 import Card from '../../components/common/Card';
+import Loading from '../../components/common/Loading';
 import { Badge } from '../../components/ui/badge';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '../../components/ui/chart';
 import { Input } from '../../components/ui/input';
@@ -36,6 +37,7 @@ type UsageFilter = 'all' | 'in_use' | 'vacant' | 'no_state';
 const UNKNOWN_ROOM_TYPE_FILTER = '__unknown_room_type__';
 const UNKNOWN_BUILDING_FILTER = '__unknown_building__';
 const ROOM_GRID_PAGE_SIZE = 28;
+const ACCESS_LOG_PAGE_SIZE = 10;
 
 const usageChartConfig = {
   value: {
@@ -368,6 +370,7 @@ const DashboardPage: React.FC = () => {
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
   const [roomTypeFilter, setRoomTypeFilter] = useState<string>('all');
   const [roomGridPageIndex, setRoomGridPageIndex] = useState(0);
+  const [accessLogPageIndex, setAccessLogPageIndex] = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
   const [roomMetaById, setRoomMetaById] = useState<
     Record<string, { roomType: string | null; building: string | null }>
@@ -701,6 +704,19 @@ const DashboardPage: React.FC = () => {
   const usageTrends = dashboard?.usageTrends || emptyDashboardData.usageTrends;
   const incidentMonitor = dashboard?.incidentMonitor || emptyDashboardData.incidentMonitor;
   const accessLogMonitor = dashboard?.accessLogMonitor || emptyDashboardData.accessLogMonitor;
+  const accessLogPageCount = Math.max(1, Math.ceil(accessLogMonitor.recent.length / ACCESS_LOG_PAGE_SIZE));
+  const pagedAccessLogRows = accessLogMonitor.recent.slice(
+    accessLogPageIndex * ACCESS_LOG_PAGE_SIZE,
+    accessLogPageIndex * ACCESS_LOG_PAGE_SIZE + ACCESS_LOG_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setAccessLogPageIndex(0);
+  }, [accessLogMonitor.recent.length]);
+
+  useEffect(() => {
+    setAccessLogPageIndex((previous) => Math.min(previous, Math.max(0, accessLogPageCount - 1)));
+  }, [accessLogPageCount]);
 
   const formatDateTime = (value?: string | null) => {
     if (!value) {
@@ -716,11 +732,7 @@ const DashboardPage: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex h-80 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <Loading text="Loading dashboard data..." className="h-80" />;
   }
 
   return (
@@ -896,11 +908,6 @@ const DashboardPage: React.FC = () => {
 
         {roomGridPageCount > 1 ? (
           <div className="mt-4 space-y-2">
-            <p className="text-center text-xs text-muted-foreground">
-              Showing {roomGridPageIndex * ROOM_GRID_PAGE_SIZE + 1}–
-              {Math.min((roomGridPageIndex + 1) * ROOM_GRID_PAGE_SIZE, filteredRows.length)} of {filteredRows.length}{' '}
-              · Page {roomGridPageIndex + 1}/{roomGridPageCount}
-            </p>
             <div className="flex justify-center">
               <ReactPaginate
                 forcePage={Math.min(roomGridPageIndex, Math.max(roomGridPageCount - 1, 0))}
@@ -954,6 +961,7 @@ const DashboardPage: React.FC = () => {
         </Tabs>
       </Card>
 
+      {incidentMonitor.available ? (
       <Card title="Monitor Incident" description="Open incident overview and latest reports.">
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
@@ -1063,7 +1071,9 @@ const DashboardPage: React.FC = () => {
           </div>
         </>
       </Card>
+      ) : null}
 
+      {accessLogMonitor.available ? (
       <Card title="Access Log Monitor" description="Recent access activities and method distribution.">
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
@@ -1151,7 +1161,7 @@ const DashboardPage: React.FC = () => {
                   </tr>
                 )}
 
-                {accessLogMonitor.recent.map((accessLog) => (
+                {pagedAccessLogRows.map((accessLog) => (
                   <tr key={accessLog.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm text-gray-700">
                       <div className="inline-flex items-center gap-1">
@@ -1175,8 +1185,29 @@ const DashboardPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          {accessLogPageCount > 1 ? (
+            <div className="mt-4 flex justify-center">
+              <ReactPaginate
+                forcePage={Math.min(accessLogPageIndex, Math.max(accessLogPageCount - 1, 0))}
+                pageCount={accessLogPageCount}
+                onPageChange={(e: { selected: number }) => setAccessLogPageIndex(e.selected)}
+                previousLabel="← Prev"
+                nextLabel="Next →"
+                breakLabel="…"
+                marginPagesDisplayed={1}
+                pageRangeDisplayed={3}
+                containerClassName="flex flex-wrap items-center justify-center gap-2"
+                pageClassName="rounded-md border px-3 py-1 text-sm font-medium text-muted-foreground hover:bg-muted"
+                previousClassName="rounded-md border px-3 py-1 text-sm font-medium hover:bg-muted"
+                nextClassName="rounded-md border px-3 py-1 text-sm font-medium hover:bg-muted"
+                activeClassName="border-primary bg-primary text-primary-foreground"
+                disabledClassName="cursor-not-allowed opacity-50"
+              />
+            </div>
+          ) : null}
         </>
       </Card>
+      ) : null}
     </div>
   );
 };

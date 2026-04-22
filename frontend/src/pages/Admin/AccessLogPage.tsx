@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import Loading from '@/components/common/Loading';
 import accessLogService from '@/services/access-log.service';
 import { wsService } from '@/services/websocket.service';
 import { campusService } from '@/services/campus.service';
@@ -449,11 +450,7 @@ const AccessLogPage: React.FC<AccessLogPageProps> = ({
   };
 
   if (bootstrapping) {
-    return (
-      <div className="flex h-80 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <Loading text="Loading access logs..." className="h-80" />;
   }
 
   const reloadButton = (
@@ -477,7 +474,7 @@ const AccessLogPage: React.FC<AccessLogPageProps> = ({
       {!hideHeader ? (
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">Access audit log</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Room Activity Logs</h1>
             <p className="text-sm text-muted-foreground sm:text-base">{getScopeHint()}</p>
           </div>
           {reloadButton}
@@ -973,7 +970,7 @@ const AccessLogPage: React.FC<AccessLogPageProps> = ({
                         </TableCell>
                         <TableCell className="align-middle">
                           <div className="font-medium">{getUserPrimary(log)}</div>
-                          <div className="max-w-[200px] truncate text-xs text-muted-foreground">
+                          <div className="max-w-[200px] truncate text-xs text-muted-foreground" title={getUserSecondary(log)}>
                             {getUserSecondary(log)}
                           </div>
                         </TableCell>
@@ -983,13 +980,20 @@ const AccessLogPage: React.FC<AccessLogPageProps> = ({
                         </TableCell>
                         <TableCell className="align-middle text-center">{getResultBadge(log)}</TableCell>
                         <TableCell className="align-middle">
-                          <div className="max-w-[140px] truncate font-mono text-xs">{log.deviceId || '—'}</div>
-                          <div className="max-w-[180px] truncate text-xs text-muted-foreground">
+                          <div className="max-w-[140px] truncate font-mono text-xs" title={log.deviceId || '—'}>
+                            {log.deviceId || '—'}
+                          </div>
+                          <div className="max-w-[180px] truncate text-xs text-muted-foreground" title={log.location || '—'}>
                             {log.location || '—'}
                           </div>
                         </TableCell>
                         <TableCell className="max-w-[240px] align-middle text-sm text-muted-foreground">
-                          {log.reason || log.metadata?.iotGatewayDispatch?.message || '—'}
+                          <div
+                            className="line-clamp-2"
+                            title={log.reason || log.metadata?.iotGatewayDispatch?.message || '—'}
+                          >
+                            {log.reason || log.metadata?.iotGatewayDispatch?.message || '—'}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

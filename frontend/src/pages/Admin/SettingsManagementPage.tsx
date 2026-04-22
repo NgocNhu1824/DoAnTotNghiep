@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { useToast } from '../../hooks/use-toast';
 import { useAuth } from '../../context/AuthContext';
+import PermissionGuard from '../../components/PermissionGuard';
+import Loading from '../../components/common/Loading';
 import { campusService } from '../../services/campus.service';
 import settingsService from '../../services/settings.service';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
@@ -29,6 +31,7 @@ import {
   SettingValueType,
   UpdateSettingDto,
 } from '../../types/setting.types';
+import { PERMISSIONS } from '../../utils/permissions';
 
 type SettingScope = 'global' | 'campus';
 
@@ -202,7 +205,7 @@ const PRESET_KEYS = SETTING_TEMPLATES.map((template) => template.key);
 
 const SettingsManagementPage: React.FC = () => {
   const { toast } = useToast();
-  const { user, roleDetails } = useAuth();
+  const { user, roleDetails, hasAnyPermission } = useAuth();
 
   const [settings, setSettings] = useState<SettingItem[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -229,6 +232,7 @@ const SettingsManagementPage: React.FC = () => {
   const [effectiveSetting, setEffectiveSetting] = useState<EffectiveSetting | null>(null);
 
   const isSuperAdmin = roleDetails?.roleCode === 'SUPER_ADMIN';
+  const canManageSettings = hasAnyPermission([PERMISSIONS.SETTINGS_UPDATE, PERMISSIONS.SETTINGS_MANAGE]);
   const currentCampusId = user?.campusId?._id || '';
 
   const selectedCampusLabel = useMemo(() => {
@@ -342,11 +346,17 @@ const SettingsManagementPage: React.FC = () => {
   };
 
   const openCreate = () => {
+    if (!canManageSettings) {
+      return;
+    }
     resetForm();
     setIsFormOpen(true);
   };
 
   const openEdit = (item: SettingItem) => {
+    if (!canManageSettings) {
+      return;
+    }
     setEditingSetting(item);
 
     const normalizedType: SettingValueType = item.valueType || inferValueType(item.value);
@@ -406,6 +416,14 @@ const SettingsManagementPage: React.FC = () => {
   };
 
   const handleSave = async () => {
+    if (!canManageSettings) {
+      toast({
+        title: 'Access denied',
+        description: 'You do not have permission to update system settings',
+        variant: 'destructive',
+      });
+      return;
+    }
     try {
       setSaving(true);
 
@@ -437,11 +455,17 @@ const SettingsManagementPage: React.FC = () => {
   };
 
   const requestDelete = (id: string) => {
+    if (!canManageSettings) {
+      return;
+    }
     setTargetDeleteId(id);
     setConfirmOpen(true);
   };
 
   const confirmDelete = async () => {
+    if (!canManageSettings) {
+      return;
+    }
     if (!targetDeleteId) return;
 
     try {
@@ -501,18 +525,14 @@ const SettingsManagementPage: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex h-96 items-center justify-center">
-        <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <Loading text="Loading system settings..." className="h-96" />;
   }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">System Settings</h1>
+          <h1 className="text-3xl font-bold tracking-tight">System Configuration</h1>
           <p className="mt-1 text-muted-foreground">
             Configure booking, reminders, lockers, and transfer behavior with guided descriptions.
           </p>
@@ -522,10 +542,12 @@ const SettingsManagementPage: React.FC = () => {
             <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             Reload
           </Button>
-          <Button onClick={openCreate}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add New Setting
-          </Button>
+          <PermissionGuard permissions={[PERMISSIONS.SETTINGS_UPDATE, PERMISSIONS.SETTINGS_MANAGE]}>
+            <Button onClick={openCreate}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add New Setting
+            </Button>
+          </PermissionGuard>
         </div>
       </div>
 
@@ -715,19 +737,21 @@ const SettingsManagementPage: React.FC = () => {
                         Key: {item.key}
                       </div>
 
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(item)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => requestDelete(item.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      <PermissionGuard permissions={[PERMISSIONS.SETTINGS_UPDATE, PERMISSIONS.SETTINGS_MANAGE]}>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="ghost" size="icon" onClick={() => openEdit(item)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => requestDelete(item.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </PermissionGuard>
                     </CardContent>
                   </Card>
                 );

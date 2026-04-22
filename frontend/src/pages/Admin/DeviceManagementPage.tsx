@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, Plus, Search, Trash2 } from 'lucide-react';
 import { useToast } from '../../hooks/use-toast';
+import Loading from '../../components/common/Loading';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -340,11 +341,7 @@ const DeviceManagementPage: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex h-96 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <Loading text="Loading devices..." className="h-96" />;
   }
 
   return (

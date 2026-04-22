@@ -53,6 +53,69 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const baseMenuItems: MenuItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     {
+      id: 'schedule',
+      label: 'Schedule Management',
+      icon: Calendar,
+      path: '/schedules',
+      requiredPermissions: [PERMISSIONS.SCHEDULES_READ],
+    },
+    {
+      id: 'bookings',
+      label: 'Booking Management',
+      icon: BookOpen,
+      path: '/bookings',
+      requiredPermissions: [PERMISSIONS.BOOKINGS_MANAGE],
+    },
+    {
+      id: 'rooms',
+      label: 'Room Management',
+      icon: Building2,
+      path: '/rooms',
+      requiredPermissions: [PERMISSIONS.ROOMS_READ],
+    },
+    {
+      id: 'transfers',
+      label: 'Transfer Management',
+      icon: ArrowLeftRight,
+      path: '/transfers',
+      requiredPermissions: [PERMISSIONS.TRANSFERS_READ],
+    },
+    {
+      id: 'access-logs',
+      label: 'Room Activity Logs',
+      icon: FileText,
+      path: '/access-logs',
+      requiredPermissions: [PERMISSIONS.ACCESS_LOGS_READ, PERMISSIONS.ACCESS_LOGS_MANAGE],
+    },
+    {
+      id: 'audit-logs',
+      label: 'System Access Log',
+      icon: FileText,
+      path: '/audit-logs',
+      requiredPermissions: [PERMISSIONS.LOGS_READ],
+    },
+    {
+      id: 'incidents',
+      label: 'Incident Management',
+      icon: TriangleAlert,
+      path: '/incidents',
+      requiredPermissions: [PERMISSIONS.INCIDENTS_READ],
+    },
+    {
+      id: 'lockers',
+      label: 'IoT Device Management',
+      icon: Lock,
+      path: '/lockers',
+      requiredPermissions: [PERMISSIONS.LOCKERS_READ],
+    },
+    {
+      id: 'devices',
+      label: 'Device Management',
+      icon: Cpu,
+      path: '/devices',
+      requiredPermissions: [PERMISSIONS.DEVICES_READ],
+    },
+    {
       id: 'users',
       label: 'User Management',
       icon: Users,
@@ -67,82 +130,18 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       requiredPermissions: [PERMISSIONS.ROLES_READ],
     },
     {
-      id: 'audit-logs',
-      label: 'Audit Logs',
-      icon: FileText,
-      path: '/audit-logs',
-      requiredPermissions: [PERMISSIONS.LOGS_READ],
-    },
-    {
-      id: 'access-logs',
-      label: 'Access audit',
-      icon: FileText,
-      path: '/access-logs',
-      requiredPermissions: [PERMISSIONS.ACCESS_LOGS_READ],
-    },
-    {
-      id: 'lockers',
-      label: 'IoT Devices',
-      icon: Lock,
-      path: '/lockers',
-      requiredPermissions: [PERMISSIONS.LOCKERS_READ],
-    },
-    {
-      id: 'bookings',
-      label: 'Bookings',
-      icon: BookOpen,
-      path: '/bookings',
-      requiredPermissions: [PERMISSIONS.BOOKINGS_READ],
-    },
-    {
-      id: 'rooms',
-      label: 'Rooms',
-      icon: Building2,
-      path: '/rooms',
-      requiredPermissions: [PERMISSIONS.ROOMS_READ],
-    },
-    {
-      id: 'devices',
-      label: 'Devices',
-      icon: Cpu,
-      path: '/devices',
-      requiredPermissions: [PERMISSIONS.DEVICES_READ],
-    },
-    {
-      id: 'schedule',
-      label: 'View all activities',
-      icon: Calendar,
-      path: '/schedules',
-      requiredPermissions: [PERMISSIONS.SCHEDULES_READ],
-      
-    },
-    {
-      id: 'incidents',
-      label: 'Incidents',
-      icon: TriangleAlert,
-      path: '/incidents',
-      requiredPermissions: [PERMISSIONS.INCIDENTS_READ],
-    },
-    {
       id: 'notifications-create',
       label: 'Send Notifications',
       icon: BellRing,
       path: '/notifications/create',
-      requiredPermissions: [PERMISSIONS.NOTIFICATIONS_READ],
+      requiredPermissions: [PERMISSIONS.NOTIFICATIONS_CREATE],
     },
-      {
-        id: 'transfers',
-        label: 'Transfer',
-        icon: ArrowLeftRight,
-        path: '/transfers',
-        requiredPermissions: [PERMISSIONS.TRANSFERS_READ],
-      },
     {
       id: 'settings',
-      label: 'Settings',
+      label: 'System Configuration',
       icon: Settings,
       path: '/settings',
-      requiredPermissions: [PERMISSIONS.SETTINGS_READ],
+      requiredPermissions: [PERMISSIONS.SETTINGS_UPDATE],
     },
   ];
 
@@ -171,13 +170,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const accessLogMenuItem: MenuItem = {
     id: 'access-logs',
-    label: 'Access audit',
+    label: 'Room Activity Logs',
     icon: FileText,
     path: '/access-logs',
-    requiredPermissions: [PERMISSIONS.ACCESS_LOGS_READ],
+    requiredPermissions: [PERMISSIONS.ACCESS_LOGS_READ, PERMISSIONS.ACCESS_LOGS_MANAGE],
   };
 
-  const canViewAccessLogs = hasAnyPermission([PERMISSIONS.ACCESS_LOGS_READ]);
+  const canViewAccessLogs = hasAnyPermission([PERMISSIONS.ACCESS_LOGS_READ, PERMISSIONS.ACCESS_LOGS_MANAGE]);
 
   const filterMenuItemsByRead = (items: MenuItem[]): MenuItem[] => {
     return items.filter((item) => {
@@ -225,7 +224,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       <aside 
         className={`bg-[#1e293b] text-white transition-all duration-300 ${
           isSidebarOpen ? 'w-64' : 'w-20'
-        } flex flex-col`}
+        } flex flex-col overflow-hidden`}
       >
         {/* Logo Section */}
         <div className="p-4 border-b border-[#334155]">
@@ -243,7 +242,9 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto py-4">
+        <nav
+          className="flex-1 overflow-y-auto overflow-x-hidden py-4 pr-1 [scrollbar-width:thin] [scrollbar-color:#475569_#1e293b] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-[#1e293b] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#475569] [&::-webkit-scrollbar-thumb:hover]:bg-[#64748b]"
+        >
           <ul className="space-y-1 px-2">
             {menuItems.map((item) => {
               const Icon = item.icon;
@@ -334,7 +335,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                   {canReadSettingsMenu && (
                     <DropdownMenuItem onClick={() => navigate('/settings')}>
                       <Settings className="mr-2 h-4 w-4" />
-                      <span>Settings</span>
+                      <span>System Configuration</span>
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuSeparator />

@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Eye, Loader2, Pencil, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { Plus, Search, ShieldCheck } from 'lucide-react';
 import CreateRoleModal from '../../components/Roles/CreateRoleModal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import CrudActionButtons from '../../components/common/CrudActionButtons';
 import PermissionGuard from '../../components/PermissionGuard';
+import Loading from '../../components/common/Loading';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -187,11 +189,7 @@ const RoleManagementPage: React.FC = () => {
   }, [permissionDetailRole]);
 
   if (loading) {
-    return (
-      <div className="flex h-96 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <Loading text="Loading roles..." className="h-96" />;
   }
 
   return (
@@ -299,7 +297,9 @@ const RoleManagementPage: React.FC = () => {
                           <div className="space-y-1">
                             <p className="font-medium leading-none">{role.roleName}</p>
                             {role.description && (
-                              <p className="max-w-[420px] truncate text-sm text-muted-foreground">{role.description}</p>
+                              <p className="max-w-[420px] truncate text-sm text-muted-foreground" title={role.description}>
+                                {role.description}
+                              </p>
                             )}
                           </div>
                         </TableCell>
@@ -315,56 +315,37 @@ const RoleManagementPage: React.FC = () => {
                         <TableCell>{String(role.permissionCount || role.permissions.length || 0)}</TableCell>
                         <TableCell>
                           {role.isActive ? (
-                            <Badge variant="secondary" className="bg-green-100 text-green-800">
+                            <Badge variant="secondary" className="bg-emerald-100 text-emerald-900">
                               Active
                             </Badge>
                           ) : (
-                            <Badge variant="outline">Inactive</Badge>
+                            <Badge variant="secondary" className="bg-slate-100 text-slate-800">
+                              Inactive
+                            </Badge>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setPermissionDetailRole(role)}
-                              title="View permissions"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-
-                            <PermissionGuard permissions={[PERMISSIONS.ROLES_UPDATE]}>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                disabled={!canManageCurrentRole}
-                                onClick={() => handleEditRole(role)}
-                                title={
-                                  canManageCurrentRole
-                                    ? 'Edit role'
-                                    : 'You cannot edit a role with higher authority than your own'
-                                }
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                            </PermissionGuard>
-
-                            <PermissionGuard permissions={[PERMISSIONS.ROLES_DELETE]}>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                disabled={!canManageCurrentRole}
-                                onClick={() => handleDeleteRole(role)}
-                                title={
-                                  canManageCurrentRole
-                                    ? 'Delete role'
-                                    : 'You cannot delete a role with higher authority than your own'
-                                }
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </PermissionGuard>
-                          </div>
+                          <CrudActionButtons
+                            onView={() => setPermissionDetailRole(role)}
+                            onEdit={() => handleEditRole(role)}
+                            onDelete={() => handleDeleteRole(role)}
+                            editPermission={PERMISSIONS.ROLES_UPDATE}
+                            deletePermission={PERMISSIONS.ROLES_DELETE}
+                            viewTitle="View permissions"
+                            editTitle={
+                              canManageCurrentRole
+                                ? 'Edit role'
+                                : 'You cannot edit a role with higher authority than your own'
+                            }
+                            deleteTitle={
+                              canManageCurrentRole
+                                ? 'Delete role'
+                                : 'You cannot delete a role with higher authority than your own'
+                            }
+                            disableEdit={!canManageCurrentRole}
+                            disableDelete={!canManageCurrentRole}
+                            className="justify-end"
+                          />
                         </TableCell>
                       </TableRow>
                     );

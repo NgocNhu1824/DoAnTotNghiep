@@ -134,8 +134,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
         </div>
       );
     }
-    // User has permission, allow access regardless of role
-    return <>{children}</>;
   }
 
   // Check if user has ALL required permissions
@@ -156,7 +154,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
         </div>
       );
     }
-    return <>{children}</>;
   }
 
   // Check resource.action access
@@ -180,7 +177,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
         </div>
       );
     }
-    return <>{children}</>;
   }
 
   // Legacy: Check role-based access (only if no permission check was specified)

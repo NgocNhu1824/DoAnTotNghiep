@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactPaginate from 'react-paginate';
 import { AxiosError } from 'axios';
-import { Loader2, Search, Upload } from 'lucide-react';
+import { Search, Upload } from 'lucide-react';
 
 import roomService from '../../services/room.service';
 import { campusService } from '../../services/campus.service';
@@ -11,6 +11,7 @@ import EditRoomModal from '../../components/modals/EditRoomModal';
 import ViewRoomModal from '../../components/modals/ViewRoomModal';
 import ImportRoomModal from '../../components/modals/ImportRoomModal';
 import { useToast } from '../../hooks/use-toast';
+import Loading from '../../components/common/Loading';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -21,6 +22,7 @@ import { Badge } from '../../components/ui/badge';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import CrudActionButtons from '../../components/common/CrudActionButtons';
 import CreateActionButton from '../../components/common/CreateActionButton';
+import PermissionGuard from '../../components/PermissionGuard';
 import { PERMISSIONS } from '../../utils/permissions';
 
 type Campus = {
@@ -340,11 +342,7 @@ const RoomManagementPage: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex h-96 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <Loading text="Loading rooms..." className="h-96" />;
   }
 
   const statCards = [
@@ -364,10 +362,12 @@ const RoomManagementPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setIsImportModalOpen(true)}>
-            <Upload className="mr-2 h-4 w-4" />
-            Import
-          </Button>
+          <PermissionGuard permissions={[PERMISSIONS.ROOMS_CREATE, PERMISSIONS.ROOMS_MANAGE]}>
+            <Button variant="outline" onClick={() => setIsImportModalOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import
+            </Button>
+          </PermissionGuard>
           <CreateActionButton
             permission={PERMISSIONS.ROOMS_CREATE}
             onClick={() => setIsCreateModalOpen(true)}
