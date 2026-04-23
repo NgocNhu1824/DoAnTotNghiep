@@ -1350,7 +1350,7 @@ void processPendingFingerprint() {
     }
   }
 
-  delay(800);
+  delay(3000);
   lcdShow("Ready", DEVICE_ID);
   resetPendingFingerprintState();
 }

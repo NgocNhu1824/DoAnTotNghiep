@@ -45,9 +45,10 @@ export class ScheduleService {
 
   private toUtcDateOnly(value: string | Date): Date {
     if (value instanceof Date) {
-      return new Date(
-        Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 0, 0, 0, 0),
-      );
+      const year = value.getFullYear();
+      const month = value.getMonth();
+      const day = value.getDate();
+      return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
     }
 
     const parts = String(value || '')
@@ -214,10 +215,7 @@ export class ScheduleService {
 
   private toDateKey(value: unknown): string {
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
-      const year = value.getUTCFullYear();
-      const month = String(value.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(value.getUTCDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
+      return this.formatDateForResponse(value);
     }
 
     const parsed = new Date(String(value || ''));
@@ -225,9 +223,13 @@ export class ScheduleService {
       return '';
     }
 
-    const year = parsed.getUTCFullYear();
-    const month = String(parsed.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(parsed.getUTCDate()).padStart(2, '0');
+    return this.formatDateForResponse(parsed);
+  }
+
+  private formatDateForResponse(date: Date): string {
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
 
@@ -1089,7 +1091,7 @@ export class ScheduleService {
           row: i + 1,
           roomCode: r.roomCode,
           lecturerEmail: r.lecturerEmail,
-          dateStart: r.dateStart?.toISOString().split('T')[0],
+          dateStart: r.dateStart ? this.formatDateForResponse(r.dateStart) : null,
           slotNumber: r.slotNumber,
           valid: !errors.find((e) => e.rowIndex === i + 1),
         })),

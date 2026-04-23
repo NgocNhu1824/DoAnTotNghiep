@@ -668,10 +668,9 @@ export class AuthService {
     const port = Number(this.configService.get<string>('MAIL_PORT') || '587');
     const user = this.configService.get<string>('MAIL_USER');
     const pass = this.configService.get<string>('MAIL_PASSWORD');
-    const from =
+    const mailFrom =
       this.configService.get<string>('MAIL_FROM') ||
-      this.configService.get<string>('MAIL_USER') ||
-      'no-reply@example.com';
+      'no-reply@gmail.com';
 
     if (!host || !user || !pass) {
       this.logger.warn('Missing MAIL_HOST/MAIL_USER/MAIL_PASSWORD. Skip reset password email.');
@@ -692,7 +691,7 @@ export class AuthService {
 
     try {
       await transporter.sendMail({
-        from,
+        from: mailFrom,
         to: email,
         subject: 'Password Reset Request',
         text: [

@@ -138,12 +138,12 @@ export class CsvParserHelper {
           const cellValue = row[idx];
 
           if (header === 'datestart' && typeof cellValue === 'number') {
-            // Convert Excel serial date to YYYY-MM-DD string
-            const excelEpoch = new Date(1899, 11, 30);
+            // Convert Excel serial date to YYYY-MM-DD string using UTC to avoid timezone issues
+            const excelEpoch = new Date(Date.UTC(1899, 11, 30));
             const jsDate = new Date(excelEpoch.getTime() + cellValue * 86400000);
-            const year = jsDate.getFullYear();
-            const month = String(jsDate.getMonth() + 1).padStart(2, '0');
-            const day = String(jsDate.getDate()).padStart(2, '0');
+            const year = jsDate.getUTCFullYear();
+            const month = String(jsDate.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(jsDate.getUTCDate()).padStart(2, '0');
             obj[header] = `${year}-${month}-${day}`;
           } else if (
             (header === 'starttime' || header === 'endtime') &&

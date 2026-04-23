@@ -36,8 +36,8 @@ const UserProfilePage: React.FC = () => {
   };
 
   const fieldLabelMap: Record<EditableField, string> = {
-    fullName: 'Họ và tên',
-    phone: 'Số điện thoại',
+    fullName: 'Full name',
+    phone: 'Phone number',
   };
 
   const startEdit = (field: EditableField) => {
@@ -59,29 +59,36 @@ const UserProfilePage: React.FC = () => {
     const trimmedValue = rawValue.trim();
 
     if (!trimmedValue) {
-      return `${fieldLabelMap[field]} không được để trống`;
+      return `${fieldLabelMap[field]} cannot be empty`;
     }
 
     if (field === 'fullName') {
       if (trimmedValue.length < 2) {
-        return 'Họ và tên phải có ít nhất 2 ký tự';
+        return 'Full name must be at least 2 characters';
       }
       if (trimmedValue.length > 100) {
-        return 'Họ và tên tối đa 100 ký tự';
+        return 'Full name must be at most 100 characters';
       }
       if (/\d/.test(trimmedValue)) {
-        return 'Họ và tên không được chứa chữ số';
+        return 'Full name cannot contain numbers';
       }
     }
 
     if (field === 'phone') {
       if (!/^\d{10}$/.test(trimmedValue)) {
-        return 'Số điện thoại phải có đúng 10 chữ số';
+        return 'Phone number must be exactly 10 digits';
       }
     }
 
     return null;
   };
+
+  const renderStaticField = (label: string, value: string) => (
+    <div>
+      <p className="text-sm text-muted-foreground mb-1">{label}</p>
+      <p className="font-medium break-words">{value}</p>
+    </div>
+  );
 
   const renderEditableField = (field: EditableField) => {
     const label = fieldLabelMap[field];
@@ -94,10 +101,10 @@ const UserProfilePage: React.FC = () => {
 
         {!isEditing ? (
           <div className="flex items-center justify-between gap-3">
-            <p className="font-medium break-words">{currentValue}</p>
+            <p className="font-medium break-words flex-1">{currentValue}</p>
             <Button variant="outline" size="sm" onClick={() => startEdit(field)}>
               <Pencil className="h-3.5 w-3.5 mr-1" />
-              Chỉnh sửa
+              Edit
             </Button>
           </div>
         ) : (
@@ -109,7 +116,7 @@ const UserProfilePage: React.FC = () => {
                 setEditingValue(nextValue);
                 setEditingError(getFieldValidationError(field, nextValue));
               }}
-              placeholder={`Nhập ${label.toLowerCase()}`}
+              placeholder={`Enter ${label.toLowerCase()}`}
               autoFocus
               maxLength={field === 'fullName' ? 100 : 10}
               inputMode={field === 'phone' ? 'numeric' : 'text'}
@@ -124,11 +131,11 @@ const UserProfilePage: React.FC = () => {
                 disabled={isSaving || Boolean(editingError)}
               >
                 <Check className="h-3.5 w-3.5 mr-1" />
-                {isSaving ? 'Đang lưu...' : 'Lưu'}
+                {isSaving ? 'Saving...' : 'Save'}
               </Button>
               <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={isSaving}>
                 <X className="h-3.5 w-3.5 mr-1" />
-                Hủy
+                Cancel
               </Button>
             </div>
           </div>
@@ -145,7 +152,7 @@ const UserProfilePage: React.FC = () => {
       if (validationError) {
         setEditingError(validationError);
         toast({
-          title: 'Lỗi',
+          title: 'Error',
           description: validationError,
           variant: 'destructive',
         });
@@ -163,15 +170,15 @@ const UserProfilePage: React.FC = () => {
       const result = await updateProfile(payload);
 
       toast({
-        title: 'Thành công',
-        description: result.message || 'Cập nhật hồ sơ thành công',
+        title: 'Success',
+        description: result.message || 'Profile updated successfully',
       });
 
       cancelEdit();
     } catch (error: any) {
-      const message = error?.message || error?.response?.data?.message || 'Không thể cập nhật hồ sơ';
+      const message = error?.message || error?.response?.data?.message || 'Unable to update profile';
       toast({
-        title: 'Lỗi',
+        title: 'Error',
         description: Array.isArray(message) ? message[0] : message,
         variant: 'destructive',
       });
@@ -199,21 +206,11 @@ const UserProfilePage: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <p className="text-sm text-muted-foreground">Full name</p>
-              <p className="font-medium">{user?.fullName || 'N/A'}</p>
-            </div>
-            {renderEditableField('fullName')}
-            <div>
-              <p className="text-sm text-muted-foreground">Email</p>
-              <p className="font-medium">{user?.email || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Role</p>
-              <p className="font-medium">{roleDetails?.roleName || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Status</p>
+            <div className="min-h-[60px]">{renderEditableField('fullName')}</div>
+            <div className="min-h-[60px]">{renderStaticField('Email', user?.email || 'N/A')}</div>
+            <div className="min-h-[60px]">{renderStaticField('Role', roleDetails?.roleName || 'N/A')}</div>
+            <div className="min-h-[60px]">
+              <p className="text-sm text-muted-foreground mb-1">Status</p>
               <Badge variant={user?.isActive ? 'default' : 'destructive'}>
                 {user?.isActive ? 'Active' : 'Locked'}
               </Badge>
@@ -228,43 +225,12 @@ const UserProfilePage: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <p className="text-sm text-muted-foreground">Campus</p>
-              <p className="font-medium">{user?.campusId?.campusName || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Campus code</p>
-              <p className="font-medium">{user?.campusId?.campusCode || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Department</p>
-              <p className="font-medium">{user?.department || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Phone number</p>
-              <p className="font-medium">{user?.phone || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Employee ID</p>
-              <p className="font-medium">{user?.employeeId || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Student ID</p>
-              <p className="font-medium">{user?.studentId || 'N/A'}</p>
-            </div>
-            {renderEditableField('phone')}
-            {isStudent && (
-              <div>
-                <p className="text-sm text-muted-foreground">Mã sinh viên</p>
-                <p className="font-medium">{user?.studentId || 'N/A'}</p>
-              </div>
-            )}
-            {(isLecturer || !isStudent) && (
-              <div>
-                <p className="text-sm text-muted-foreground">Mã nhân viên</p>
-                <p className="font-medium">{user?.employeeId || 'N/A'}</p>
-              </div>
-            )}
+            <div className="min-h-[60px]">{renderStaticField('Campus', user?.campusId?.campusName || 'N/A')}</div>
+            <div className="min-h-[60px]">{renderStaticField('Campus code', user?.campusId?.campusCode || 'N/A')}</div>
+            <div className="min-h-[60px]">{renderStaticField('Department', user?.department || 'N/A')}</div>
+            <div className="min-h-[60px]">{renderEditableField('phone')}</div>
+            {isStudent && <div className="min-h-[60px]">{renderStaticField('Student ID', user?.studentId || 'N/A')}</div>}
+            {(isLecturer || !isStudent) && <div className="min-h-[60px]">{renderStaticField('Employee ID', user?.employeeId || 'N/A')}</div>}
           </div>
         </CardContent>
       </Card>
