@@ -3044,12 +3044,12 @@ export class LockerService implements OnModuleInit {
     floor: number | string,
     currentUser?: any,
     context?: {
+      gatewayId?: string;
+      buildingCode?: string;
       delaySeconds?: number;
       metadata?: Record<string, any>;
     },
   ) {
-    const target = this.resolveAs608Target({ floor });
-
     const currentUserId = this.normalizeNullableString(
       currentUser?._id?.toString?.() || currentUser?._id,
     );
@@ -3066,6 +3066,25 @@ export class LockerService implements OnModuleInit {
       context?.metadata && typeof context.metadata === 'object'
         ? context.metadata
         : {};
+
+    const resolvedFloor = toFloorNumber(floor);
+    if (!resolvedFloor) {
+      throw new BadRequestException('floor is required and must be a positive integer');
+    }
+
+    const requestedGatewayId = this.normalizeNullableString(
+      context?.gatewayId || (requestMetadata as any).gatewayId,
+    );
+    const requestedBuildingCode = this.normalizeNullableString(
+      context?.buildingCode || (requestMetadata as any).buildingCode,
+    );
+
+    const target = this.resolveAs608Target({
+      floor: resolvedFloor,
+      gatewayId:
+        requestedGatewayId ||
+        buildGatewayIdByFloor(resolvedFloor, requestedBuildingCode || undefined),
+    });
 
     const delaySecondsRaw = Number(context?.delaySeconds ?? requestMetadata.delaySeconds);
     const delaySeconds = Number.isFinite(delaySecondsRaw)

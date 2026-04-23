@@ -256,6 +256,8 @@ export class LockerController {
     @Body()
     body: {
       floor: number;
+      gatewayId?: string;
+      buildingCode?: string;
       delaySeconds?: number;
       metadata?: Record<string, any>;
     },

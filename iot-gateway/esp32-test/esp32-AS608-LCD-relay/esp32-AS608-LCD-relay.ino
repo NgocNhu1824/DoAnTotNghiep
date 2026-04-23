@@ -121,7 +121,7 @@ String pendingUserId = "";
 int pendingFingerId = -1;
 String pendingTemplateData = "";
 String pendingTemplateEncoding = "";
-String pendingVerifyMode = "template_raw_db";
+String pendingVerifyMode = "sensor_local_slot";
 bool pendingAllowEnrollFallbackOnMiss = false;
 int pendingVerifyPin = -1;
 unsigned long pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
@@ -737,7 +737,7 @@ bool readTemplateFromCharBuffer(uint8_t bufferId, uint8_t* outTemplate, size_t o
   }
 
   uint8_t confirmationCode = 0xFF;
-  if (!waitAs608AckOk(2000, confirmationCode)) {
+  if (!waitAs608AckOk(2000, confirmationCode, nullptr)) {
     Serial.print("[FINGER] UPCHAR ack failed: ");
     Serial.println(confirmationCode);
     return false;
@@ -795,7 +795,7 @@ bool writeTemplateToCharBufferInternal(
   }
 
   uint8_t confirmationCode = 0xFF;
-  if (!waitAs608AckOk(4000, confirmationCode)) {
+  if (!waitAs608AckOk(4000, confirmationCode, nullptr)) {
     Serial.print("[FINGER] DOWNCHAR ack failed: ");
     Serial.println(confirmationCode);
     outFinalConfirmCode = confirmationCode;
@@ -831,7 +831,7 @@ bool writeTemplateToCharBufferInternal(
   }
 
   size_t skippedDataPackets = 0;
-  const bool ok = waitAs608AckOk(15000, confirmationCode, &skippedDataPackets);
+  const bool ok = waitAs608AckOk(3000, confirmationCode, &skippedDataPackets);
   if (!ok && skippedDataPackets > 0) {
     Serial.print("[FINGER] DOWNCHAR saw DATA packets while waiting ACK: ");
     Serial.println((unsigned long)skippedDataPackets);
@@ -1256,7 +1256,7 @@ void resetPendingFingerprintState() {
   pendingFingerId = -1;
   pendingTemplateData = "";
   pendingTemplateEncoding = "";
-  pendingVerifyMode = "template_raw_db";
+  pendingVerifyMode = "sensor_local_slot";
   pendingAllowEnrollFallbackOnMiss = false;
   pendingVerifyPin = -1;
   pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
@@ -1508,15 +1508,14 @@ void handleFingerCommand(JsonObject cmd, bool isRegister) {
     extractString(cmd, "fingerDataFormat", "")
   );
 
-  pendingVerifyMode = extractString(cmd, "verifyMode", "template_raw_db");
-  pendingVerifyMode.toLowerCase();
+  pendingVerifyMode = "sensor_local_slot";
   pendingAllowEnrollFallbackOnMiss = extractBoolValue(cmd, "allowEnrollFallbackOnMiss", false);
 
   if (!isRegister) {
     pendingVerifyPin = extractPin(cmd);
     pendingVerifyDurationMs = parseDurationMs(cmd);
   } else {
-    pendingVerifyMode = "template_raw_db";
+    pendingVerifyMode = "sensor_local_slot";
     pendingAllowEnrollFallbackOnMiss = false;
     pendingVerifyPin = -1;
     pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
