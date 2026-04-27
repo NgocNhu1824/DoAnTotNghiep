@@ -100,6 +100,31 @@ const resolveScheduleSlotMeta = (schedule: Schedule, timeSlots: TimeSlot[]) => {
   };
 };
 
+const parseDatePreservingDay = (value: string | Date): Date => {
+  if (value instanceof Date) {
+    return new Date(value.getTime());
+  }
+
+  const normalized = String(value || '').trim();
+  const dateMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
+  if (dateMatch) {
+    const year = Number(dateMatch[1]);
+    const month = Number(dateMatch[2]);
+    const day = Number(dateMatch[3]);
+    const localDate = new Date(year, month - 1, day, 12, 0, 0, 0);
+
+    if (
+      localDate.getFullYear() === year &&
+      localDate.getMonth() === month - 1 &&
+      localDate.getDate() === day
+    ) {
+      return localDate;
+    }
+  }
+
+  return new Date(normalized);
+};
+
 const ScheduleManagementPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [schedulesLoading, setSchedulesLoading] = useState(false);
@@ -136,7 +161,7 @@ const ScheduleManagementPage: React.FC = () => {
       return value;
     }
 
-    const parsed = new Date(value);
+    const parsed = parseDatePreservingDay(value);
     if (Number.isNaN(parsed.getTime())) {
       return format(new Date(), 'yyyy-MM-dd');
     }
@@ -334,7 +359,7 @@ const ScheduleManagementPage: React.FC = () => {
       // Skip malformed schedules that lack required identifiers to avoid runtime errors
       if (!roomId || slotNumber === undefined || !slotType) return;
 
-      const scheduleDate = new Date(schedule.dateStart);
+      const scheduleDate = parseDatePreservingDay(schedule.dateStart);
       const dateStr = format(scheduleDate, 'yyyy-MM-dd');
 
       const key = `${roomId}_${dateStr}_${slotNumber}_${slotType}`;
@@ -423,7 +448,7 @@ const ScheduleManagementPage: React.FC = () => {
   }, [filteredRooms, filteredTimeSlots, scheduleMap, approvedBookingMap, currentDate]);
 
   const handleDateChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newDate = new Date(event.target.value);
+    const newDate = parseDatePreservingDay(event.target.value);
     if (!Number.isNaN(newDate.getTime())) {
       setCurrentDate(newDate);
     }

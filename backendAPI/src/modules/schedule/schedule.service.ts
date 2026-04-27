@@ -45,22 +45,32 @@ export class ScheduleService {
 
   private toUtcDateOnly(value: string | Date): Date {
     if (value instanceof Date) {
-      const year = value.getFullYear();
-      const month = value.getMonth();
-      const day = value.getDate();
+      const year = value.getUTCFullYear();
+      const month = value.getUTCMonth();
+      const day = value.getUTCDate();
       return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
     }
 
-    const parts = String(value || '')
-      .split('-')
-      .map((part) => Number(part));
-
-    if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) {
+    const normalized = String(value || '').trim();
+    const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) {
       throw new BadRequestException('Invalid dateStart format, expected YYYY-MM-DD');
     }
 
-    const [year, month, day] = parts;
-    return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const utcDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+
+    if (
+      utcDate.getUTCFullYear() !== year ||
+      utcDate.getUTCMonth() !== month - 1 ||
+      utcDate.getUTCDate() !== day
+    ) {
+      throw new BadRequestException('Invalid dateStart value');
+    }
+
+    return utcDate;
   }
 
   private buildSlotKey(slotType?: string, slotNumber?: number): string {
@@ -162,7 +172,7 @@ export class ScheduleService {
   private parseBookingAdministrationDate(rawDate: unknown): Date | null {
     if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
       return new Date(
-        Date.UTC(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate(), 0, 0, 0, 0),
+        Date.UTC(rawDate.getUTCFullYear(), rawDate.getUTCMonth(), rawDate.getUTCDate(), 0, 0, 0, 0),
       );
     }
 
@@ -993,9 +1003,7 @@ export class ScheduleService {
       let dateStart: Date | null = null;
       if (row.datestart) {
         try {
-          const parts = row.datestart.split('-').map(Number);
-          const [year, month, day] = parts;
-          dateStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+          dateStart = this.toUtcDateOnly(row.datestart);
         } catch {
           errors.push({
             rowIndex,
@@ -1340,9 +1348,18 @@ export class ScheduleService {
     }
 
     if (query.startDate && query.endDate) {
+      const startDate = this.toUtcDateOnly(query.startDate);
+      const endDate = this.toUtcDateOnly(query.endDate);
+
+      if (startDate.getTime() > endDate.getTime()) {
+        throw new BadRequestException('startDate must be before or equal to endDate');
+      }
+
+      endDate.setUTCHours(23, 59, 59, 999);
+
       filter.dateStart = {
-        $gte: new Date(query.startDate),
-        $lte: new Date(query.endDate),
+        $gte: startDate,
+        $lte: endDate,
       };
     }
 
