@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { LockerService } from './locker.service';
 import { CreateLockerDto } from './dto/create-locker.dto';
 import { UpdateLockerDto } from './dto/update-locker.dto';
@@ -74,7 +74,6 @@ export class LockerController {
       fingerData?: string;
       delaySeconds?: number;
     },
-    @CurrentUser() user: any,
   ) {
     const target = this.lockerService.resolveAs608TargetForClient({
       floor: body.floor,
@@ -82,41 +81,10 @@ export class LockerController {
       gatewayId: body.gatewayId,
     });
 
-    // If client attempts to provide raw fingerData (simulate), only allow when
-    // caller has explicit DEV_TOOLS permission or when not running in production.
+    // Simulate mode is hard-disabled at backend.
     const wantsSimulate = !!body.fingerData;
-    const env = (process.env.NODE_ENV || 'development').toLowerCase();
-    const hasDevTools = Array.isArray(user?.permissions) && user.permissions.includes('DEV_TOOLS');
-    const roleIsDev = user?.roleCode === 'DEV_TOOLS';
-    if (wantsSimulate && env === 'production' && !hasDevTools && !roleIsDev) {
-      throw new ForbiddenException('Simulate mode is not allowed in production');
-    }
-
-    // If caller provided raw fingerData (simulate) then directly ingest the
-    // fingerprint event to the gateway so it is recorded without waiting for
-    // a physical device. Otherwise, ask the ESP32 device to prompt the user
-    // by sending a realtime command.
     if (wantsSimulate) {
-      const payload: any = {
-        type: 'fingerprint',
-        fingerId: body.fingerId,
-        fingerData: body.fingerData,
-        userId: body.userId,
-        matched: true,
-        source: 'admin-test',
-        simulated: true,
-        simulatedBy: user?._id || null,
-      };
-
-      if (body.delaySeconds && Number.isFinite(Number(body.delaySeconds))) {
-        payload.delaySeconds = Number(body.delaySeconds);
-      }
-
-      const result = await this.lockerService.pushIngestToIotGateway(target.deviceId, payload);
-      return {
-        success: true,
-        data: result,
-      };
+      throw new ForbiddenException('Simulate mode is disabled at backend');
     }
 
     // Prompt physical device to start registration
@@ -148,10 +116,15 @@ export class LockerController {
       floor?: number;
       gatewayId?: string;
       deviceId?: string;
+      userId?: string;
       fingerId?: number;
+      pin?: number;
+      delaySeconds?: number;
+      usageAction?: 'unlock' | 'return';
       matched?: boolean;
       fingerData?: string;
     },
+    @CurrentUser() user: any,
   ) {
     const target = this.lockerService.resolveAs608TargetForClient({
       floor: body.floor,
@@ -162,32 +135,45 @@ export class LockerController {
     const wantsSimulate = !!body.fingerData || body.matched !== undefined;
 
     if (wantsSimulate) {
-      const payload: any = {
-        type: 'fingerprint',
-        fingerId: body.fingerId,
-        matched: body.matched === undefined ? true : Boolean(body.matched),
-        fingerData: body.fingerData,
-        source: 'admin-test',
-      };
-
-      const result = await this.lockerService.pushIngestToIotGateway(target.deviceId, payload);
-      return {
-        success: true,
-        data: result,
-      };
+      throw new ForbiddenException('Simulate mode is disabled at backend');
     }
 
-    const command: any = {
+    const resolvedUserId = String(
+      body.userId || user?._id?.toString?.() || user?._id || '',
+    ).trim();
+    if (!resolvedUserId) {
+      throw new BadRequestException('userId is required for admin test verify (or login user must be resolvable)');
+    }
+
+    const { command, verificationTemplate } = await this.lockerService.buildTemplateRawVerifyCommandForUser({
+      userId: resolvedUserId,
       deviceId: target.deviceId,
       gatewayId: target.gatewayId,
-      action: 'finger_verify',
       fingerId: body.fingerId,
-    };
+      pin: body.pin,
+      delaySeconds: body.delaySeconds,
+      usageAction: body.usageAction,
+      sourceType: 'admin_test_verify_template_db',
+    });
 
     const result = await this.lockerService.pushCommandToIotGateway(command as any);
     return {
       success: true,
-      data: result,
+      data: {
+        ...result,
+        commandPreview: {
+          correlationId: command.correlationId,
+          deviceId: command.deviceId,
+          gatewayId: command.gatewayId,
+          verifyMode: command.verifyMode,
+          allowEnrollFallbackOnMiss: command.allowEnrollFallbackOnMiss,
+          fingerId: command.fingerId,
+          userId: command.userId,
+          pin: command.pin,
+          delaySeconds: command.delaySeconds,
+        },
+        verificationTemplate,
+      },
     };
   }
 

@@ -150,7 +150,11 @@ export const lockerService = {
     floor?: number;
     gatewayId?: string;
     deviceId?: string;
+    userId?: string;
     fingerId?: number;
+    pin?: number;
+    delaySeconds?: number;
+    usageAction?: 'unlock' | 'return';
     matched?: boolean;
     fingerData?: string;
   }) => {

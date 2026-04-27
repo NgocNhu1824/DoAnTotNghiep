@@ -1602,6 +1602,88 @@ export class LockerService implements OnModuleInit {
     }
   }
 
+  async buildTemplateRawVerifyCommandForUser(params: {
+    userId: string;
+    deviceId: string;
+    gatewayId?: string | null;
+    fingerId?: number;
+    pin?: number;
+    delaySeconds?: number;
+    usageAction?: 'unlock' | 'return';
+    sourceType?: string;
+  }) {
+    const normalizedUserId = this.normalizeNullableString(params.userId);
+    if (!normalizedUserId) {
+      throw new BadRequestException('userId is required for template verify');
+    }
+
+    const normalizedDeviceId = this.normalizeNullableString(params.deviceId);
+    this.assertValidEsp32DeviceId(normalizedDeviceId, 'deviceId');
+
+    const normalizedGatewayId = this.normalizeNullableString(params.gatewayId);
+    if (normalizedGatewayId) {
+      this.assertValidGatewayId(normalizedGatewayId, 'gatewayId');
+    }
+
+    const requestedFingerId = Number(params.fingerId);
+    const effectiveFingerId = Number.isFinite(requestedFingerId) && requestedFingerId > 0
+      ? Math.round(requestedFingerId)
+      : await this.resolveStableFingerSlotForUser(normalizedUserId);
+
+    const verificationTemplate = await this.resolveVerificationTemplateForUser({
+      userId: normalizedUserId,
+      targetDeviceId: normalizedDeviceId,
+    });
+
+    if (!verificationTemplate) {
+      throw new BadRequestException(
+        'No usable raw fingerprint template found in DB for current user. Please register fingerprint again.',
+      );
+    }
+
+    const correlationId = `finger-verify-admin-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const usageAction: 'unlock' | 'return' =
+      String(params.usageAction || '').trim().toLowerCase() === 'return' ? 'return' : 'unlock';
+
+    const command: Record<string, any> = {
+      correlationId,
+      deviceId: normalizedDeviceId,
+      gatewayId: normalizedGatewayId || undefined,
+      action: 'finger_verify',
+      userId: normalizedUserId,
+      fingerId: effectiveFingerId,
+      verifyMode: 'template_raw_db',
+      allowEnrollFallbackOnMiss: false,
+      templateData: verificationTemplate.templateData,
+      templateEncoding: verificationTemplate.templateEncoding,
+      sourceDeviceId: verificationTemplate.sourceDeviceId || undefined,
+      sourceFingerId: verificationTemplate.fingerId ?? undefined,
+      templateHash: verificationTemplate.templateHash || undefined,
+      sourceType: this.normalizeNullableString(params.sourceType) || 'admin_test_verify_template_db',
+      usageAction,
+    };
+
+    const parsedPin = Number(params.pin);
+    if (Number.isFinite(parsedPin)) {
+      command.pin = Math.round(parsedPin);
+    }
+
+    const parsedDelaySeconds = Number(params.delaySeconds);
+    if (Number.isFinite(parsedDelaySeconds)) {
+      command.delaySeconds = Math.max(1, Math.min(30, Math.round(parsedDelaySeconds)));
+    }
+
+    return {
+      command,
+      verificationTemplate: {
+        sourceDeviceId: verificationTemplate.sourceDeviceId,
+        fingerId: verificationTemplate.fingerId,
+        templateEncoding: verificationTemplate.templateEncoding,
+        templateHash: verificationTemplate.templateHash,
+      },
+    };
+  }
+
   async createAccessLogEntry(payload: {
     deviceId: string;
     method: string;
