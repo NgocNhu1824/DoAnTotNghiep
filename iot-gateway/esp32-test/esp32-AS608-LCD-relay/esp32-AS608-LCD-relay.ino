@@ -121,8 +121,7 @@ String pendingUserId = "";
 int pendingFingerId = -1;
 String pendingTemplateData = "";
 String pendingTemplateEncoding = "";
-String pendingVerifyMode = "sensor_local_slot";
-bool pendingAllowEnrollFallbackOnMiss = false;
+String pendingVerifyMode = "template_raw_db";
 int pendingVerifyPin = -1;
 unsigned long pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
 
@@ -611,7 +610,9 @@ bool readAs608Packet(
   bool foundStartCode = false;
 
   while ((millis() - startedAt) < timeoutMs) {
-    if (!readFingerprintByte(first, timeoutMs)) {
+    const unsigned long elapsed = millis() - startedAt;
+    const unsigned long remaining = timeoutMs > elapsed ? (timeoutMs - elapsed) : 0;
+    if (remaining == 0 || !readFingerprintByte(first, remaining)) {
       return false;
     }
 
@@ -619,7 +620,10 @@ bool readAs608Packet(
       continue;
     }
 
-    if (!readFingerprintByte(second, timeoutMs)) {
+    const unsigned long elapsedAfterFirst = millis() - startedAt;
+    const unsigned long remainingAfterFirst =
+      timeoutMs > elapsedAfterFirst ? (timeoutMs - elapsedAfterFirst) : 0;
+    if (remainingAfterFirst == 0 || !readFingerprintByte(second, remainingAfterFirst)) {
       return false;
     }
 
@@ -635,7 +639,9 @@ bool readAs608Packet(
 
   uint8_t headerRest[7] = {0};
   for (size_t i = 0; i < sizeof(headerRest); ++i) {
-    if (!readFingerprintByte(headerRest[i], timeoutMs)) {
+    const unsigned long elapsed = millis() - startedAt;
+    const unsigned long remaining = timeoutMs > elapsed ? (timeoutMs - elapsed) : 0;
+    if (remaining == 0 || !readFingerprintByte(headerRest[i], remaining)) {
       return false;
     }
   }
@@ -658,7 +664,9 @@ bool readAs608Packet(
 
   for (size_t i = 0; i < payloadLen; ++i) {
     uint8_t b = 0;
-    if (!readFingerprintByte(b, timeoutMs)) {
+    const unsigned long elapsed = millis() - startedAt;
+    const unsigned long remaining = timeoutMs > elapsed ? (timeoutMs - elapsed) : 0;
+    if (remaining == 0 || !readFingerprintByte(b, remaining)) {
       return false;
     }
 
@@ -668,7 +676,17 @@ bool readAs608Packet(
 
   uint8_t checksumMsb = 0;
   uint8_t checksumLsb = 0;
-  if (!readFingerprintByte(checksumMsb, timeoutMs) || !readFingerprintByte(checksumLsb, timeoutMs)) {
+  const unsigned long elapsedBeforeChecksumMsb = millis() - startedAt;
+  const unsigned long remainingBeforeChecksumMsb =
+    timeoutMs > elapsedBeforeChecksumMsb ? (timeoutMs - elapsedBeforeChecksumMsb) : 0;
+  if (remainingBeforeChecksumMsb == 0 || !readFingerprintByte(checksumMsb, remainingBeforeChecksumMsb)) {
+    return false;
+  }
+
+  const unsigned long elapsedBeforeChecksumLsb = millis() - startedAt;
+  const unsigned long remainingBeforeChecksumLsb =
+    timeoutMs > elapsedBeforeChecksumLsb ? (timeoutMs - elapsedBeforeChecksumLsb) : 0;
+  if (remainingBeforeChecksumLsb == 0 || !readFingerprintByte(checksumLsb, remainingBeforeChecksumLsb)) {
     return false;
   }
 
@@ -810,11 +828,9 @@ bool writeTemplateToCharBufferInternal(
       chunkLen = chunkBytes;
     }
 
-    // Some AS608 clones are strict about transfer termination:
-    // if data is exactly N * chunkBytes, they require a dedicated empty END_DATA packet.
+    // Use END_DATA for the final payload packet to maximize AS608 clone compatibility.
     const bool isLastChunk = (offset + chunkLen) >= templateLen;
-    const bool useEndPacketWithData = isLastChunk && (chunkLen < chunkBytes);
-    const uint8_t packetType = useEndPacketWithData ? AS608_PACKET_END_DATA : AS608_PACKET_DATA;
+    const uint8_t packetType = isLastChunk ? AS608_PACKET_END_DATA : AS608_PACKET_DATA;
     if (!writeAs608Packet(packetType, templateData + offset, chunkLen)) {
       return false;
     }
@@ -823,18 +839,16 @@ bool writeTemplateToCharBufferInternal(
     delay(2);
   }
 
-  if ((templateLen % chunkBytes) == 0) {
-    if (!writeAs608Packet(AS608_PACKET_END_DATA, nullptr, 0)) {
-      return false;
-    }
-    delay(2);
-  }
-
   size_t skippedDataPackets = 0;
-  const bool ok = waitAs608AckOk(3000, confirmationCode, &skippedDataPackets);
+  const bool ok = waitAs608AckOk(1800, confirmationCode, &skippedDataPackets);
   if (!ok && skippedDataPackets > 0) {
     Serial.print("[FINGER] DOWNCHAR saw DATA packets while waiting ACK: ");
     Serial.println((unsigned long)skippedDataPackets);
+
+    // Some sensor clones complete transfer but never emit a final ACK.
+    // If data packets were observed after transfer, continue with optimistic success.
+    outFinalConfirmCode = FINGERPRINT_OK;
+    return true;
   }
 
   outFinalConfirmCode = confirmationCode;
@@ -842,6 +856,9 @@ bool writeTemplateToCharBufferInternal(
 }
 
 bool writeTemplateToCharBuffer(uint8_t bufferId, const uint8_t* templateData, size_t templateLen) {
+  const unsigned long transferStartedAt = millis();
+  const unsigned long maxTransferDurationMs = 12000;
+
   const size_t chunkCandidates[5] = {
     gSensorTemplatePacketBytes,
     256,
@@ -853,6 +870,11 @@ bool writeTemplateToCharBuffer(uint8_t bufferId, const uint8_t* templateData, si
   size_t triedChunks[5] = {0, 0, 0, 0, 0};
   size_t triedCount = 0;
   for (size_t i = 0; i < 5; ++i) {
+    if (millis() - transferStartedAt > maxTransferDurationMs) {
+      Serial.println("[FINGER] DOWNCHAR timeout budget exceeded, abort retries");
+      break;
+    }
+
     const size_t chunkBytes = chunkCandidates[i];
     bool alreadyTried = false;
     for (size_t j = 0; j < triedCount; ++j) {
@@ -1008,41 +1030,8 @@ bool isValidFingerSlot(int slot) {
   return slot >= 1 && slot <= MAX_FINGER_SLOT;
 }
 
-bool storeModelAtSlot(int slot) {
-  if (!isValidFingerSlot(slot)) {
-    return false;
-  }
-
-  int storeResult = finger.storeModel(slot);
-  if (storeResult == FINGERPRINT_OK) {
-    return true;
-  }
-
-  Serial.print("[FINGER] storeModel failed at slot ");
-  Serial.print(slot);
-  Serial.print(" code=");
-  Serial.println(storeResult);
-
-  int deleteResult = finger.deleteModel(slot);
-  Serial.print("[FINGER] deleteModel before retry slot=");
-  Serial.print(slot);
-  Serial.print(" code=");
-  Serial.println(deleteResult);
-
-  delay(120);
-  storeResult = finger.storeModel(slot);
-  if (storeResult != FINGERPRINT_OK) {
-    Serial.print("[FINGER] storeModel retry failed at slot ");
-    Serial.print(slot);
-    Serial.print(" code=");
-    Serial.println(storeResult);
-    return false;
-  }
-
-  return true;
-}
-
 bool enrollFingerprintToRawTemplate(String& outTemplateData, size_t& outTemplateBytes, int storeSlot = -1) {
+  (void)storeSlot;
   outTemplateData = "";
   outTemplateBytes = 0;
 
@@ -1066,16 +1055,8 @@ bool enrollFingerprintToRawTemplate(String& outTemplateData, size_t& outTemplate
     return false;
   }
 
-  if (isValidFingerSlot(storeSlot)) {
-    if (!storeModelAtSlot(storeSlot)) {
-      Serial.print("[FINGER] failed to store model at slot ");
-      Serial.println(storeSlot);
-      return false;
-    }
-
-    Serial.print("[FINGER] model stored at slot ");
-    Serial.println(storeSlot);
-  }
+  // Local sensor slot persistence is disabled.
+  // Enrollment only exports raw template to backend DB.
 
   return exportTemplateFromCharBufferBase64(1, outTemplateData, outTemplateBytes);
 }
@@ -1139,114 +1120,6 @@ bool verifyFingerprintWithTemplateData(
   return compareTemplateBuffers(outConfidence);
 }
 
-bool verifyFingerprintWithLocalSensorSlot(
-  int expectedFingerId,
-  bool allowEnrollFallbackOnMiss,
-  int& outConfidence,
-  int& outMatchedFingerId,
-  bool& outAutoEnrolled
-) {
-  outConfidence = 0;
-  outMatchedFingerId = -1;
-  outAutoEnrolled = false;
-
-  lcdShow("Place finger", "for verify");
-  if (!captureImageToBuffer(1, 10000)) {
-    Serial.println("[FINGER] verify local search capture timeout");
-    return false;
-  }
-
-  int searchResult = finger.fingerFastSearch();
-  if (searchResult == FINGERPRINT_OK) {
-    outMatchedFingerId = (int)finger.fingerID;
-    outConfidence = (int)finger.confidence;
-
-    Serial.print("[FINGER] local search matched slot=");
-    Serial.print(outMatchedFingerId);
-    Serial.print(" confidence=");
-    Serial.println(outConfidence);
-
-    if (isValidFingerSlot(expectedFingerId) && outMatchedFingerId != expectedFingerId) {
-      Serial.print("[FINGER] local match mismatch expected=");
-      Serial.print(expectedFingerId);
-      Serial.print(" actual=");
-      Serial.println(outMatchedFingerId);
-      return false;
-    } else {
-      return true;
-    }
-  } else {
-    Serial.print("[FINGER] fingerFastSearch failed: ");
-    Serial.println(searchResult);
-  }
-
-  if (!allowEnrollFallbackOnMiss || !isValidFingerSlot(expectedFingerId)) {
-    return false;
-  }
-
-  // Safety: only auto-enroll when expected slot is confirmed empty.
-  // If slot already has a template, a verify miss must not overwrite it.
-  int loadProbe = finger.loadModel(expectedFingerId);
-  if (loadProbe == FINGERPRINT_OK) {
-    Serial.print("[FINGER] slot already occupied, skip auto-enroll slot=");
-    Serial.println(expectedFingerId);
-    return false;
-  }
-
-  delay(60);
-  int loadProbeRetry = finger.loadModel(expectedFingerId);
-  if (loadProbeRetry == FINGERPRINT_OK) {
-    Serial.print("[FINGER] slot occupied on retry, skip auto-enroll slot=");
-    Serial.println(expectedFingerId);
-    return false;
-  }
-
-  bool slotLikelyEmpty = false;
-#if defined(FINGERPRINT_NOTFOUND)
-  if (loadProbeRetry == FINGERPRINT_NOTFOUND) {
-    slotLikelyEmpty = true;
-  }
-#endif
-#if defined(FINGERPRINT_DBRANGEFAIL)
-  if (loadProbeRetry == FINGERPRINT_DBRANGEFAIL) {
-    slotLikelyEmpty = true;
-  }
-#endif
-#if defined(FINGERPRINT_BADLOCATION)
-  if (loadProbeRetry == FINGERPRINT_BADLOCATION) {
-    slotLikelyEmpty = true;
-  }
-#endif
-
-  if (!slotLikelyEmpty) {
-    Serial.print("[FINGER] slot probe uncertain, skip auto-enroll slot=");
-    Serial.print(expectedFingerId);
-    Serial.print(" code=");
-    Serial.println(loadProbeRetry);
-    return false;
-  }
-
-  Serial.print("[FINGER] slot confirmed empty, allow auto-enroll slot=");
-  Serial.println(expectedFingerId);
-
-  Serial.print("[FINGER] local verify auto-enroll fallback slot=");
-  Serial.println(expectedFingerId);
-
-  lcdShow("First time floor", "Enroll fallback");
-  String enrolledTemplate = "";
-  size_t templateBytes = 0;
-  if (!enrollFingerprintToRawTemplate(enrolledTemplate, templateBytes, expectedFingerId)) {
-    Serial.println("[FINGER] local verify fallback enroll failed");
-    return false;
-  }
-
-  outMatchedFingerId = expectedFingerId;
-  outAutoEnrolled = true;
-  Serial.print("[FINGER] local fallback enrolled bytes=");
-  Serial.println((unsigned long)templateBytes);
-  return true;
-}
-
 void resetPendingFingerprintState() {
   fingerMode = F_IDLE;
   pendingIsRegister = false;
@@ -1256,8 +1129,7 @@ void resetPendingFingerprintState() {
   pendingFingerId = -1;
   pendingTemplateData = "";
   pendingTemplateEncoding = "";
-  pendingVerifyMode = "sensor_local_slot";
-  pendingAllowEnrollFallbackOnMiss = false;
+  pendingVerifyMode = "template_raw_db";
   pendingVerifyPin = -1;
   pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
 }
@@ -1298,28 +1170,12 @@ void processPendingFingerprint() {
   } else {
     lcdShow("Verification", "processing...");
     int confidence = 0;
-    int matchedFingerId = -1;
-    bool autoEnrolled = false;
-    bool matched = false;
-
-    String verifyMode = pendingVerifyMode;
-    verifyMode.toLowerCase();
-    if (verifyMode == "sensor_local_slot") {
-      matched = verifyFingerprintWithLocalSensorSlot(
-        pendingFingerId,
-        pendingAllowEnrollFallbackOnMiss,
-        confidence,
-        matchedFingerId,
-        autoEnrolled
-      );
-    } else {
-      matched = verifyFingerprintWithTemplateData(
-        pendingTemplateData,
-        pendingTemplateEncoding,
-        confidence
-      );
-      matchedFingerId = matched ? pendingFingerId : -1;
-    }
+    bool matched = verifyFingerprintWithTemplateData(
+      pendingTemplateData,
+      pendingTemplateEncoding,
+      confidence
+    );
+    int matchedFingerId = matched ? pendingFingerId : -1;
 
     int reportedFingerId = matched ? matchedFingerId : -1;
     if (matched) {
@@ -1333,11 +1189,7 @@ void processPendingFingerprint() {
         Serial.print(" durationMs=");
         Serial.println(pendingVerifyDurationMs);
 
-        if (autoEnrolled) {
-          lcdShow("Verify success", "Slot synced");
-        } else {
-          lcdShow("Verify success", String("Open pin ") + String(pendingVerifyPin));
-        }
+        lcdShow("Verify success", String("Open pin ") + String(pendingVerifyPin));
       } else {
         Serial.println("[FINGER] verify matched but no valid relay pin in command");
         lcdShow("Verify success", "No relay pin");
@@ -1440,39 +1292,6 @@ int extractIntValue(JsonObject obj, const char* key, int fallback = -1) {
   return fallback;
 }
 
-bool extractBoolValue(JsonObject obj, const char* key, bool fallback = false) {
-  if (!obj.containsKey(key)) {
-    return fallback;
-  }
-
-  if (obj[key].is<bool>()) {
-    return obj[key].as<bool>();
-  }
-
-  if (obj[key].is<int>() || obj[key].is<long>() || obj[key].is<unsigned long>()) {
-    return (long)obj[key] != 0;
-  }
-
-  if (obj[key].is<const char*>()) {
-    const char* raw = obj[key];
-    if (!raw) {
-      return fallback;
-    }
-
-    String normalized = String(raw);
-    normalized.trim();
-    normalized.toLowerCase();
-    if (normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "y") {
-      return true;
-    }
-    if (normalized == "0" || normalized == "false" || normalized == "no" || normalized == "n") {
-      return false;
-    }
-  }
-
-  return fallback;
-}
-
 void handleFingerCommand(JsonObject cmd, bool isRegister) {
   unsigned long delayMs = DEFAULT_FINGER_DELAY_MS;
   if (cmd.containsKey("delaySeconds")) {
@@ -1508,15 +1327,18 @@ void handleFingerCommand(JsonObject cmd, bool isRegister) {
     extractString(cmd, "fingerDataFormat", "")
   );
 
-  pendingVerifyMode = "sensor_local_slot";
-  pendingAllowEnrollFallbackOnMiss = extractBoolValue(cmd, "allowEnrollFallbackOnMiss", false);
+  pendingVerifyMode = extractString(cmd, "verifyMode", "template_raw_db");
+  pendingVerifyMode.trim();
+  pendingVerifyMode.toLowerCase();
+  if (pendingVerifyMode != "template_raw_db") {
+    pendingVerifyMode = "template_raw_db";
+  }
 
   if (!isRegister) {
     pendingVerifyPin = extractPin(cmd);
     pendingVerifyDurationMs = parseDurationMs(cmd);
   } else {
-    pendingVerifyMode = "sensor_local_slot";
-    pendingAllowEnrollFallbackOnMiss = false;
+    pendingVerifyMode = "template_raw_db";
     pendingVerifyPin = -1;
     pendingVerifyDurationMs = DEFAULT_UNLOCK_MS;
   }
@@ -1535,8 +1357,7 @@ void handleFingerCommand(JsonObject cmd, bool isRegister) {
     Serial.print(pendingVerifyMode);
     Serial.print(" slot=");
     Serial.print(pendingFingerId);
-    Serial.print(" fallbackEnroll=");
-    Serial.println(pendingAllowEnrollFallbackOnMiss ? "true" : "false");
+    Serial.println(" fallbackEnroll=false");
   }
 }
 

@@ -31,6 +31,7 @@ export class ConflictDetectorHelper {
 
       const dateStr = date.toISOString().split('T')[0];
       const rowIndex = index + 1;
+      const currentSlotType = this.normalizeSlotType(row.slotType);
 
       const slotKey = `${row.roomId}_${dateStr}_${row.slotNumber}_${row.dayOfWeek || ''}`;
       if (seen.has(slotKey)) {
@@ -47,15 +48,15 @@ export class ConflictDetectorHelper {
       const roomDateKey = `${row.roomId}_${dateStr}`;
       const existingSlotType = roomDateSlotTypes.get(roomDateKey);
 
-      if (existingSlotType && existingSlotType.slotType !== row.slotType) {
+      if (existingSlotType && currentSlotType && existingSlotType.slotType !== currentSlotType) {
         errors.push({
           rowIndex,
           field: 'slotType',
           code: 'SLOT_TYPE_MISMATCH_IN_FILE',
           message: `Room on ${dateStr} already uses ${existingSlotType.slotType} (row ${existingSlotType.rowIndex}). Mixing slot types in the same day is not allowed`,
         });
-      } else if (!existingSlotType) {
-        roomDateSlotTypes.set(roomDateKey, { slotType: row.slotType, rowIndex });
+      } else if (!existingSlotType && currentSlotType) {
+        roomDateSlotTypes.set(roomDateKey, { slotType: currentSlotType, rowIndex });
       }
     });
 
@@ -75,6 +76,7 @@ export class ConflictDetectorHelper {
       const newDateDisplay = newDateStr.split('T')[0];
       const roomIdStr = newSch.roomId.toString();
       const lecturerIdStr = newSch.lecturerId.toString();
+      const newSlotType = this.normalizeSlotType(newSch.slotType);
 
       let hasSlotTypeMismatch = false;
       let hasRoomConflict = false;
@@ -91,12 +93,19 @@ export class ConflictDetectorHelper {
         const isSameSlot =
           existing.slotNumber === newSch.slotNumber && existing.dayOfWeek === newSch.dayOfWeek;
 
-        if (isSameRoom && existing.slotType !== newSch.slotType && !hasSlotTypeMismatch) {
+        const existingSlotType = this.normalizeSlotType(existing.slotType);
+        if (
+          isSameRoom &&
+          existingSlotType &&
+          newSlotType &&
+          existingSlotType !== newSlotType &&
+          !hasSlotTypeMismatch
+        ) {
           errors.push({
             rowIndex,
             field: 'slotType',
             code: 'SLOT_TYPE_MISMATCH',
-            message: `Room "${newSch.roomCode}" on ${newDateDisplay} already uses ${existing.slotType}. Mixing slot types is not allowed`,
+            message: `Room "${newSch.roomCode}" on ${newDateDisplay} already uses ${existingSlotType}. Mixing slot types is not allowed`,
           });
           hasSlotTypeMismatch = true;
         }
@@ -139,6 +148,14 @@ export class ConflictDetectorHelper {
     const utcDate = new Date(date);
     utcDate.setUTCHours(0, 0, 0, 0);
     return utcDate;
+  }
+
+  private static normalizeSlotType(value: unknown): 'OLDSLOT' | 'NEWSLOT' | null {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (normalized === 'OLDSLOT' || normalized === 'NEWSLOT') {
+      return normalized as 'OLDSLOT' | 'NEWSLOT';
+    }
+    return null;
   }
 
   private static parseDate(value: any): Date {

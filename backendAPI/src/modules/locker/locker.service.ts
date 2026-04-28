@@ -45,6 +45,7 @@ export class LockerService implements OnModuleInit {
   private readonly logger = new Logger(LockerService.name);
   private static readonly DEFAULT_UNLOCK_BEFORE_CLASS_MINUTES = 5;
   private static readonly DEFAULT_OVERDUE_RETURN_WARNING_MINUTES = 15;
+  private static readonly DEFAULT_TIMEZONE_OFFSET_MINUTES = 7 * 60; // Vietnam UTC+7
   private static readonly MAX_AS608_FINGER_SLOT = 200;
   // In-memory dedupe for resync requests to avoid flooding devices
   private lastResyncAt: Map<string, number> = new Map();
@@ -882,6 +883,10 @@ export class LockerService implements OnModuleInit {
     return hours * 60 + minutes;
   }
 
+  private getLocalTimezoneOffsetMinutes(): number {
+    return LockerService.DEFAULT_TIMEZONE_OFFSET_MINUTES;
+  }
+
   private buildUtcDateTime(dateValue: Date, timeValue: string): Date | null {
     const minutes = this.parseTimeToMinutes(timeValue);
     if (minutes < 0) {
@@ -895,7 +900,10 @@ export class LockerService implements OnModuleInit {
 
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
+    const offsetMinutes = this.getLocalTimezoneOffsetMinutes();
+    const offsetMs = offsetMinutes * 60 * 1000;
 
+    // Interpret timeValue as local time (UTC+7) and convert to UTC for comparisons.
     return new Date(
       Date.UTC(
         sourceDate.getUTCFullYear(),
@@ -905,7 +913,7 @@ export class LockerService implements OnModuleInit {
         mins,
         0,
         0,
-      ),
+      ) - offsetMs,
     );
   }
 

@@ -1049,8 +1049,10 @@ export class ScheduleService {
         dateStart,
         dayOfWeek,
         timeSlotId: resolvedSlot?._id,
-        slotType: resolvedSlot?.slotType,
-        slotNumber: resolvedSlot?.slotNumber,
+        slotType: resolvedSlot?.slotType || (normalizedSlotType || null),
+        slotNumber:
+          resolvedSlot?.slotNumber ??
+          (Number.isFinite(normalizedSlotNumber) ? normalizedSlotNumber : null),
         startTime: resolvedSlot?.startTime,
         endTime: resolvedSlot?.endTime,
         classCode: row.classcode || null,
