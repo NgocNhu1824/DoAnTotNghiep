@@ -122,14 +122,16 @@ const UserManagementPage: React.FC = () => {
     setCurrentPage(0);
   }, [debouncedSearch, roleFilter, campusFilter, statusFilter]);
 
-  // Fetch campuses - commented out as not used
-  // const fetchCampuses = async () => {
-  //   try {
-  //     const data = await campusService.getAll();
-  //   } catch (error: any) {
-  //     console.error('Error fetching campuses:', error);
-  //   }
-  // };
+  const fetchCampuses = async () => {
+    try {
+      const data = await campusService.getAll();
+      if (Array.isArray(data)) {
+        setCampuses(data);
+      }
+    } catch (error: any) {
+      console.error('Error fetching campuses:', error);
+    }
+  };
 
   const fetchRoles = async () => {
     try {
