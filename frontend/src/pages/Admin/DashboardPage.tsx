@@ -577,10 +577,19 @@ const DashboardPage: React.FC = () => {
       }));
   }, [rowsForDisplay]);
 
+  const buildingScopedRows = useMemo(() => {
+    return rowsForDisplay.filter((row) => {
+      const normalizedBuilding = normalizeBuildingValue(row.building);
+      if (buildingFilter === 'all') return true;
+      if (buildingFilter === UNKNOWN_BUILDING_FILTER) return !normalizedBuilding;
+      return normalizedBuilding === buildingFilter;
+    });
+  }, [rowsForDisplay, buildingFilter]);
+
   const roomTypeQuickFilters = useMemo(() => {
     const counts = new Map<string, number>();
 
-    rowsForDisplay.forEach((row) => {
+    buildingScopedRows.forEach((row) => {
       const normalizedRoomType = normalizeRoomTypeValue(row.roomType);
       const key = normalizedRoomType || UNKNOWN_ROOM_TYPE_FILTER;
       counts.set(key, (counts.get(key) || 0) + 1);
@@ -601,7 +610,7 @@ const DashboardPage: React.FC = () => {
         count,
         label: value === UNKNOWN_ROOM_TYPE_FILTER ? 'Unknown' : formatRoomTypeName(value),
       }));
-  }, [rowsForDisplay]);
+  }, [buildingScopedRows]);
 
   useEffect(() => {
     if (buildingFilter === 'all') {
@@ -628,19 +637,12 @@ const DashboardPage: React.FC = () => {
   const filteredRows = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
-    return rowsForDisplay.filter((row) => {
+    return buildingScopedRows.filter((row) => {
       const matchesUsageFilter =
         usageFilter === 'all' ||
         (usageFilter === 'in_use' && row.usageStatus === 'occupied') ||
         (usageFilter === 'vacant' && row.usageStatus === 'vacant') ||
         (usageFilter === 'no_state' && !row.usageStatus);
-
-      const normalizedBuilding = normalizeBuildingValue(row.building);
-      const matchesBuildingFilter =
-        buildingFilter === 'all' ||
-        (buildingFilter === UNKNOWN_BUILDING_FILTER
-          ? !normalizedBuilding
-          : normalizedBuilding === buildingFilter);
 
       const normalizedRoomType = normalizeRoomTypeValue(row.roomType);
       const matchesRoomTypeFilter =
@@ -649,7 +651,7 @@ const DashboardPage: React.FC = () => {
           ? !normalizedRoomType
           : normalizedRoomType === roomTypeFilter);
 
-      if (!matchesUsageFilter || !matchesBuildingFilter || !matchesRoomTypeFilter) {
+      if (!matchesUsageFilter || !matchesRoomTypeFilter) {
         return false;
       }
 
@@ -668,7 +670,7 @@ const DashboardPage: React.FC = () => {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalizedSearch));
     });
-  }, [rowsForDisplay, buildingFilter, roomTypeFilter, searchTerm, usageFilter]);
+  }, [buildingScopedRows, roomTypeFilter, searchTerm, usageFilter]);
 
   const roomGridPageCount = useMemo(() => {
     return Math.max(1, Math.ceil(filteredRows.length / ROOM_GRID_PAGE_SIZE));
@@ -688,15 +690,30 @@ const DashboardPage: React.FC = () => {
   }, [roomGridPageCount]);
 
   const stats = useMemo(() => {
-    const summary = dashboard?.summary || emptyDashboardData.summary;
+    if (buildingFilter === 'all') {
+      const summary = dashboard?.summary || emptyDashboardData.summary;
+
+      return [
+        { name: 'Total rooms', value: summary.totalRooms, icon: Building2, color: 'bg-blue-500' },
+        { name: 'In use', value: summary.roomsInUse, icon: Activity, color: 'bg-emerald-500' },
+        { name: 'Available now', value: summary.availableNow, icon: DoorOpen, color: 'bg-amber-500' },
+        { name: 'Maintenance', value: summary.maintenance, icon: Wrench, color: 'bg-rose-500' },
+      ];
+    }
+
+    const totalRooms = buildingScopedRows.length;
+    const roomsInUse = buildingScopedRows.filter(r => r.usageStatus === 'occupied').length;
+    const availableNow = buildingScopedRows.filter(r => r.usageStatus === 'vacant' || r.roomStatus === 'available').length;
+    const maintenance = buildingScopedRows.filter(r => r.roomStatus === 'maintain' || r.roomStatus === 'unavailable').length;
+    const buildingLabel = buildingFilter === UNKNOWN_BUILDING_FILTER ? ' (Unknown)' : ` (${buildingFilter})`;
 
     return [
-      { name: 'Total rooms', value: summary.totalRooms, icon: Building2, color: 'bg-blue-500' },
-      { name: 'In use', value: summary.roomsInUse, icon: Activity, color: 'bg-emerald-500' },
-      { name: 'Available now', value: summary.availableNow, icon: DoorOpen, color: 'bg-amber-500' },
-      { name: 'Maintenance', value: summary.maintenance, icon: Wrench, color: 'bg-rose-500' },
+      { name: `Total rooms${buildingLabel}`, value: totalRooms, icon: Building2, color: 'bg-blue-500' },
+      { name: `In use${buildingLabel}`, value: roomsInUse, icon: Activity, color: 'bg-emerald-500' },
+      { name: `Available now${buildingLabel}`, value: availableNow, icon: DoorOpen, color: 'bg-amber-500' },
+      { name: `Maintenance${buildingLabel}`, value: maintenance, icon: Wrench, color: 'bg-rose-500' },
     ];
-  }, [dashboard?.summary]);
+  }, [dashboard?.summary, buildingScopedRows, buildingFilter]);
 
   const campusScopeLabel =
     userScope === 'GLOBAL' ? 'All campuses' : user?.campusId?.campusName || 'Scoped campus';
@@ -840,7 +857,7 @@ const DashboardPage: React.FC = () => {
             }`}
             onClick={() => setRoomTypeFilter('all')}
           >
-            All types ({rowsForDisplay.length})
+            All types ({buildingScopedRows.length})
           </Button>
 
           {roomTypeQuickFilters.map((roomTypeOption) => (
