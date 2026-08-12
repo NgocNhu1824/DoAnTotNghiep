@@ -1,11 +1,33 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Campus } from '@/database/schemas/campus.schema';
 
 @Injectable()
-export class CampusService {
+export class CampusService implements OnModuleInit {
   constructor(@InjectModel(Campus.name) private campusModel: Model<Campus>) {}
+
+  async onModuleInit() {
+    await this.seedCampusesIfEmpty();
+  }
+
+  async seedCampusesIfEmpty() {
+    try {
+      const count = await this.campusModel.countDocuments();
+      if (count === 0) {
+        await this.campusModel.insertMany([
+          { campusCode: 'FUCT', campusName: 'FPT University Can Tho', address: 'Can Tho', isActive: true },
+          { campusCode: 'FU-HN', campusName: 'FPT University Ha Noi', address: 'Ha Noi', isActive: true },
+          { campusCode: 'FU-HCM', campusName: 'FPT University TP.HCM', address: 'TP.HCM', isActive: true },
+          { campusCode: 'FU-DN', campusName: 'FPT University Da Nang', address: 'Da Nang', isActive: true },
+          { campusCode: 'FU-QN', campusName: 'FPT University Quy Nhon', address: 'Quy Nhon', isActive: true },
+        ]);
+        console.log('🌱 Auto-seeded default campuses in CampusService');
+      }
+    } catch (err) {
+      console.error('Failed to seed default campuses:', err);
+    }
+  }
 
   /**
    * Get all active campuses
