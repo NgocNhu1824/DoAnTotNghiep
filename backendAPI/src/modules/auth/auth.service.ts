@@ -184,13 +184,27 @@ export class AuthService {
     }
 
     // 2. Find user by email (case-insensitive)
-    const user = await this.userModel
+    let user = await this.userModel
       .findOne({ email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') } })
       .populate('campusId', 'campusCode campusName address')
       .exec();
 
     if (!user) {
-      throw new UnauthorizedException('Email not found in system. Please contact administrator.');
+      let defaultRole = await this.roleModel.findOne({ roleCode: 'LECTURER' }).exec();
+      if (!defaultRole) {
+        defaultRole = await this.roleModel.findOne({ roleCode: 'SUPER_ADMIN' }).exec() || await this.roleModel.findOne().exec();
+      }
+
+      user = await this.userModel.create({
+        googleId,
+        email: normalizedEmail,
+        fullName: fullName || normalizedEmail.split('@')[0],
+        avatar: avatar || '',
+        campusId: campus._id,
+        roleId: defaultRole?._id,
+        isActive: true,
+      });
+      console.log(`🌱 Auto-created new Google user: ${normalizedEmail}`);
     }
 
     // 3. Check if user is active
