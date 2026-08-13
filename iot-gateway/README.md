@@ -1,20 +1,58 @@
-# IoT Gateway (ESP32 -> WebSocket)
+# 📡 IoT Gateway - Middleware kết nối ESP32 & Backend
 
-Gateway Node.js nhan du lieu tu ESP32 qua HTTP hoac Serial, parse JSON, xac thuc basic auth cho HTTP, dong bo vao backend API, va day event can thiet qua WebSocket.
+> **Bridge middleware Node.js kết nối thiết bị ESP32 (các tủ đồ IoT) với Backend API**
+>
+> Xử lý giao tiếp 2 chiều độ trễ thấp, quản lý trạng thái thiết bị, điều khiển Solenoid từ xa, và xác thực vân tay real-time
 
-## Features
+---
 
-- WebSocket persistent device connection (token + `deviceId`) and plain WS support for ArduinoWebsockets.
-- Socket.io realtime bridge (`/esp32` namespace) for low-latency commands and `sync_request`/`sync_snapshot` flows.
-- HTTP ingest endpoint: `POST /api/lockers/ingest` with Basic Auth fallback.
-- Serial ingest: auto-detect serial port and parse JSON lines from ESP32.
-- Command queueing and dispatch: `enqueueCommand`, `pullNextCommand` for polled devices and realtime `sendCommand` for connected devices.
-- Command ack handling and device-side rate-limit handling.
-- Sync snapshot flow: backend -> gateway -> ESP32 (`sync_request` / `sync_snapshot`) and gateway -> backend (`/esp32/sync/init`, `/esp32/sync/state`).
-- Heartbeat and state reporting forwarding to backend (`/esp32/heartbeat`, `/esp32/sync/state`).
-- Fingerprint enroll/verify events forwarding and access-log persistence (`/esp32/access-log`) with support for simulated admin flows.
-- Telemetry caching (device snapshots) and inferred device discovery from heartbeat/solenoids.
- - Telemetry caching (device snapshots) and inferred device discovery from heartbeat/solenoids.
+## ✨ Tính năng Chính (Key Features)
+
+### 🔌 1. Kết nối & Giao tiếp Đa phương thức (Multi-Protocol Connectivity)
+- **WebSocket Real-time**: Kết nối độ trễ thấp với Socket.io namespace `/esp32` cho ESP32 devices
+- **HTTP Ingest**: Endpoint `POST /api/lockers/ingest` cho thiết bị khác không hỗ trợ WebSocket
+- **Serial/COM Port**: Auto-detect serial port và parse JSON lines từ ESP32 qua UART (để debug/test local)
+- **Plain WS Bridge**: Hỗ trợ plain WebSocket (không phải Socket.io) cho các client nhúng khác
+
+### 🔐 2. Xác Thực & Bảo Mật (Authentication & Security)
+- **Token-based Auth**: Mỗi device cần gửi token (`ESP32_WS_TOKEN`) để kết nối WebSocket
+- **Basic Auth Fallback**: HTTP endpoint hỗ trợ Basic Auth nếu device không hỗ trợ JWT
+- **Device ID Mapping**: Mỗi device được identify bằng `deviceId` để backend theo dõi
+
+### ⚡ 3. Quản lý Lệnh & Hàng chờ (Command Queue & Dispatch)
+- **Real-time Command Send**: Gửi lệnh mở/khóa Solenoid ngay lập tức tới device đang kết nối
+- **Offline Command Queue**: Nếu device offline, queue lệnh và sync khi device reconnect
+- **Command Acknowledgement**: Đợi device confirm lệnh được thực hiện trước báo Backend
+- **Polled vs Real-time**: Hỗ trợ cả device polling (`pullNextCommand`) và push realtime
+
+### 📊 4. Giám sát Trạng thái & Heartbeat (Device Health Monitoring)
+- **Heartbeat Detection**: Liên tục nhận heartbeat từ ESP32 để confirm device còn sống
+- **Auto-offline Alert**: Tự động cảnh báo Backend khi device mất kết nối > timeout
+- **State Snapshot**: Ghi lại trạng thái device (solenoid opened/closed, battery level, etc.)
+- **Device Discovery**: Tự động phát hiện device mới từ heartbeat logs
+
+### 👆 5. Xác Thực Vân Tay (Fingerprint Biometrics Integration)
+- **Fingerprint Events**: Nhận sự kiện vân tay verify/enroll từ sensor AS608 trên ESP32
+- **Template Matching**: Tính toán match score và gửi Backend để kiểm tra database
+- **Access Log Recording**: Ghi nhật ký truy cập (timestamp, device_id, match_score, access_status)
+- **Real-time Notification**: Thông báo Backend ngay khi có vân tay matched để mở tủ
+
+---
+
+## 🛠️ Tech Stack
+
+| Công nghệ | Mục đích |
+|-----------|---------|
+| **Node.js & Express** | HTTP server & API endpoints |
+| **Socket.io** | Real-time WebSocket bridge với namespace |
+| **SerialPort** | UART communication với ESP32 (testing/debugging) |
+| **Axios** | HTTP client gọi Backend endpoints |
+| **Dotenv** | Quản lý environment variables |
+| **Winston/Pino** | Logging & monitoring |
+
+---
+
+## 📁 Cấu trúc Thư mục (Project Structure)
 
 ## 1) Cau truc thu muc
 
